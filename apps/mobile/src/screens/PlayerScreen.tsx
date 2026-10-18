@@ -6,13 +6,14 @@
  * 数据全部来自 src/player.ts（react-native-track-player + @lxmn/core），
  * 没有写死的示例歌词；歌词由内核 parseLrc 解析、二分跟随进度高亮。
  */
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { FlatList, Image, Pressable, Text, View } from 'react-native'
 import {
   ChevronDownIcon, MoreIcon, HeartIcon, CommentIcon, ShareIcon, ListIcon,
   LoopIcon, ShuffleIcon, SkipIcon, PlayIcon, PauseIcon,
 } from '../components/Icons'
 import { colors, topInset } from '../theme'
+import { library } from '../sync'
 import {
   currentItem, cycleQuality, next, prev, seek, toggle,
   useLyricLines, usePlayerState, useProgressState,
@@ -29,6 +30,14 @@ function fmt(t: number): string {
   return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0')
 }
 
+/** 判断当前曲目是否已收藏（曲库快照里按 source+songmid 比对） */
+function isFav(item: { source?: string; songmid?: unknown } | null): boolean {
+  if (!item) return false
+  return library.snapshot().favorites.some(
+    f => f.source === item.source && String(f.songmid) === String(item.songmid),
+  )
+}
+
 export default function PlayerScreen() {
   const st = usePlayerState()
   const { position, duration, playing } = useProgressState()
@@ -37,6 +46,15 @@ export default function PlayerScreen() {
   const listRef = useRef<FlatList>(null)
 
   const progress = duration > 0 ? Math.min(1, position / duration) : 0
+
+  // 爱心：真实写入曲库，并立即反映到图标实心/空心
+  const [fav, setFav] = useState(false)
+  useEffect(() => { setFav(isFav(item)) }, [item?.songmid, item?.source])
+  const onToggleFav = useCallback(async () => {
+    if (!item) return
+    await library.toggleFavorite(item)
+    setFav(isFav(item))
+  }, [item])
 
   // 当前行滚到中间：按固定行高估算，比 measure 更省事也更稳
   const LINE_H = 46
@@ -227,7 +245,9 @@ export default function PlayerScreen() {
 
       {/* 底部功能行 */}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingHorizontal: 32, paddingVertical: 20 }}>
-        <Pressable hitSlop={10}><HeartIcon size={22} /></Pressable>
+        <Pressable hitSlop={10} onPress={() => void onToggleFav()} accessibilityLabel={fav ? '取消收藏' : '收藏'}>
+            <HeartIcon size={22} filled={fav} color={fav ? colors.accent : undefined} />
+          </Pressable>
         <Pressable hitSlop={10}><CommentIcon size={22} /></Pressable>
         <Pressable hitSlop={10}><ShareIcon size={22} /></Pressable>
         <Pressable hitSlop={10}><ListIcon size={22} /></Pressable>

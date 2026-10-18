@@ -100,10 +100,30 @@ export function ShuffleIcon({ size = 18, color = '#9a9a9a' }: IconProps) {
   )
 }
 
-export function HeartIcon({ size = 20, color = '#9a9a9a' }: IconProps) {
+/**
+ * 爱心：filled=false 画空心（描边），true 画实心。
+ * 之前只有一个实心方块，无法表达「已收藏 / 未收藏」两种状态。
+ */
+export function HeartIcon({ size = 20, color = '#9a9a9a', filled = true }: IconProps & { filled?: boolean }) {
+  const shape = size * 0.62
+  const inner = shape - 4
   return (
     <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
-      <View style={{ width: size * 0.62, height: size * 0.62, borderRadius: size * 0.16, backgroundColor: color, transform: [{ rotate: '45deg' }] }} />
+      <View
+        style={{
+          width: shape,
+          height: shape,
+          borderRadius: size * 0.16,
+          borderWidth: filled ? 0 : 2,
+          borderColor: color,
+          backgroundColor: filled ? color : 'transparent',
+          transform: [{ rotate: '45deg' }],
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}
+      >
+        {!filled && inner > 0 ? <View style={{ width: inner, height: inner, backgroundColor: 'transparent' }} /> : null}
+      </View>
     </View>
   )
 }
