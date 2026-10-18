@@ -15,9 +15,11 @@ import { computed, ref, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { parseLyric, findLineIndex, type MusicItem } from '@lxmn/core'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { Button } from '@/components/ui/button'
 import { usePlayer } from '@/lib/player'
 import WindowControls from '@/components/layout/WindowControls.vue'
+import QualityMenu from '@/components/layout/QualityMenu.vue'
+import IconButton from '@/components/ui/IconButton.vue'
+import { ListMusic, Maximize2, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward } from 'lucide-vue-next'
 
 const router = useRouter()
 const player = usePlayer()
@@ -88,6 +90,14 @@ const QUALITY_LABEL: Record<string, string> = {
 }
 const qualityLabel = computed(() => QUALITY_LABEL[state.quality] ?? state.quality)
 
+/* 播放模式：图标随模式变，点一下切下一档 */
+const modeIcon = computed(() => {
+  if (state.mode === 'single') return Repeat1
+  if (state.mode === 'shuffle') return Shuffle
+  return Repeat
+})
+const modeLabel = computed(() => player.modeLabel())
+
 const progressPct = computed(() =>
   state.duration > 0 ? Math.min(100, (state.currentTime / state.duration) * 100) : 0)
 
@@ -148,14 +158,7 @@ function onVolume(e: Event): void {
   player.setVolume(Math.min(1, Math.max(0, v)))
 }
 
-/** 音质循环：只在已安装音源真正支持的那些里转 */
-function cycleQuality(): void {
-  const order = player.qualityOrder
-  if (!order.length) return
-  const at = order.indexOf(state.quality)
-  const next = order[(at + 1) % order.length]
-  if (next) void player.setQuality(next)
-}
+
 
 const vinylStyle = computed(() => ({
   background: 'repeating-radial-gradient(circle, #111 0, #111 2px, #181818 3px, #181818 4px)',
@@ -174,19 +177,18 @@ const vinylStyle = computed(() => ({
         </svg>
       </button>
 
-      <!-- 右上：播放器模式 + 窗口控制 -->
-      <div class="flex items-center gap-3 text-ncmd-muted">
-        <span class="size-[18px] rounded-full border-[1.5px] border-current" />
-        <span class="text-[18px]">播放器模式</span>
-        <span class="mx-1 h-4 w-px bg-ncmd-elevated" />
-        <button
-          type="button"
-          class="size-[18px] rounded-[3px] border-[1.5px] border-current [app-region:no-drag]"
-          aria-label="全屏"
-          @click="toggleFullscreen"
-        />
-        <!-- 与主界面共用同一组窗口按钮：这里原来是一套只会画图的假按钮 -->
-        <WindowControls tone="dark" class="ml-2" />
+      <!-- 右上：当前为播放器模式（只作状态标识），加全屏与窗口控制 -->
+      <div class="flex items-center gap-1 text-ncmd-muted">
+        <span class="mr-2 flex items-center gap-2 text-[15px]">
+          <span class="size-[16px] rounded-full border-[1.5px] border-current" aria-hidden="true" />
+          播放器模式
+        </span>
+        <span class="mr-1 h-4 w-px bg-ncmd-elevated" aria-hidden="true" />
+        <IconButton label="全屏" tone="dark" size="lg" @click="toggleFullscreen">
+          <template #default="{ size, stroke }"><Maximize2 :size="size" :stroke-width="stroke" aria-hidden="true" /></template>
+        </IconButton>
+        <!-- 与主界面共用同一组窗口按钮 -->
+        <WindowControls tone="dark" />
       </div>
     </div>
 
@@ -353,38 +355,35 @@ const vinylStyle = computed(() => ({
 
       <!-- 中央控制区：中心 x=960，按钮间距 29~34px -->
       <div class="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-[31px]">
-        <button type="button" class="text-ncmd-muted hover:text-ncmd-fg" aria-label="循环模式">
-          <svg viewBox="0 0 24 24" class="size-[22px] stroke-current" fill="none" stroke-width="1.8">
-            <path d="M17 2l4 4-4 4M7 22l-4-4 4-4M21 6H7a4 4 0 0 0-4 4M3 18h14a4 4 0 0 0 4-4" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-        </button>
-        <button type="button" class="text-ncmd-fg/80 hover:text-ncmd-fg disabled:opacity-40" aria-label="上一首" :disabled="!state.queue.length" @click="player.prev()">
-          <svg viewBox="0 0 24 24" class="size-[26px] fill-current"><path d="M6 5h2v14H6zM20 5v14L9 12z" /></svg>
-        </button>
-        <!-- 播放按钮（shadcn-vue Button）52x52 圆形 -->
-        <Button
-          variant="secondary"
-          class="size-[52px] rounded-full bg-ncmd-surface p-0 text-white hover:bg-ncmd-elevated"
+        <IconButton :label="modeLabel" tone="dark" size="lg" @click="player.cycleMode()">
+          <template #default="{ size, stroke }">
+            <component :is="modeIcon" :size="size" :stroke-width="stroke" aria-hidden="true" />
+          </template>
+        </IconButton>
+        <IconButton label="上一首" tone="dark" size="lg" :disabled="!state.queue.length" @click="player.prev()">
+          <template #default="{ size, stroke }"><SkipBack :size="size" :stroke-width="stroke" aria-hidden="true" /></template>
+        </IconButton>
+        <button
+          type="button"
+          class="mx-1 flex size-[52px] shrink-0 items-center justify-center rounded-full bg-ncmd-surface text-white transition-colors hover:bg-ncmd-elevated disabled:cursor-not-allowed disabled:opacity-40"
           :aria-label="state.playing ? '暂停' : '播放'"
           :disabled="state.loading || !current"
           @click="player.toggle()"
         >
-          <svg v-if="state.playing" viewBox="0 0 24 24" class="size-6 fill-current"><path d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>
-          <svg v-else viewBox="0 0 24 24" class="size-6 fill-current"><path d="M8 5v14l11-7z" /></svg>
-        </Button>
-        <button type="button" class="text-ncmd-fg/80 hover:text-ncmd-fg disabled:opacity-40" aria-label="下一首" :disabled="!state.queue.length" @click="player.next()">
-          <svg viewBox="0 0 24 24" class="size-[26px] fill-current"><path d="M16 5h2v14h-2zM4 5v14l11-7z" /></svg>
+          <Pause v-if="state.playing" :size="24" :stroke-width="0" fill="currentColor" aria-hidden="true" />
+          <Play v-else :size="24" :stroke-width="0" fill="currentColor" class="translate-x-[1px]" aria-hidden="true" />
         </button>
-        <button type="button" class="text-ncmd-muted hover:text-ncmd-fg" aria-label="播放列表">
-          <svg viewBox="0 0 24 24" class="size-[22px] stroke-current" fill="none" stroke-width="1.8">
-            <path d="M4 6h11M4 12h11M4 18h7M19 10v8M19 18a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z" stroke-linecap="round" />
-          </svg>
-        </button>
+        <IconButton label="下一首" tone="dark" size="lg" :disabled="!state.queue.length" @click="player.next()">
+          <template #default="{ size, stroke }"><SkipForward :size="size" :stroke-width="stroke" aria-hidden="true" /></template>
+        </IconButton>
+        <IconButton label="播放列表" tone="dark" size="lg">
+          <template #default="{ size, stroke }"><ListMusic :size="size" :stroke-width="stroke" aria-hidden="true" /></template>
+        </IconButton>
       </div>
 
       <!-- 右：音质 / 词 / 音量 / 更多，从 x≈1642 起 -->
       <div class="absolute right-[49px] top-1/2 flex -translate-y-1/2 items-center gap-[29px] text-ncmd-muted">
-        <button type="button" class="text-[14px] hover:text-ncmd-fg" :title="'当前音质：' + qualityLabel" @click="cycleQuality">{{ qualityLabel }}</button>
+        <QualityMenu tone="dark" />
         <button type="button" class="text-[15px] hover:text-ncmd-fg" @click="activeTab = 'lyric'">词</button>
         <div class="flex items-center gap-2">
           <svg viewBox="0 0 24 24" class="size-[19px] stroke-current" fill="none" stroke-width="1.8">

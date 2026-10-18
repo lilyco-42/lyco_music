@@ -18,17 +18,28 @@ function search() {
 
 <template>
   <header class="flex min-w-0 items-center gap-3 border-b border-ncm-divider bg-ncm-topbar px-7 [app-region:drag]">
-    <button type="button" class="flex size-10 shrink-0 items-center justify-center rounded-xl border border-ncm-divider text-ncm-faint hover:bg-white [app-region:no-drag]" aria-label="返回上一页" @click="router.back()">
-      <ChevronLeft :size="20" aria-hidden="true" />
+    <button
+      type="button"
+      class="flex size-10 shrink-0 items-center justify-center rounded-xl border border-ncm-divider text-ncm-faint transition-colors hover:bg-white hover:text-ncm-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ncm-accent [app-region:no-drag]"
+      aria-label="返回上一页"
+      @click="router.back()"
+    >
+      <ChevronLeft :size="20" :stroke-width="1.8" aria-hidden="true" />
     </button>
 
     <div class="flex h-11 min-w-[160px] max-w-[430px] flex-1 items-center gap-3 rounded-xl border border-ncm-divider bg-white px-4 focus-within:border-ncm-accent [app-region:no-drag]">
-      <Search :size="20" class="shrink-0 text-ncm-faint" aria-hidden="true" />
+      <Search :size="18" :stroke-width="1.8" class="shrink-0 text-ncm-faint" aria-hidden="true" />
       <input v-model="keyword" type="search" placeholder="搜索歌曲、歌手" class="w-full min-w-0 bg-transparent text-[15px] text-ncm-fg outline-none placeholder:text-ncm-fainter" @keyup.enter="search" />
     </div>
 
-    <button type="button" disabled title="语音搜索暂未开放" class="flex size-10 shrink-0 cursor-not-allowed items-center justify-center rounded-xl border border-ncm-divider text-ncm-faint opacity-55 [app-region:no-drag]" aria-label="语音搜索暂未开放">
-      <Mic :size="19" aria-hidden="true" />
+    <button
+      type="button"
+      disabled
+      title="语音搜索暂未开放"
+      class="flex size-10 shrink-0 cursor-not-allowed items-center justify-center rounded-xl border border-ncm-divider text-ncm-faint opacity-55 [app-region:no-drag]"
+      aria-label="语音搜索暂未开放"
+    >
+      <Mic :size="20" :stroke-width="1.8" aria-hidden="true" />
     </button>
 
     <div class="min-w-0 flex-1" />
@@ -42,12 +53,12 @@ function search() {
           class="size-full object-cover"
           referrerpolicy="no-referrer"
         />
-        <UserRound v-else-if="account.signedIn.value" :size="20" aria-hidden="true" />
-        <LogIn v-else :size="20" aria-hidden="true" />
+        <UserRound v-else-if="account.signedIn.value" :size="20" :stroke-width="1.8" aria-hidden="true" />
+        <LogIn v-else :size="20" :stroke-width="1.8" aria-hidden="true" />
       </span>
       <span class="max-w-[160px] truncate text-sm font-medium">{{ account.profile.value?.username || '登录 / 注册' }}</span>
       <span v-if="account.vip.value" class="flex items-center gap-1 rounded-full border border-ncm-accent px-2 py-0.5 text-xs text-ncm-accent">
-        <Crown :size="13" aria-hidden="true" /> VIP
+        <Crown :size="14" :stroke-width="1.8" aria-hidden="true" /> VIP
       </span>
     </button>
 

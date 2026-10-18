@@ -53,6 +53,22 @@
   --radius-tab: 21px;
   --radius-pill: 24px;
 
+  /*
+   * 图标与控件规格（对齐网易云 / betterNCM 的观感）：
+   * 原来各处写死 16/18/19/20/22/26 混着用，同一排图标大小不一。
+   * 这里定成 4 档，所有图标只从这里取。
+   */
+  --icon-sm: 16px;   /* 行内元信息、小标签 */
+  --icon-md: 18px;   /* 侧栏导航、列表操作 */
+  --icon-lg: 20px;   /* 顶栏、页签 */
+  --icon-xl: 22px;   /* 次级播放控制（循环、列表） */
+  --icon-2xl: 26px;  /* 上一首/下一首 */
+  --icon-stroke: 1.8;
+
+  /* 图标按钮命中区：视觉小、可点区域够大，避免 22px 图标配 22px 热区 */
+  --control-hit: 36px;
+  --control-hit-lg: 44px;
+
   --font-sans: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', Arial, sans-serif;
 }
 

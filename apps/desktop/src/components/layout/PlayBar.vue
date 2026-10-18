@@ -7,9 +7,11 @@
  */
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { ListMusic, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward } from 'lucide-vue-next'
 import { parseLyric, findLineIndex } from '@lxmn/core'
-import { Button } from '@/components/ui/button'
 import { usePlayer } from '@/lib/player'
+import IconButton from '@/components/ui/IconButton.vue'
+import QualityMenu from '@/components/layout/QualityMenu.vue'
 
 const router = useRouter()
 const player = usePlayer()
@@ -59,18 +61,14 @@ function fmtTime(sec: number): string {
 const timeText = computed(() =>
   track.value ? `${fmtTime(player.state.currentTime)} / ${fmtTime(player.state.duration)}` : '')
 
-/** 音质循环切换：点一下换下一档 */
-const QUALITIES = ['128k', '320k', 'flac', 'flac24bit', 'hires', 'atmos', 'master'] as const
-const qualityLabel = computed(() => ({
-  '128k': '标准', '320k': '极高', flac: '无损', flac24bit: 'Hi-Res', hires: 'Hi-Res',
-  atmos: '沉浸环绕', master: '超清母带',
-}[player.state.quality] ?? player.state.quality))
-
-function cycleQuality(): void {
-  const at = QUALITIES.indexOf(player.state.quality)
-  const nextQ = QUALITIES[(at + 1) % QUALITIES.length]!
-  void player.setQuality(nextQ)
-}
+/** 播放模式：循环图标随模式变化，点一下切下一档 */
+const modeIcon = computed(() => {
+  if (player.state.mode === 'single') return Repeat1
+  if (player.state.mode === 'shuffle') return Shuffle
+  return Repeat
+})
+const modeLabel = computed(() => player.modeLabel())
+function cycleMode(): void { player.cycleMode() }
 
 /** 播放失败时把原因显示出来（版权/VIP 等），而不是静默什么都不发生 */
 const error = computed(() => player.state.error)
@@ -112,49 +110,42 @@ const error = computed(() => player.state.error)
 
     </div>
 
-    <!-- 中央控制区 -->
-    <div class="flex flex-1 items-center justify-center gap-[31px]">
-      <!-- 循环模式 -->
-      <button type="button" class="text-ncm-faint hover:text-ncm-fg" aria-label="循环模式">
-        <svg viewBox="0 0 24 24" class="size-[22px] stroke-current" fill="none" stroke-width="1.8">
-          <path d="M17 2l4 4-4 4M7 22l-4-4 4-4M21 6H7a4 4 0 0 0-4 4M3 18h14a4 4 0 0 0 4-4" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-      </button>
+    <!-- 中央控制区：图标全部走 IconButton，尺寸按 token 取 -->
+    <div class="flex flex-1 items-center justify-center gap-2">
+      <IconButton :label="modeLabel" size="lg" :class="player.state.mode === 'order' ? '' : 'text-ncm-accent'" @click="cycleMode">
+        <template #default="{ size, stroke }">
+          <component :is="modeIcon" :size="size" :stroke-width="stroke" aria-hidden="true" />
+        </template>
+      </IconButton>
 
-      <!-- 上一首 -->
-      <button type="button" class="text-ncm-fg/80 hover:text-ncm-fg" aria-label="上一首" @click="player.prev()">
-        <svg viewBox="0 0 24 24" class="size-[26px] fill-current"><path d="M6 5h2v14H6zM20 5v14L9 12z" /></svg>
-      </button>
+      <IconButton label="上一首" size="2xl" :disabled="!player.state.queue.length" @click="player.prev()">
+        <template #default="{ size, stroke }"><SkipBack :size="size" :stroke-width="stroke" aria-hidden="true" /></template>
+      </IconButton>
 
-      <!-- 播放/暂停（shadcn-vue Button）：52x52 圆形 -->
-      <Button
-        variant="default"
-        class="size-[52px] rounded-full p-0 transition-transform hover:scale-105"
+      <!-- 播放/暂停：40px 圆形主按钮（网易云底栏就是这个量级） -->
+      <button
+        type="button"
+        class="mx-1 flex size-[40px] shrink-0 items-center justify-center rounded-full bg-ncm-accent-play text-white transition-transform hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40"
         :aria-label="playing ? '暂停' : '播放'"
         :disabled="!track"
         @click="player.toggle()"
       >
-        <svg v-if="playing" viewBox="0 0 24 24" class="size-6 fill-current"><path d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>
-        <svg v-else viewBox="0 0 24 24" class="size-6 fill-current"><path d="M8 5v14l11-7z" /></svg>
-      </Button>
-
-      <!-- 下一首 -->
-      <button type="button" class="text-ncm-fg/80 hover:text-ncm-fg" aria-label="下一首" @click="player.next()">
-        <svg viewBox="0 0 24 24" class="size-[26px] fill-current"><path d="M16 5h2v14h-2zM4 5v14l11-7z" /></svg>
+        <Pause v-if="playing" :size="20" :stroke-width="0" fill="currentColor" aria-hidden="true" />
+        <Play v-else :size="20" :stroke-width="0" fill="currentColor" class="translate-x-[1px]" aria-hidden="true" />
       </button>
 
-      <!-- 播放列表 -->
-      <button type="button" class="text-ncm-faint hover:text-ncm-fg" aria-label="播放列表">
-        <svg viewBox="0 0 24 24" class="size-[22px] stroke-current" fill="none" stroke-width="1.8">
-          <path d="M4 6h11M4 12h11M4 18h7M19 10v8M19 18a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z" stroke-linecap="round" />
-        </svg>
-      </button>
+      <IconButton label="下一首" size="2xl" :disabled="!player.state.queue.length" @click="player.next()">
+        <template #default="{ size, stroke }"><SkipForward :size="size" :stroke-width="stroke" aria-hidden="true" /></template>
+      </IconButton>
+
+      <IconButton label="播放列表" size="xl">
+        <template #default="{ size, stroke }"><ListMusic :size="size" :stroke-width="stroke" aria-hidden="true" /></template>
+      </IconButton>
     </div>
 
     <!-- 右侧工具区：从 x≈1642 起 -->
     <div class="flex w-[430px] shrink-0 items-center justify-end gap-[29px] pr-[49px] text-ncm-faint">
-      <span class="text-[14px] text-ncm-fg/70">{{ qualityLabel }}</span>
-      <button type="button" class="text-[15px] hover:text-ncm-fg" aria-label="切换音质" @click="cycleQuality">+</button>
+      <QualityMenu />
       <button
         type="button"
         class="text-[15px] [app-region:no-drag]"
@@ -166,7 +157,7 @@ const error = computed(() => player.state.error)
 
       <!-- 音量 -->
       <div class="flex items-center gap-2">
-        <svg viewBox="0 0 24 24" class="size-[19px] stroke-current" fill="none" stroke-width="1.8">
+        <svg viewBox="0 0 24 24" class="size-5 stroke-current" fill="none" stroke-width="1.8" aria-hidden="true">
           <path d="M4 9v6h3l4 3V6L7 9H4ZM16 9a4 4 0 0 1 0 6" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
         <input v-model="volume" type="range" min="0" max="100" class="h-1 w-[70px] accent-ncm-accent-play" />

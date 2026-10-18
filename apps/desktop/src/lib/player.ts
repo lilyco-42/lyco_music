@@ -20,6 +20,9 @@ import {
 import { library } from './sync'
 import { resolveWithFallback } from './fallback'
 
+/** 播放模式：顺序 / 列表循环 / 单曲循环 / 随机 */
+export type PlayMode = 'order' | 'loop' | 'single' | 'shuffle'
+
 export interface PlayerState {
   /** 当前播放列表 */
   queue: MusicItem[]
@@ -40,6 +43,8 @@ export interface PlayerState {
   url: string
   /** 实际在播的曲目：串源后可能与队列里的那条不同 */
   playingItem: MusicItem | null
+  /** 播放模式（点底栏那个循环图标切换，以前它点了没反应就是缺这个） */
+  mode: PlayMode
 }
 
 const state = reactive<PlayerState>({
@@ -57,6 +62,7 @@ const state = reactive<PlayerState>({
   picUrl: '',
   url: '',
   playingItem: null,
+  mode: 'loop',
 })
 
 /** 播放地址的获取方式由组件注入（内核不认识 <audio>） */
@@ -205,8 +211,42 @@ export function usePlayer() {
     await Promise.all([resolveAndPlay(item), loadLyric(item), loadPic(item)])
   }
 
-  async function next(): Promise<void> {
+  /**
+   * 播下一首。
+   *
+   * auto=true 表示是「一首放完了自动进下一首」，这时要遵守播放模式：
+   * 单曲循环重放当前、随机抽一首、顺序播到末尾就停。
+   */
+  async function next(auto = false): Promise<void> {
     if (!state.queue.length) return
+
+    if (auto && state.mode === 'single') {
+      const item = state.queue[state.index]
+      if (item) {
+        // 重取一次流再播：某些 CDN 地址带时效，直接 seek(0) 可能已经过期
+        seek(0)
+        if (state.url) { state.playing = true; return }
+        await play(item)
+      }
+      return
+    }
+
+    if (state.mode === 'shuffle' && state.queue.length > 1) {
+      let n = state.index
+      while (n === state.index) n = Math.floor(Math.random() * state.queue.length)
+      state.index = n
+      const picked = state.queue[state.index]
+      if (picked) await play(picked)
+      return
+    }
+
+    const atEnd = state.index >= state.queue.length - 1
+    if (auto && state.mode === 'order' && atEnd) {
+      // 顺序播放：播完最后一首就停，不要偷偷回到第一首
+      state.playing = false
+      return
+    }
+
     state.index = (state.index + 1) % state.queue.length
     const item = state.queue[state.index]
     if (item) await play(item)
@@ -217,6 +257,25 @@ export function usePlayer() {
     state.index = (state.index - 1 + state.queue.length) % state.queue.length
     const item = state.queue[state.index]
     if (item) await play(item)
+  }
+
+  /** 播放模式循环切换：顺序 -> 列表循环 -> 单曲循环 -> 随机 */
+  const MODE_ORDER: PlayMode[] = ['order', 'loop', 'single', 'shuffle']
+  const MODE_LABEL: Record<PlayMode, string> = {
+    order: '顺序播放',
+    loop: '列表循环',
+    single: '单曲循环',
+    shuffle: '随机播放',
+  }
+
+  function cycleMode(): PlayMode {
+    const at = MODE_ORDER.indexOf(state.mode)
+    state.mode = MODE_ORDER[(at + 1) % MODE_ORDER.length] ?? 'loop'
+    return state.mode
+  }
+
+  function modeLabel(): string {
+    return MODE_LABEL[state.mode]
   }
 
   /**
@@ -258,6 +317,7 @@ export function usePlayer() {
     availableSources,
     qualityOrder,
     search, play, next, prev, toggle, seek, setQuality,
+    cycleMode, modeLabel, MODE_LABEL,
     /** 组件回灌：<audio> 的进度/时长 */
     reportTime: (t: number) => { state.currentTime = t },
     reportDuration: (d: number) => { state.duration = d },

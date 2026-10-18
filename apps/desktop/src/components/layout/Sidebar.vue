@@ -42,21 +42,21 @@ function selected(item: { route?: string; query?: string }) {
   if (item.route && route.path === item.route) return true
   return !!item.query && route.name === 'search' && route.query.q === item.query
 }
-const rowClass = 'mx-4 flex h-11 w-[calc(100%-2rem)] shrink-0 items-center gap-3 rounded-xl px-4 text-left text-[15px] transition-colors'
+const rowClass = 'mx-4 flex h-11 w-[calc(100%-2rem)] shrink-0 items-center gap-3 rounded-xl px-4 text-left text-[15px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ncm-accent'
 </script>
 
 <template>
   <aside class="flex h-full flex-col overflow-y-auto border-r border-ncm-divider bg-ncm-sidebar">
     <div class="flex items-center gap-3 px-6 pb-5 pt-7">
       <span class="flex size-10 items-center justify-center rounded-full bg-ncm-accent text-white">
-        <Disc3 :size="26" :stroke-width="2" />
+        <Disc3 :size="24" :stroke-width="1.8" />
       </span>
       <span class="text-[22px] font-semibold tracking-tight text-ncm-fg">Lyco Music</span>
     </div>
 
     <nav aria-label="发现音乐" class="flex flex-col gap-0.5">
       <button v-for="item in navMain" :key="item.key" type="button" :class="[rowClass, selected(item) ? 'bg-ncm-accent-nav font-semibold text-white' : 'text-ncm-muted hover:bg-black/5']" @click="go(item)">
-        <component :is="item.icon" :size="19" :stroke-width="2" class="shrink-0" aria-hidden="true" />
+        <component :is="item.icon" :size="20" :stroke-width="1.8" class="shrink-0" aria-hidden="true" />
         <span>{{ item.label }}</span>
       </button>
     </nav>
@@ -65,7 +65,7 @@ const rowClass = 'mx-4 flex h-11 w-[calc(100%-2rem)] shrink-0 items-center gap-3
 
     <nav aria-label="账户与服务" class="flex flex-col gap-0.5">
       <button v-for="item in navServices" :key="item.key" type="button" :class="[rowClass, selected(item) ? 'bg-ncm-accent-nav font-semibold text-white' : 'text-ncm-muted hover:bg-black/5']" @click="go(item)">
-        <component :is="item.icon" :size="19" :stroke-width="2" class="shrink-0" aria-hidden="true" />
+        <component :is="item.icon" :size="20" :stroke-width="1.8" class="shrink-0" aria-hidden="true" />
         <span>{{ item.label }}</span>
       </button>
     </nav>
@@ -76,20 +76,20 @@ const rowClass = 'mx-4 flex h-11 w-[calc(100%-2rem)] shrink-0 items-center gap-3
               :title="!item.route ? '下载管理界面正在开发中' : undefined"
               :class="[rowClass, selected(item) ? 'bg-ncm-accent-nav text-white' : 'text-ncm-muted hover:bg-black/5', !item.route ? 'cursor-not-allowed opacity-50' : '']"
               @click="go(item)">
-        <component :is="item.icon" :size="19" :stroke-width="2" class="shrink-0" aria-hidden="true" />
+        <component :is="item.icon" :size="20" :stroke-width="1.8" class="shrink-0" aria-hidden="true" />
         <span>{{ item.label }}</span>
       </button>
     </nav>
 
     <div class="mb-2 mt-5 flex items-center gap-2 px-7 text-xs text-ncm-fainter">
-      <ListMusic :size="16" aria-hidden="true" />
+      <ListMusic :size="16" :stroke-width="1.8" aria-hidden="true" />
       <span>本机歌单（{{ playlists.length }}）</span>
     </div>
     <p v-if="!playlists.length" class="px-7 pb-6 text-xs text-ncm-fainter">还没有创建歌单</p>
     <button v-for="pl in playlists" :key="pl.id" type="button"
             class="mx-4 flex min-h-11 items-center gap-3 rounded-lg px-4 text-left text-sm text-ncm-muted hover:bg-black/5"
             @click="router.push('/my')">
-      <ListMusic :size="17" class="shrink-0" aria-hidden="true" />
+      <ListMusic :size="16" :stroke-width="1.8" class="shrink-0" aria-hidden="true" />
       <span class="truncate">{{ pl.name }}</span>
     </button>
   </aside>

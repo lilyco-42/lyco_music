@@ -52,7 +52,8 @@ function onMeta(): void {
   if (el.value && Number.isFinite(el.value.duration)) player.reportDuration(el.value.duration)
 }
 function onEnded(): void {
-  void player.next()
+  // 自动进下一首要遵守播放模式（单曲循环/随机/顺序），所以传 auto=true
+  void player.next(true)
 }
 function onError(): void {
   // 只有真的设置了 src 才报错，否则页面加载完就会误报
