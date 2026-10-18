@@ -13,10 +13,11 @@ import {
   signOut as signOutAccount, VERIFICATION_URI,
 } from '../account'
 import type { AccountProfile, DeviceCode } from '../account'
-import { colors, topInset } from '../theme'
+import { ACCENT_PRESETS, colors, getAccent, setAccent, topInset } from '../theme'
 
 export default function AccountScreen() {
   const [me, setMe] = useState<AccountProfile | null>(null)
+  const [accent, setAccentState] = useState(getAccent())
   const [device, setDevice] = useState<DeviceCode | null>(null)
   const [secondsLeft, setSecondsLeft] = useState(0)
   const [busy, setBusy] = useState(false)

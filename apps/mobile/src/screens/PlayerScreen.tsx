@@ -7,7 +7,7 @@
  * 没有写死的示例歌词；歌词由内核 parseLrc 解析、二分跟随进度高亮。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { FlatList, Image, Pressable, Text, View } from 'react-native'
+import { ActivityIndicator, FlatList, Image, Modal, Pressable, ScrollView, Share, Text, View } from 'react-native'
 import {
   ChevronDownIcon, MoreIcon, HeartIcon, CommentIcon, ShareIcon, ListIcon,
   LoopIcon, ShuffleIcon, SkipIcon, PlayIcon, PauseIcon,
@@ -15,9 +15,10 @@ import {
 import { colors, topInset } from '../theme'
 import { library } from '../sync'
 import {
-  currentItem, cycleQuality, next, prev, seek, toggle,
+  currentItem, cycleMode, cycleQuality, modeLabel, next, play, prev, seek, toggle,
   useLyricLines, usePlayerState, useProgressState,
 } from '../player'
+import { getSource, hasSource, type MusicComment } from '@lxmn/core'
 
 // GPT 生成的默认封面占位图（Metro 只打包静态 require 的资源）
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -54,6 +55,52 @@ export default function PlayerScreen() {
     if (!item) return
     await library.toggleFavorite(item)
     setFav(isFav(item))
+  }, [item])
+
+  /* ---------------- 歌词 / 评论 切换 ---------------- */
+
+  const [pane, setPane] = useState<'lyric' | 'comment'>('lyric')
+  const [comments, setComments] = useState<MusicComment[]>([])
+  const [commentTotal, setCommentTotal] = useState(0)
+  const [commentPage, setCommentPage] = useState(1)
+  const [commentLoading, setCommentLoading] = useState(false)
+  const [commentError, setCommentError] = useState('')
+  const [commentMore, setCommentMore] = useState(false)
+  const [queueOpen, setQueueOpen] = useState(false)
+
+  /** 只有实现了 getComments 的音源才有评论（当前是网易云） */
+  const canComment = !!item && hasSource(item.source) && Boolean(getSource(item.source).getComments)
+
+  const loadComments = useCallback(async (reset: boolean) => {
+    if (!item) return
+    if (!hasSource(item.source) || !getSource(item.source).getComments) return
+    const page = reset ? 1 : commentPage
+    setCommentLoading(true)
+    setCommentError('')
+    try {
+      const res = await getSource(item.source).getComments!(item, page, 20)
+      setComments(prev => (reset ? res.list : [...prev, ...res.list]))
+      setCommentTotal(res.total)
+      setCommentMore(res.more)
+      setCommentPage(page + 1)
+    } catch (e) {
+      setCommentError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setCommentLoading(false)
+    }
+  }, [item, commentPage])
+
+  // 切歌或切到评论面板时按需加载
+  useEffect(() => {
+    if (pane !== 'comment') return
+    setComments([])
+    setCommentPage(1)
+    void loadComments(true)
+  }, [pane, item?.songmid, item?.source])
+
+  const onShare = useCallback(() => {
+    if (!item) return
+    void Share.share({ message: item.name + ' - ' + item.singer + '（Lyco Music）' })
   }, [item])
 
   // 当前行滚到中间：按固定行高估算，比 measure 更省事也更稳
@@ -147,9 +194,60 @@ export default function PlayerScreen() {
         </View>
       )}
 
-      {/* 歌词：自下而上，点行可跳转 */}
+      {/* 歌词 / 评论：点底部评论图标切换 */}
       <View style={{ flex: 1, marginTop: 14 }}>
-        {lines.length ? (
+        {pane === 'comment' ? (
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 24, paddingBottom: 6 }}>
+              <Text style={{ color: colors.fg, fontSize: 14 }}>评论</Text>
+              {commentTotal > 0 ? <Text style={{ color: colors.fainter, fontSize: 12 }}>{commentTotal}</Text> : null}
+              {!canComment ? <Text style={{ color: colors.fainter, fontSize: 12 }}>当前音源不提供评论</Text> : null}
+            </View>
+            {commentLoading && !comments.length ? (
+              <View style={{ paddingTop: 30, alignItems: 'center' }}><ActivityIndicator color={colors.accent} /></View>
+            ) : commentError ? (
+              <Text style={{ color: colors.accent, paddingHorizontal: 24, fontSize: 13 }}>{commentError}</Text>
+            ) : !comments.length ? (
+              <Text style={{ color: colors.fainter, paddingHorizontal: 24, fontSize: 13 }}>还没有评论</Text>
+            ) : (
+              <FlatList
+                data={comments}
+                keyExtractor={(x, i) => x.id + '-' + i}
+                contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 12 }}
+                renderItem={({ item: cm }) => (
+                  <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
+                    {cm.avatar ? (
+                      <Image source={{ uri: cm.avatar }} style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.elevated }} />
+                    ) : (
+                      <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.elevated }} />
+                    )}
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12, flexShrink: 1 }}>{cm.userName || '匿名用户'}</Text>
+                        {cm.hot ? (
+                          <Text style={{ color: colors.accent, fontSize: 10, borderWidth: 1, borderColor: colors.accent, borderRadius: 3, paddingHorizontal: 3 }}>热评</Text>
+                        ) : null}
+                      </View>
+                      <Text style={{ color: colors.fg, fontSize: 14, lineHeight: 20, marginTop: 4 }}>{cm.content}</Text>
+                      <Text style={{ color: colors.fainter, fontSize: 11, marginTop: 4 }}>赞 {cm.likedCount}</Text>
+                    </View>
+                  </View>
+                )}
+                ListFooterComponent={
+                  commentMore ? (
+                    <Pressable
+                      onPress={() => void loadComments(false)}
+                      disabled={commentLoading}
+                      style={{ borderWidth: 1, borderColor: colors.divider, borderRadius: 8, paddingVertical: 8, alignItems: 'center', marginBottom: 12 }}
+                    >
+                      <Text style={{ color: colors.muted, fontSize: 13 }}>{commentLoading ? '加载中…' : '查看更多评论'}</Text>
+                    </Pressable>
+                  ) : null
+                }
+              />
+            )}
+          </View>
+        ) : lines.length ? (
           <FlatList
             ref={listRef}
             data={lines}
@@ -238,8 +336,15 @@ export default function PlayerScreen() {
         <Pressable hitSlop={10} onPress={() => void next()} disabled={!st.queue.length}>
           <SkipIcon size={24} direction="next" />
         </Pressable>
-        <Pressable hitSlop={10}>
-          <LoopIcon size={20} />
+        <Pressable
+          hitSlop={10}
+          onPress={() => cycleMode()}
+          accessibilityLabel={modeLabel()}
+          style={{ alignItems: 'center' }}
+        >
+          {st.mode === 'shuffle'
+            ? <ShuffleIcon size={20} />
+            : <LoopIcon size={20} single={st.mode === 'single'} color={st.mode === 'order' ? undefined : colors.accent} />}
         </Pressable>
       </View>
 
@@ -248,10 +353,49 @@ export default function PlayerScreen() {
         <Pressable hitSlop={10} onPress={() => void onToggleFav()} accessibilityLabel={fav ? '取消收藏' : '收藏'}>
             <HeartIcon size={22} filled={fav} color={fav ? colors.accent : undefined} />
           </Pressable>
-        <Pressable hitSlop={10}><CommentIcon size={22} /></Pressable>
-        <Pressable hitSlop={10}><ShareIcon size={22} /></Pressable>
-        <Pressable hitSlop={10}><ListIcon size={22} /></Pressable>
+        <Pressable
+          hitSlop={10}
+          onPress={() => setPane(p => (p === 'comment' ? 'lyric' : 'comment'))}
+          accessibilityLabel={pane === 'comment' ? '返回歌词' : '查看评论'}
+        >
+          <CommentIcon size={22} color={pane === 'comment' ? colors.accent : undefined} />
+        </Pressable>
+        <Pressable hitSlop={10} onPress={onShare} accessibilityLabel="分享">
+          <ShareIcon size={22} />
+        </Pressable>
+        <Pressable hitSlop={10} onPress={() => setQueueOpen(true)} accessibilityLabel="播放列表">
+          <ListIcon size={22} />
+        </Pressable>
       </View>
+
+      {/* 播放列表弹层 */}
+      <Modal visible={queueOpen} animationType="slide" transparent onRequestClose={() => setQueueOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '70%', paddingBottom: 20 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14 }}>
+              <Text style={{ color: colors.fg, fontSize: 15, fontWeight: '600' }}>播放列表（{st.queue.length}）</Text>
+              <Pressable onPress={() => setQueueOpen(false)} hitSlop={10}>
+                <Text style={{ color: colors.muted, fontSize: 14 }}>关闭</Text>
+              </Pressable>
+            </View>
+            <ScrollView>
+              {st.queue.map((q, i) => (
+                <Pressable
+                  key={q.source + '-' + String(q.songmid) + '-' + i}
+                  onPress={() => { setQueueOpen(false); void play(q) }}
+                  style={{ paddingHorizontal: 20, paddingVertical: 10 }}
+                >
+                  <Text numberOfLines={1} style={{ color: i === st.index ? colors.accent : colors.fg, fontSize: 14 }}>
+                    {q.name}
+                  </Text>
+                  <Text numberOfLines={1} style={{ color: colors.fainter, fontSize: 12, marginTop: 2 }}>{q.singer}</Text>
+                </Pressable>
+              ))}
+              {!st.queue.length ? <Text style={{ color: colors.fainter, padding: 20, fontSize: 13 }}>队列为空</Text> : null}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }

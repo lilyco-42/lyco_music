@@ -3,12 +3,18 @@
  *
  * 调 @lxmn/core 的 musicSearch（与桌面端同一份内核），点条目即播放。
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from 'react-native'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 import { getSource, hasSource, listSources, type MusicItem } from '@lxmn/core'
 import { play, usePlayerState } from '../player'
 import { library } from '../sync'
 import { colors, topInset } from '../theme'
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const DEFAULT_COVER = require('../assets/art/cover-default.jpg') as number
+
+/** 音源显示名（与桌面端一致） */
+const SOURCE_LABELS: Record<string, string> = { wy: '网易云', kw: '酷我', kg: '酷狗', mg: '咪咕' }
 
 export default function SearchScreen({ initialKeyword }: { initialKeyword?: string }) {
   const [keyword, setKeyword] = useState(initialKeyword ?? '')
@@ -18,6 +24,25 @@ export default function SearchScreen({ initialKeyword }: { initialKeyword?: stri
   const [error, setError] = useState('')
   /** 收藏集合：存 key 而不是整条曲目，避免每首歌都做一次深比较 */
   const [favKeys, setFavKeys] = useState<Set<string>>(new Set())
+  /** 当前筛选的音源，'all' 表示不筛选 */
+  const [sourceFilter, setSourceFilter] = useState<string>('all')
+
+  /** 结果里真实出现过的音源（带数量），点「全部」恢复 */
+  const sourceTabs = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const it of list) counts.set(it.source, (counts.get(it.source) ?? 0) + 1)
+    return [
+      { id: 'all', label: '全部', count: list.length },
+      ...[...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([id, count]) => ({ id, label: SOURCE_LABELS[id] ?? id, count })),
+    ]
+  }, [list])
+
+  const filtered = useMemo(
+    () => (sourceFilter === 'all' ? list : list.filter(i => i.source === sourceFilter)),
+    [list, sourceFilter],
+  )
   const st = usePlayerState()
 
   const keyOf = (i: MusicItem) => i.source + '::' + String(i.songmid)
@@ -44,6 +69,7 @@ export default function SearchScreen({ initialKeyword }: { initialKeyword?: stri
     setError('')
     setList([])
     setTotal(0)
+    setSourceFilter('all')
     try {
       // 和桌面端同一策略：并发查所有能搜索的音源，去重合并。
       // 只查 wy 会把 kw/mg/kg 的免费曲库白白丢掉，而 wy 上大量 VIP 曲目
@@ -122,6 +148,38 @@ export default function SearchScreen({ initialKeyword }: { initialKeyword?: stri
         </Pressable>
       </View>
 
+      {/* 音源筛选：一条结果里混着四个源 */}
+      {sourceTabs.length > 1 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 20, gap: 8, paddingBottom: 8 }}
+        >
+          {sourceTabs.map(t => {
+            const active = sourceFilter === t.id
+            return (
+              <Pressable
+                key={t.id}
+                onPress={() => setSourceFilter(t.id)}
+                accessibilityState={{ selected: active }}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: active ? colors.accent : colors.divider,
+                  backgroundColor: active ? colors.accent + '22' : 'transparent',
+                }}
+              >
+                <Text style={{ color: active ? colors.accent : colors.muted, fontSize: 12 }}>
+                  {t.label} {t.count}
+                </Text>
+              </Pressable>
+            )
+          })}
+        </ScrollView>
+      )}
+
       {loading ? (
         <View style={{ paddingTop: 40, alignItems: 'center' }}>
           <ActivityIndicator color={colors.accent} />
@@ -134,11 +192,11 @@ export default function SearchScreen({ initialKeyword }: { initialKeyword?: stri
         </Text>
       ) : (
         <FlatList
-          data={list}
+          data={filtered}
           keyExtractor={i => i.source + '-' + i.songmid}
           ListHeaderComponent={
             <Text style={{ color: colors.fainter, fontSize: 12, paddingHorizontal: 20, paddingBottom: 8 }}>
-              共 {total} 首
+              共 {total} 首{sourceFilter !== 'all' ? ' · 已筛选 ' + filtered.length + ' 首' : ''}
             </Text>
           }
           renderItem={({ item, index }) => {
@@ -149,6 +207,10 @@ export default function SearchScreen({ initialKeyword }: { initialKeyword?: stri
                 style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 10, gap: 12 }}
               >
                 <Text style={{ color: colors.fainter, fontSize: 13, width: 20 }}>{index + 1}</Text>
+                <Image
+                  source={item.picUrl ? { uri: String(item.picUrl) } : DEFAULT_COVER}
+                  style={{ width: 40, height: 40, borderRadius: 6, backgroundColor: colors.elevated }}
+                />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text numberOfLines={1} style={{ color: active ? colors.accent : colors.fg, fontSize: 15 }}>
                     {item.name}

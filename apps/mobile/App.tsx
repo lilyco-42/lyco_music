@@ -15,7 +15,7 @@ import SyncScreen from './src/screens/SyncScreen'
 import MyMusicScreen from './src/screens/MyMusicScreen'
 import { ensurePlatform } from './src/platform'
 import { setupPlayer, useTrackPlayerEvents } from './src/player'
-import { colors, TAB_BAR_HEIGHT, topInset } from './src/theme'
+import { colors, subscribeAccent, TAB_BAR_HEIGHT, topInset } from './src/theme'
 import FriendsScreen from './src/screens/FriendsScreen'
 import AccountScreen from './src/screens/AccountScreen'
 
@@ -33,6 +33,9 @@ const TABS: { key: TabKey; label: string }[] = [
 
 export default function App() {
   const [tab, setTab] = useState<TabKey>('home')
+  /** 主题色变化时强制重渲染：RN 没有 CSS 变量，样式是在渲染时读 colors 的 */
+  const [, forceThemeRender] = useState(0)
+  useEffect(() => subscribeAccent(() => forceThemeRender(n => n + 1)), [])
   /** 首页点歌单/频道时带过来的搜索词 */
   const [seedKeyword, setSeedKeyword] = useState('')
 

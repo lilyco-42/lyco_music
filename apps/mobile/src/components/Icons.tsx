@@ -75,19 +75,29 @@ export function SkipIcon({ size = 20, color = '#e0e0e0', direction = 'next' }: I
 }
 
 /** 循环 / 随机：用圆形与交叉线示意 */
-export function LoopIcon({ size = 18, color = '#9a9a9a' }: IconProps) {
+/**
+ * 循环图标：single=true 时在环内叠一个实心点，表示「单曲循环」。
+ * 之前只有一种形状，无法表达四种播放模式。
+ */
+export function LoopIcon({ size = 18, color = '#9a9a9a', single = false }: IconProps & { single?: boolean }) {
   return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        borderWidth: 2,
-        borderColor: color,
-        borderTopColor: 'transparent',
-        transform: [{ rotate: '-45deg' }],
-      }}
-    />
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      <View
+        style={{
+          position: 'absolute',
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          borderWidth: 2,
+          borderColor: color,
+          borderTopColor: 'transparent',
+          transform: [{ rotate: '-45deg' }],
+        }}
+      />
+      {single ? (
+        <View style={{ width: size * 0.26, height: size * 0.26, borderRadius: size * 0.13, backgroundColor: color }} />
+      ) : null}
+    </View>
   )
 }
 

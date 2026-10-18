@@ -28,6 +28,9 @@ import {
 } from '@lxmn/core'
 import { library } from './sync'
 
+/** 播放模式：顺序 / 列表循环 / 单曲循环 / 随机（与桌面端一致） */
+export type PlayMode = 'order' | 'loop' | 'single' | 'shuffle'
+
 export interface MobilePlayerState {
   queue: MusicItem[]
   index: number
@@ -38,6 +41,7 @@ export interface MobilePlayerState {
   lyric: string
   tlyric: string
   picUrl: string
+  mode: PlayMode
 }
 
 let state: MobilePlayerState = {
@@ -50,6 +54,7 @@ let state: MobilePlayerState = {
   lyric: '',
   tlyric: '',
   picUrl: '',
+  mode: 'loop',
 }
 
 const listeners = new Set<() => void>()
@@ -208,11 +213,56 @@ export async function play(item: MusicItem, queue?: MusicItem[]): Promise<void> 
   await Promise.all([resolveAndPlay(item), loadMeta(item)])
 }
 
-export async function next(): Promise<void> {
+/**
+ * 下一首。
+ *
+ * auto=true 表示「一首放完了自动进下一首」，这时要遵守播放模式：
+ * 单曲循环重放当前、随机抽一首、顺序播到末尾就停。
+ */
+export async function next(auto = false): Promise<void> {
   if (!state.queue.length) return
+
+  if (auto && state.mode === 'single') {
+    await seek(0)
+    await safePlayerAction('单曲循环', async () => { await TrackPlayer.play() })
+    return
+  }
+
+  if (state.mode === 'shuffle' && state.queue.length > 1) {
+    let n = state.index
+    while (n === state.index) n = Math.floor(Math.random() * state.queue.length)
+    state.index = n
+    const picked = state.queue[state.index]
+    if (picked) await play(picked)
+    return
+  }
+
+  if (auto && state.mode === 'order' && state.index >= state.queue.length - 1) return
+
   state.index = (state.index + 1) % state.queue.length
   const item = state.queue[state.index]
   if (item) await play(item)
+}
+
+/* ---------------- 播放模式 ---------------- */
+
+const MODE_ORDER: PlayMode[] = ['order', 'loop', 'single', 'shuffle']
+const MODE_LABEL: Record<PlayMode, string> = {
+  order: '顺序播放',
+  loop: '列表循环',
+  single: '单曲循环',
+  shuffle: '随机播放',
+}
+
+export function cycleMode(): PlayMode {
+  const at = MODE_ORDER.indexOf(state.mode)
+  state.mode = MODE_ORDER[(at + 1) % MODE_ORDER.length] ?? 'loop'
+  emit()
+  return state.mode
+}
+
+export function modeLabel(): string {
+  return MODE_LABEL[state.mode]
 }
 
 export async function prev(): Promise<void> {
@@ -289,6 +339,9 @@ export function useTrackPlayerEvents(): void {
     const subs = [
       TrackPlayer.addEventListener(Event.PlaybackActiveTrackChanged, () => setN(x => x + 1)),
       TrackPlayer.addEventListener(Event.PlaybackState, () => setN(x => x + 1)),
+      // 播完自动下一首：走 next(true)，由播放模式决定是重放还是换歌
+      TrackPlayer.addEventListener(Event.PlaybackQueueEnded, () => { void next(true) }),
+      // 单曲结束时 RNTP 触发的是 PlaybackActiveTrackChanged/State，不再额外处理
     ]
     return () => { for (const s of subs) s.remove() }
   }, [])
