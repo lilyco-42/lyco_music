@@ -169,7 +169,7 @@ const vinylStyle = computed(() => ({
 <template>
   <div class="relative h-full w-full overflow-hidden bg-ncmd-bg text-ncmd-fg">
     <!-- 顶栏：与背景融合，不另做色块 -->
-    <div class="absolute inset-x-0 top-0 z-10 flex h-[100px] items-center justify-between px-[52px] [app-region:drag]">
+    <div class="absolute inset-x-0 top-0 z-10 flex h-[72px] items-center justify-between pl-6 pr-1 [app-region:drag]">
       <!-- 左上：折叠箭头 -->
       <button type="button" class="text-ncmd-muted hover:text-ncmd-fg [app-region:no-drag]" aria-label="收起播放器模式" @click="close">
         <svg viewBox="0 0 24 24" class="size-5 stroke-current" fill="none" stroke-width="1.8">
@@ -178,12 +178,12 @@ const vinylStyle = computed(() => ({
       </button>
 
       <!-- 右上：当前为播放器模式（只作状态标识），加全屏与窗口控制 -->
-      <div class="flex items-center gap-1 text-ncmd-muted">
-        <span class="mr-2 flex items-center gap-2 text-[15px]">
-          <span class="size-[16px] rounded-full border-[1.5px] border-current" aria-hidden="true" />
+      <div class="flex items-center gap-0.5 text-ncmd-muted">
+        <span class="mr-1.5 flex items-center gap-1.5 text-[14px]">
+          <span class="size-[14px] rounded-full border-[1.5px] border-current" aria-hidden="true" />
           播放器模式
         </span>
-        <span class="mr-1 h-4 w-px bg-ncmd-elevated" aria-hidden="true" />
+        <span class="mx-0.5 h-3.5 w-px bg-ncmd-elevated" aria-hidden="true" />
         <IconButton label="全屏" tone="dark" size="lg" @click="toggleFullscreen">
           <template #default="{ size, stroke }"><Maximize2 :size="size" :stroke-width="stroke" aria-hidden="true" /></template>
         </IconButton>
@@ -193,19 +193,19 @@ const vinylStyle = computed(() => ({
     </div>
 
     <!-- 主体：左黑胶 / 右信息歌词 -->
-    <div class="flex h-full pt-[100px] pb-[102px]">
+    <div class="flex h-full pt-[72px] pb-[102px]">
       <!-- ============ 左侧黑胶区 (x=0~930) ============ -->
-      <div class="relative flex w-[930px] shrink-0 items-center justify-center">
+      <div class="relative flex w-[820px] shrink-0 items-center justify-center">
         <!-- 黑胶：外径 574px，中心略偏右下 -->
         <div
-          class="relative size-[574px] rounded-full transition-transform duration-[3000ms]"
+          class="relative size-[520px] rounded-full transition-transform duration-[3000ms]"
           :class="spinning ? 'animate-[spin_20s_linear_infinite]' : ''"
           :style="vinylStyle"
         >
           <!-- 内圈白色粗环 + 中心专辑图 316px -->
           <div class="absolute inset-0 flex items-center justify-center">
-            <div class="flex size-[340px] items-center justify-center rounded-full bg-ncmd-vinyl-ring">
-              <div class="size-[316px] overflow-hidden rounded-full bg-gradient-to-br from-[#3a3a3a] to-[#141414]">
+            <div class="flex size-[308px] items-center justify-center rounded-full bg-ncmd-vinyl-ring">
+              <div class="size-[286px] overflow-hidden rounded-full bg-gradient-to-br from-[#3a3a3a] to-[#141414]">
                 <img
                   v-if="cover"
                   :src="cover"
@@ -226,7 +226,7 @@ const vinylStyle = computed(() => ({
         </div>
 
         <!-- 唱针：转轴 (518,189)，针头 (776,307) -->
-        <div class="pointer-events-none absolute left-1/2 top-[89px] -translate-x-1/2">
+        <div class="pointer-events-none absolute left-1/2 top-[70px] -translate-x-1/2">
           <div class="relative">
             <!-- 转轴底座 -->
             <div class="size-[54px] rounded-full bg-[#0a0a0a] shadow-[0_6px_16px_rgba(0,0,0,.5)]" />
@@ -262,15 +262,15 @@ const vinylStyle = computed(() => ({
         </div>
 
         <!-- 副标题：18px，距歌名 15px -->
-        <p class="mt-[15px] truncate text-[18px] leading-[26px] text-ncmd-muted">{{ singer || '—' }}</p>
+        <p class="mt-[8px] truncate text-[18px] leading-[26px] text-ncmd-muted">{{ singer || '—' }}</p>
 
         <!-- 元信息：距副标题 11px -->
-        <p class="mt-[11px] truncate text-[18px] leading-[26px] text-ncmd-muted">
+        <p class="mt-[6px] truncate text-[17px] leading-[24px] text-ncmd-muted">
           专辑：{{ album || '未知' }}&nbsp;&nbsp;歌手：{{ singer || '未知' }}&nbsp;&nbsp;来源：{{ current?.source?.toUpperCase() ?? '—' }}
         </p>
 
         <!-- 页签切换器（shadcn-vue Tabs）：222x42，圆角 21px，位于 (1005,265) -->
-        <Tabs v-model="activeTab" class="mt-[57px] flex min-h-0 flex-1 flex-col">
+        <Tabs v-model="activeTab" class="mt-[28px] flex min-h-0 flex-1 flex-col">
           <TabsList>
             <TabsTrigger v-for="t in tabs" :key="t.key" :value="t.key">
               {{ t.label }}
@@ -278,7 +278,7 @@ const vinylStyle = computed(() => ({
           </TabsList>
 
           <!-- 歌词区：与页签间留约 260px 空白，起始 y=573 -->
-          <TabsContent value="lyric" class="mt-[96px] flex min-h-0 max-w-[620px] flex-1 flex-col pb-6">
+          <TabsContent value="lyric" class="mt-[24px] flex min-h-0 max-w-[620px] flex-1 flex-col pb-4">
             <div ref="lyricBox" class="min-h-0 flex-1 overflow-y-auto pr-3">
               <p v-if="!lyrics.length" class="text-[20px] leading-[32px] text-ncmd-dim">暂无歌词</p>
               <div
@@ -288,19 +288,19 @@ const vinylStyle = computed(() => ({
                 class="transition-[margin]"
                 :class="[
                   isPlainLyric ? 'cursor-default' : 'cursor-pointer',
-                  i === currentLine ? 'mb-[27px]' : 'mb-[23px]',
+                  i === currentLine ? 'mb-[18px]' : 'mb-[14px]',
                 ]"
                 @click="seekTo(line.time)"
               >
                 <p
-                  class="text-[24px] leading-[32px] transition-colors"
+                  class="text-[22px] leading-[30px] transition-colors"
                   :class="i === currentLine ? 'text-ncmd-fg' : (isPlainLyric ? 'text-ncmd-muted' : 'text-ncmd-dim')"
                 >
                   {{ line.text || '·' }}
                 </p>
                 <p
                   v-if="line.translation"
-                  class="mt-[3px] text-[24px] leading-[32px] transition-colors"
+                  class="mt-[2px] text-[19px] leading-[26px] transition-colors"
                   :class="i === currentLine ? 'text-ncmd-muted' : 'text-ncmd-darker'"
                 >
                   {{ line.translation }}
@@ -309,12 +309,12 @@ const vinylStyle = computed(() => ({
             </div>
           </TabsContent>
 
-          <TabsContent value="wiki" class="mt-[96px] text-[20px] leading-[32px] text-ncmd-dim">
+          <TabsContent value="wiki" class="mt-[24px] text-[18px] leading-[30px] text-ncmd-dim">
             <p>专辑：{{ album || '未知' }}</p>
             <p class="mt-2">歌手：{{ singer || '未知' }}</p>
             <p class="mt-2">来源：{{ current?.source?.toUpperCase() ?? '—' }} · 音质 {{ qualityLabel }}</p>
           </TabsContent>
-          <TabsContent value="similar" class="mt-[96px] text-[20px] leading-[32px] text-ncmd-dim">
+          <TabsContent value="similar" class="mt-[24px] text-[18px] leading-[30px] text-ncmd-dim">
             <p v-if="similarSongs.length">正在按《{{ title }}》找相似曲目…</p>
             <ul v-else class="space-y-1">
               <li v-for="s in similarSongs" :key="s.source + s.songmid" class="truncate">

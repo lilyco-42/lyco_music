@@ -1,6 +1,6 @@
 # Lyco Music 技术与设计规范
 
-> 版本：0.2.10 · 适用范围：`apps/desktop`（Vue 3 + Electron）、`apps/mobile`（React Native）、`packages/core`
+> 版本：0.2.11 · 适用范围：`apps/desktop`（Vue 3 + Electron）、`apps/mobile`（React Native）、`packages/core`
 > 这份文档是**约定的来源**：写新组件、改样式、调图标之前先看这里；和文档不一致的代码视为待修。
 
 ---
@@ -80,6 +80,10 @@ apps/*  ──►  packages/platform-*  ──►  packages/core
 
 * 4px 基准栅格：`4 / 8 / 12 / 16 / 20 / 24 / 32 / 40 / 48`（Tailwind 的 `1/2/3/4/5/6/8/10/12`）。
 * 页面左右内边距 **49px**（`main` 的 `px-[49px]`），区块上下间距 38–47px。
+* **顶栏贴边**：窗口按钮（最小化/最大化/关闭）距窗口右缘 **≤ 4px**，顶栏用 `pl-6 pr-1`；
+  原来 `px-7`/`px-[52px]` 让控件离边 50px 以上，视觉上「飘在中间」。
+* **播放页纵向节奏**：标题→歌手 8px、歌手→专辑信息 6px、信息→页签 28px、页签→歌词 24px；
+  歌词行距 14px（当前行 18px）。原来 57/96/23px 会造成「上下都空一大截」。
 * 列表行高：搜索结果 62px，歌单行 44–48px。
 * 内容区必须能滚动：滚动容器要有**确定高度**（`min-h-0 flex-1 overflow-y-auto`），否则 `h-full` 会塌成 0——歌词区曾因此「渲染不全」。
 

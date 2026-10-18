@@ -24,7 +24,7 @@ function search() {
 </script>
 
 <template>
-  <header class="flex min-w-0 items-center gap-3 border-b border-ncm-divider bg-ncm-topbar px-7 [app-region:drag]">
+  <header class="flex min-w-0 items-center gap-2 border-b border-ncm-divider bg-ncm-topbar pl-6 pr-1 [app-region:drag]">
     <button
       type="button"
       class="flex size-10 shrink-0 items-center justify-center rounded-xl border border-ncm-divider text-ncm-faint transition-colors hover:bg-white hover:text-ncm-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ncm-accent [app-region:no-drag]"
@@ -93,6 +93,6 @@ function search() {
     </Menu>
 
     <!-- 无边框窗口的最小化 / 最大化 / 关闭（之前缺这一组，用户只能靠系统标题栏） -->
-    <WindowControls class="ml-1 shrink-0" />
+    <WindowControls class="shrink-0" />
   </header>
 </template>

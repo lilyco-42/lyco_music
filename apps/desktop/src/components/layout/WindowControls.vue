@@ -25,7 +25,9 @@ function minimize(): void { void bridge?.minimize() }
 function toggleMax(): void { void bridge?.toggleMaximize().then(v => { maximized.value = v }) }
 function close(): void { void bridge?.close() }
 
-const base = 'flex h-8 w-[46px] items-center justify-center transition-colors [app-region:no-drag]'
+// 窗口按钮：命中区贴边、去掉系统默认焦点框（Electron 下是一条橙黄描边），
+// 改用和全站一致的 accent 焦点环
+const base = 'flex h-8 w-[46px] items-center justify-center transition-colors outline-none focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 [app-region:no-drag]'
 const idle = props.tone === 'dark'
   ? 'text-white/60 hover:bg-white/10 hover:text-white'
   : 'text-ncm-faint hover:bg-black/5 hover:text-ncm-fg'
