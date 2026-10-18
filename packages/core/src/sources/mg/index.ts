@@ -153,9 +153,13 @@ async function fillDurations(list: MusicItem[]): Promise<void> {
 /**
  * 取流。
  *
- * **刻意不预检**：listenSong.do 直接把音频字节吐出来，想判断「是不是音频」
- * 就得把整个文件读进内存（无损档 40MB+），而播放器随后还会再拉一次。
- * 所以直接返回地址，不可播时交给 <audio> 的 error 事件提示用户。
+ * listenSong.do 直接把音频字节吐出来，**不可播时也不例外** —— 它会回一段
+ * 几十字节的 JSON（如 {"code":"...","info":"..."}），HTTP 状态仍是 200。
+ * 播放器拿到这种响应只会静默失败，用户看到的是「点了没反应」。
+ *
+ * 所以这里做一个 1 字节的 Range 探测：只看 Content-Type / 首字节，
+ * 是音频就返回地址（播放器随后自己拉全量），不是就抛错让上层换源。
+ * 代价是一次极小的请求，换来的是「放不出来能自动换源」。
  */
 async function getMusicUrl(songInfo: MusicItem, quality: Quality): Promise<MusicUrlInfo> {
   const contentId = String(songInfo.contentId ?? '')
@@ -170,7 +174,61 @@ async function getMusicUrl(songInfo: MusicItem, quality: Quality): Promise<Music
   const url = `${LISTEN_API}?toneFlag=${toneFlag}&netType=00&userId=&ua=Android_migu&version=5.0.1`
     + `&copyrightId=${copyrightId}&contentId=${contentId}&resourceType=2&channel=0`
 
+  await assertPlayable(url)
   return { url, quality, type: 'mp3' }
+}
+
+/** 音频文件头：ID3 / MPEG 同步字 / FLAC / OggS / ftyp */
+function looksLikeAudio(head: Uint8Array, contentType: string): boolean {
+  if (/^audio\//i.test(contentType) || /octet-stream/i.test(contentType)) {
+    // octet-stream 也可能是在吐 JSON，继续看字节
+  }
+  if (head.length >= 3 && head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33) return true // ID3
+  if (head.length >= 2 && head[0] === 0xff && (head[1]! & 0xe0) === 0xe0) return true // MPEG
+  if (head.length >= 4 && head[0] === 0x66 && head[1] === 0x4c && head[2] === 0x61 && head[3] === 0x43) return true // fLaC
+  if (head.length >= 4 && head[0] === 0x4f && head[1] === 0x67 && head[2] === 0x67 && head[3] === 0x53) return true // OggS
+  if (head.length >= 4 && head[0] === 0x66 && head[1] === 0x74 && head[2] === 0x79 && head[3] === 0x70) return true // ftyp
+  return false
+}
+
+/** 判断响应是否是咪咕的 JSON 错误负载（不可播时返回小段 JSON，如 {"code":"...","info":"..."}） */
+function looksLikeJsonPayload(head: Uint8Array, contentType: string): boolean {
+  if (/json/i.test(contentType)) return head.length > 0
+  const s = new TextDecoder().decode(head.slice(0, 64)).trimStart()
+  return s.startsWith('{') || s.startsWith('[')
+}
+
+/**
+ * 探测一个地址到底是不是音频。
+ *
+ * 只取前 2 个字节：足够识别文件头，又不会把整首歌拉下来。
+ * 拿不到响应（网络问题）时不阻断 —— 那是另一类故障，交给播放器报错更准确。
+ */
+async function assertPlayable(url: string): Promise<void> {
+  const { http } = getPlatform()
+  try {
+    const res = await http.request({
+      url,
+      method: 'GET',
+      headers: { ...MG_HEADERS, Referer: 'https://app.c.nf.migu.cn/', Range: 'bytes=0-1' },
+      timeout: 15000,
+      binary: true,
+    })
+    if (res.statusCode >= 400) {
+      throw new Error(`[lxmn/mg] 该歌曲暂无可播放地址（HTTP ${res.statusCode}）`)
+    }
+    const ct = String(res.headers['content-type'] ?? res.headers['Content-Type'] ?? '')
+    if (looksLikeAudio(res.raw ?? new Uint8Array(), ct)) return
+    // 只有当响应**确定**是 JSON 错误负载（咪咕不可播时回小段 JSON）才判不可播；
+    // 空 body / 探测不到特征（如测试桩、_range 代理）不轻率下结论，交由播放器自行验证。
+    if (looksLikeJsonPayload(res.raw ?? new Uint8Array(), ct)) {
+      throw new Error('[lxmn/mg] 该歌曲暂无可播放地址（接口未返回音频）')
+    }
+    return
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith('[lxmn/mg]')) throw e
+    // 网络层失败：不在这里下结论
+  }
 }
 
 /** 歌词：搜索结果直接给出 lrcUrl，取文本即可 */

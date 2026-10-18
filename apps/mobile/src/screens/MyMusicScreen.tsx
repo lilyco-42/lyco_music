@@ -18,7 +18,12 @@ interface Row {
   playedAt: number
 }
 
-export default function MyMusicScreen() {
+interface Props {
+  /** 打开账户页（登录 / 头像 / 权益）。「我的」是用户找账户的自然位置。 */
+  onOpenAccount?: () => void
+}
+
+export default function MyMusicScreen({ onOpenAccount }: Props) {
   const [tab, setTab] = useState<Tab>('fav')
   const [rows, setRows] = useState<Row[]>([])
   const [playlists, setPlaylists] = useState<{ id: string; name: string }[]>([])
@@ -105,9 +110,17 @@ export default function MyMusicScreen() {
           </Pressable>
         </View>
       ) : null}
-      <Text style={{ color: colors.fg, fontSize: 22, fontWeight: '700', paddingHorizontal: 20, paddingTop: 12 }}>
-        我的音乐
-      </Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 12 }}>
+        <Text style={{ color: colors.fg, fontSize: 22, fontWeight: '700', flex: 1 }}>我的音乐</Text>
+        {onOpenAccount ? (
+          <Pressable
+            onPress={onOpenAccount}
+            style={{ borderWidth: 1, borderColor: colors.divider, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7 }}
+          >
+            <Text style={{ color: colors.muted, fontSize: 12.5 }}>账户</Text>
+          </Pressable>
+        ) : null}
+      </View>
 
       {/* 标签 */}
       <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 20, paddingVertical: 14 }}>

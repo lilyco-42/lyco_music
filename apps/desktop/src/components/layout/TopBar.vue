@@ -33,8 +33,15 @@ function search() {
     <div class="min-w-0 flex-1" />
 
     <button type="button" class="flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-left text-ncm-fg hover:bg-black/5" @click="router.push('/account')">
-      <span class="flex size-9 items-center justify-center rounded-full bg-ncm-divider text-ncm-muted">
-        <UserRound v-if="account.signedIn.value" :size="20" aria-hidden="true" />
+      <span class="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-ncm-divider text-ncm-muted">
+        <img
+          v-if="account.signedIn.value && account.profile.value?.avatar"
+          :src="account.profile.value.avatar"
+          alt=""
+          class="size-full object-cover"
+          referrerpolicy="no-referrer"
+        />
+        <UserRound v-else-if="account.signedIn.value" :size="20" aria-hidden="true" />
         <LogIn v-else :size="20" aria-hidden="true" />
       </span>
       <span class="max-w-[160px] truncate text-sm font-medium">{{ account.profile.value?.username || '登录 / 注册' }}</span>

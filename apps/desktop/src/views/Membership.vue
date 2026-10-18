@@ -7,11 +7,18 @@
  */
 import { onMounted, ref } from 'vue'
 import { useMembership } from '../lib/membership'
+import { useAccount } from '../lib/auth'
 
 const { status, busy, error, applyResult, isActive, plan, sources, restore, activate, refresh, clear, openShop,
         SHOP_URL, ANNUAL_PRICE_CNY } = useMembership()
 
 const link = ref('')
+const account = useAccount()
+/**
+ * 已登录且账号里有会员权益时，订阅是**自动接通**的（见 auth.ts 的 afterSignIn）。
+ * 这时候还让用户「粘贴订阅链接」既多余又让人困惑 —— 他会以为没生效。
+ */
+const autoBound = () => account.signedIn.value && isActive.value
 
 const FEATURES = [
   '一键补全全部第三方音源',
@@ -42,7 +49,10 @@ onMounted(restore)
 <template>
   <div class="mx-auto max-w-[1000px] py-2">
     <h1 class="text-[30px] font-bold leading-10 text-ncm-fg">音乐会员</h1>
-    <p class="mt-2 text-[15px] text-ncm-faint">购买后获得订阅链接，填入下方即可解锁全部音源</p>
+    <p class="mt-2 text-[15px] text-ncm-faint">
+      <template v-if="autoBound()">会员已通过 lain42.top 账号自动接通，无需任何操作</template>
+      <template v-else>购买后可用 lain42.top 账号登录自动接通，也可以手动粘贴订阅链接</template>
+    </p>
 
     <div class="mt-7 grid grid-cols-[1fr_1fr] gap-6">
       <!-- 价格卡 -->
@@ -73,9 +83,15 @@ onMounted(restore)
 
       <!-- 激活卡 -->
       <section class="rounded-banner border border-ncm-divider bg-white p-7">
-        <h2 class="text-[19px] font-semibold text-ncm-fg">激活订阅</h2>
+        <h2 class="text-[19px] font-semibold text-ncm-fg">{{ autoBound() ? '订阅状态' : '激活订阅' }}</h2>
+
+        <p v-if="autoBound()" class="mt-3 rounded-channel bg-ncm-bg px-4 py-3 text-[14px] text-ncm-muted">
+          已用 <span class="font-semibold text-ncm-fg">{{ account.profile.value?.username }}</span> 登录，
+          账号里的会员权益已自动生效，不用再填链接。
+        </p>
 
         <input
+          v-if="!autoBound()"
           v-model="link"
           type="text"
           placeholder="粘贴订阅链接或令牌"
@@ -83,7 +99,7 @@ onMounted(restore)
           @keyup.enter="onActivate"
         />
 
-        <div class="mt-3 flex gap-3">
+        <div v-if="!autoBound()" class="mt-3 flex gap-3">
           <button
             type="button"
             class="flex-1 rounded-pill bg-ncm-accent py-3 text-[16px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"

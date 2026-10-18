@@ -102,8 +102,27 @@ export function handleKwSearchItem(raw: unknown): MusicItem | null {
 }
 
 /**
- * 取流。酷我的 antiserver 对同 rid 的 mp3/aac 返回同一地址，
+ * antiserver 的「占位陷阱」。
+ *
+ * 实测（本地与服务器两处都复现）：convert_url3 对**不存在或没版权的 rid**
+ * 并不返回错误，而是回同一个固定的 mp3 地址 —— rid 80403 / 6468891 / 98804 /
+ * 228908 拿到的都是 .../nf/resource/n1/69/32/588957081.mp3。
+ * 它确实是真音频（audio/mpeg、206 可 Range），所以「能播」但**放的是别的歌**。
+ *
+ * 这比报错更糟：用户点了 A 歌，听到 B 歌。所以必须识别出来。
+ * 判断依据是那个固定文件名 —— 它是服务端写死的兜底资源，不是任何真实歌曲。
+ */
+const PLACEHOLDER_MARKERS = ['588957081']
+
+function isPlaceholderUrl(url: string): boolean {
+  return PLACEHOLDER_MARKERS.some(m => url.includes(m))
+}
+
+/**
+ * 取流。
+ *
  * flac 实测 code=-1（无权限），所以无损档位直接降级到 mp3 请求。
+ * 拿到占位地址时抛错而不是返回 —— 上层会去试别的音源，用户最终听到的是对的歌。
  */
 async function getMusicUrl(songInfo: MusicItem, quality: Quality): Promise<MusicUrlInfo> {
   const { http } = getPlatform()
@@ -115,6 +134,9 @@ async function getMusicUrl(songInfo: MusicItem, quality: Quality): Promise<Music
   const parsed = JSON.parse(res.body) as { code?: number; url?: string; msg?: string }
   if (!parsed.url) {
     throw new Error(`[lxmn/kw] 该歌曲暂无可播放地址（${parsed.msg || '版权受限或已下架'}）`)
+  }
+  if (isPlaceholderUrl(parsed.url)) {
+    throw new Error('[lxmn/kw] 该歌曲暂无可播放地址（服务端仅返回占位音频）')
   }
   // 服务端给的地址带时效签名；实际拿到的格式以请求的为准
   return { url: parsed.url, quality, type: format }

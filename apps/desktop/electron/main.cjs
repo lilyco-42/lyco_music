@@ -7,6 +7,7 @@
 const { app, BrowserWindow, shell, ipcMain, net, safeStorage } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs/promises')
+const { startLoginFlow } = require('./oauth.cjs')
 
 const isDev = !app.isPackaged
 /** 允许在开发时用环境变量指向 vite dev server */
@@ -130,5 +131,62 @@ ipcMain.handle('lxmn:auth:load', async () => {
 })
 ipcMain.handle('lxmn:auth:clear', async () => {
   await fs.rm(billingAuthFile(), { force: true })
+  return true
+})
+
+
+/* ---------- 网站 OAuth 授权登录 ---------- */
+
+/**
+ * 授权码 + PKCE（RFC 8252）。密码只输入在 lain42.top 的页面上，
+ * 本进程拿到的是一张有期限、可撤销的令牌。
+ * 具体流程在 oauth.cjs 里，那边可以脱离 GUI 单独测试。
+ */
+const OAUTH_BASE = 'https://lain42.top/studio/api'
+const OAUTH_CLIENT = 'lyco-music-desktop'
+const OAUTH_SCOPE = 'profile entitlements offline_access'
+
+const oauthFile = () => path.join(app.getPath('userData'), 'oauth-session.enc')
+
+ipcMain.handle('lxmn:oauth:login', async () => {
+  return startLoginFlow({
+    baseUrl: OAUTH_BASE,
+    clientId: OAUTH_CLIENT,
+    scope: OAUTH_SCOPE,
+    openExternal: (url) => shell.openExternal(url),
+    fetchImpl: (url, init) => net.fetch(url, init),
+  })
+})
+
+ipcMain.handle('lxmn:oauth:save', async (_e, session) => {
+  if (!session || typeof session.accessToken !== 'string' ||
+      session.accessToken.length > 8192 || !/^[a-zA-Z0-9_.-]+$/.test(session.accessToken)) {
+    throw new Error('Invalid session')
+  }
+  if (typeof session.refreshToken === 'string' && session.refreshToken &&
+      !/^[a-zA-Z0-9_-]+$/.test(session.refreshToken)) {
+    throw new Error('Invalid session')
+  }
+  if (!safeStorage.isEncryptionAvailable()) return false
+  const payload = JSON.stringify({
+    accessToken: session.accessToken,
+    refreshToken: session.refreshToken || '',
+    expiresAt: Number(session.expiresAt) || 0,
+  })
+  await fs.writeFile(oauthFile(), safeStorage.encryptString(payload), { mode: 0o600 })
+  return true
+})
+
+ipcMain.handle('lxmn:oauth:load', async () => {
+  if (!safeStorage.isEncryptionAvailable()) return null
+  try {
+    const raw = safeStorage.decryptString(await fs.readFile(oauthFile()))
+    const parsed = JSON.parse(raw)
+    return typeof parsed.accessToken === 'string' ? parsed : null
+  } catch { return null }
+})
+
+ipcMain.handle('lxmn:oauth:clear', async () => {
+  await fs.rm(oauthFile(), { force: true })
   return true
 })

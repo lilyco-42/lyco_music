@@ -46,6 +46,10 @@ export interface SubscribedSource {
    * hasSource()：服务端的声明可能滞后于客户端版本，反之亦然。
    */
   implemented?: boolean
+  /** 服务端给的尝试顺序：曲库全的排前面，串源兜底时优先用它 */
+  order?: number
+  /** 服务端可远程关掉某个音源，客户端应尊重 */
+  enabled?: boolean
   /** 备注 / 说明 */
   note?: string
 }

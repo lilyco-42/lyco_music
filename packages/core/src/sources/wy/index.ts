@@ -122,11 +122,14 @@ const defaultGetMusicUrl: MusicUrlProvider = async (songInfo, quality) => {
     last = { fee: item?.fee, trial: Boolean(item?.freeTrialInfo) }
   }
 
+  // 注意措辞：这里的「账号」指**网易云音乐账号**，不是 Lyco 的登录账号。
+  // 之前写成「当前未登录账号无法播放」，用户明明已经登录了 Lyco，
+  // 看到这句话只会以为登录坏了。内核不认识 UI，所以把两种可能都写清楚。
   if (last?.fee === 1) {
-    throw new Error('[lxmn/wy] 该歌曲为 VIP 专享，当前未登录账号无法播放')
+    throw new Error('[lxmn/wy] 网易云将该歌曲标记为 VIP 专享，需要网易云会员账号才能取流；可换其他音源搜索同一首歌')
   }
   if (last?.trial) {
-    throw new Error('[lxmn/wy] 仅提供试听片段，完整版需要会员账号')
+    throw new Error('[lxmn/wy] 网易云仅提供试听片段，完整版需要网易云会员账号；可换其他音源搜索同一首歌')
   }
   throw new Error('[lxmn/wy] 该歌曲暂无可播放地址（可能已下架或版权受限）')
 }

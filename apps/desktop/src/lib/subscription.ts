@@ -10,4 +10,15 @@
  */
 import { SubscriptionClient } from '@lxmn/core'
 
-export const subscription = new SubscriptionClient()
+/**
+ * allowRemoteScripts 在这里开。
+ *
+ * 订阅里的脚本音源（长青、星海、星澜…）是社区作者每天维护的取流实现，
+ * 平台一改版它们往往比我们的内置实现先恢复。不开这个开关，
+ * 订阅里那 8 个脚本就全被跳过，用户遇到 VIP 曲目时没有第二层兜底。
+ *
+ * 为什么这里可以开：脚本只从**我们自己的域名**（lain42.top/sources/）下发，
+ * 且订阅文档里带了 sha256，客户端会先校验再执行；执行时跑在受限沙箱里，
+ * 拿不到本地文件、碰不到 DOM。风险面比「让用户随便贴一个脚本 URL」小得多。
+ */
+export const subscription = new SubscriptionClient({ allowRemoteScripts: true })

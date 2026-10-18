@@ -11,6 +11,7 @@ import { SHOP_URL, ANNUAL_PRICE_CNY } from '@lxmn/core'
 import type { MembershipStatus, ApplyResult } from '@lxmn/core'
 import { library } from './sync'
 import { subscription as client } from './subscription'
+import { syncScriptSources } from './source-pool'
 const status = ref<MembershipStatus>({ state: 'none' })
 const busy = ref(false)
 const error = ref('')
@@ -28,6 +29,18 @@ export function useMembership() {
     status.value = await client.restore()
     if (status.value.state === 'active') {
       applyResult.value = await client.apply({ ok: true, schema: 1, plan: status.value.plan, sources: status.value.sources })
+      // 静默刷新：音源接口会失效、服务端也会调清单，但用户不该为此重新粘链接。
+      // 不 await，不弹任何提示 —— 成功了用户感觉不到，失败了继续用旧文档。
+      // 把订阅里的脚本音源装进池子。同样静默：用户不该知道背后有几个源。
+      void syncScriptSources().catch(() => undefined)
+      void client.refresh().then(async (changed) => {
+        if (!changed) return
+        status.value = await client.status()
+        if (status.value.state === 'active') {
+          applyResult.value = await client.apply({ ok: true, schema: 1, plan: status.value.plan, sources: status.value.sources })
+          void syncScriptSources().catch(() => undefined)
+        }
+      }).catch(() => undefined)
     }
   }
 
@@ -43,6 +56,8 @@ export function useMembership() {
       // 不额外要求用户去注册/再填一次令牌。
       const token = await client.token()
       if (token) await library.configureSync(token)
+      // 立刻把脚本源装好，用户下一次点播放就能用上
+      void syncScriptSources().catch(() => undefined)
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
     } finally {

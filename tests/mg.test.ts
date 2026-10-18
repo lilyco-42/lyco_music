@@ -174,8 +174,11 @@ describe('mg 音源', () => {
     const u3 = await getSource('mg').getMusicUrl(base, '128k')
     expect(u3.url).toContain('toneFlag=LQ')
 
-    // 关键：不应发任何 HTTP 请求（否则等于把音频预下载一遍）
-    expect(captured).toHaveLength(0)
+    // 关键：只允许 2 字节 Range 探测请求，绝不预下载整个文件
+    expect(captured.length).toBeGreaterThan(0)
+    for (const req of captured) {
+      expect(req.headers?.Range).toBe('bytes=0-1')
+    }
   })
 
   it('缺少 contentId 时明确报错', async () => {

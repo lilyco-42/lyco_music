@@ -80,6 +80,8 @@ export function parseSubscriptionDocument(input: unknown): SubscriptionDocument 
       version: s.version ? String(s.version) : undefined,
       qualitys: Array.isArray(s.qualitys) ? s.qualitys.map(String) : undefined,
       implemented: typeof s.implemented === 'boolean' ? s.implemented : undefined,
+      order: Number.isFinite(Number(s.order)) ? Number(s.order) : undefined,
+      enabled: typeof s.enabled === 'boolean' ? s.enabled : undefined,
       note: s.note ? String(s.note) : undefined,
     }))
     .filter(s => s.id)
@@ -136,9 +138,10 @@ export class SubscriptionClient {
     }
 
     const doc = parseSubscriptionDocument(json)
-    this.cache = { url, fetchedAt: Date.now(), doc }
+    const fetchedAt = Date.now()
+    this.cache = { url, fetchedAt, doc }
     try {
-      await getPlatform().storage.set(this.storageKey, JSON.stringify({ url, doc }))
+      await getPlatform().storage.set(this.storageKey, JSON.stringify({ url, doc, fetchedAt }))
     } catch {
       // 缓存失败不影响主流程
     }
@@ -163,9 +166,17 @@ export class SubscriptionClient {
     try {
       const raw = await getPlatform().storage.get(this.storageKey)
       if (!raw) return { state: 'none' }
-      const parsed = JSON.parse(raw) as { url: string; doc: SubscriptionDocument }
+      const parsed = JSON.parse(raw) as { url: string; doc: SubscriptionDocument; fetchedAt?: number }
       const doc = parseSubscriptionDocument(parsed.doc)
-      this.cache = { url: parsed.url, fetchedAt: Date.now(), doc }
+      /**
+       * 注意这里必须用**缓存里记下的**时间，不能写 Date.now()。
+       *
+       * 以前写 Date.now()，等于每次启动都声称「刚拉过」，
+       * 于是 refresh() 的节流永远判定为「太新，别拉」——
+       * 服务端换了音源清单，客户端一辈子看不到。
+       * 老缓存没有这个字段，就当作「很久以前」，让它有机会刷新一次。
+       */
+      this.cache = { url: parsed.url, fetchedAt: parsed.fetchedAt ?? 0, doc }
       if (!isPlanActive(doc.plan)) return { state: 'expired', plan: doc.plan }
       return { state: 'active', plan: doc.plan, sources: doc.sources }
     } catch {
@@ -183,6 +194,42 @@ export class SubscriptionClient {
     const { doc } = this.cache
     if (!isPlanActive(doc.plan)) return { state: 'expired', plan: doc.plan }
     return { state: 'active', plan: doc.plan, sources: doc.sources }
+  }
+
+  /**
+   * 静默刷新订阅。
+   *
+   * 音源接口会失效、服务端也可能调整清单，但用户不该为此重新粘贴链接。
+   * 这里用缓存里的 URL 重新拉一次：成功就悄悄替换本地文档，
+   * 失败**保留旧文档**（离线时照常能听歌），也不抛错给界面。
+   *
+   * minIntervalMs 用来防止频繁调用把服务端打爆：默认 6 小时。
+   * 返回是否真的更新了内容。
+   */
+  async refresh(minIntervalMs = 6 * 60 * 60 * 1000): Promise<boolean> {
+    if (!this.cache) await this.restore()
+    if (!this.cache) return false
+    if (Date.now() - this.cache.fetchedAt < minIntervalMs) return false
+
+    const url = this.cache.url
+    try {
+      const { http } = getPlatform()
+      const res = await http.request({ url, method: 'GET', timeout: 15000 })
+      if (res.statusCode !== 200) return false
+      const doc = parseSubscriptionDocument(JSON.parse(res.body))
+      const before = JSON.stringify(this.cache.doc.sources)
+      const fetchedAt = Date.now()
+      this.cache = { url, fetchedAt, doc }
+      try {
+        await getPlatform().storage.set(this.storageKey, JSON.stringify({ url, doc, fetchedAt }))
+      } catch {
+        // 缓存失败不影响主流程
+      }
+      return JSON.stringify(doc.sources) !== before
+    } catch {
+      // 网络不通 / 服务端临时故障：保留旧文档，用户照常听歌
+      return false
+    }
   }
 
   /** 清除本地订阅（退出会员 / 换链接） */

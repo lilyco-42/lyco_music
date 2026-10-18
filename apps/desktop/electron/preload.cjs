@@ -18,6 +18,13 @@ contextBridge.exposeInMainWorld('lxmnNative', {
     load: () => ipcRenderer.invoke('lxmn:auth:load'),
     clear: () => ipcRenderer.invoke('lxmn:auth:clear'),
   },
+  /** 网站 OAuth 授权登录：主进程负责 PKCE、loopback 回调与令牌加密 */
+  oauth: {
+    login: () => ipcRenderer.invoke('lxmn:oauth:login'),
+    save: (session) => ipcRenderer.invoke('lxmn:oauth:save', session),
+    load: () => ipcRenderer.invoke('lxmn:oauth:load'),
+    clear: () => ipcRenderer.invoke('lxmn:oauth:clear'),
+  },
   /** 用系统浏览器打开外部链接（购买页等） */
   openExternal: (url) => ipcRenderer.invoke('lxmn:open-external', url),
 })

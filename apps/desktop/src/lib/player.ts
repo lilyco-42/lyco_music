@@ -18,6 +18,7 @@ import {
   type Quality,
 } from '@lxmn/core'
 import { library } from './sync'
+import { resolveWithFallback } from './fallback'
 
 export interface PlayerState {
   /** 当前播放列表 */
@@ -37,6 +38,8 @@ export interface PlayerState {
   tlyric: string
   picUrl: string
   url: string
+  /** 实际在播的曲目：串源后可能与队列里的那条不同 */
+  playingItem: MusicItem | null
 }
 
 const state = reactive<PlayerState>({
@@ -53,6 +56,7 @@ const state = reactive<PlayerState>({
   tlyric: '',
   picUrl: '',
   url: '',
+  playingItem: null,
 })
 
 /** 播放地址的获取方式由组件注入（内核不认识 <audio>） */
@@ -83,17 +87,23 @@ async function resolveAndPlay(item: MusicItem): Promise<void> {
   state.error = ''
   state.url = ''
   try {
-    const source = getSource(item.source)
-    const info = await source.getMusicUrl(item, state.quality)
+    // 取流失败时静默换音源：网易标 VIP 的歌，酷我/酷狗/咪咕常常能放。
+    // 故意**不提示**用户 —— 用户要的是「能听」，不是「我们换了哪个接口」。
+    const outcome = await resolveWithFallback(item, state.quality)
+    const info = outcome.info
     state.url = info.url
     // 实际拿到的音质可能与请求的不同（降档了），如实回填
     state.quality = info.quality
-    if (!state.picUrl && item.picUrl) state.picUrl = item.picUrl
+    // 串源后封面/歌词都跟着实际播放的那条走，
+    // 否则会出现「听着酷狗的歌、显示网易的封面」。
+    const played = outcome.switched ? outcome.item : item
+    state.playingItem = played
+    if (!state.picUrl && played.picUrl) state.picUrl = played.picUrl
     if (playUrl) await playUrl(info.url)
     state.playing = true
     // 播放记录：只有真的拿到流才记，避免把取流失败的歌也算进「最近播放」。
     // 失败不影响播放本身。
-    void library.recordPlay(item).catch(() => undefined)
+    void library.recordPlay(played).catch(() => undefined)
   } catch (e) {
     state.error = e instanceof Error ? e.message : String(e)
     state.playing = false
@@ -107,7 +117,8 @@ async function loadLyric(item: MusicItem): Promise<void> {
   state.lyric = ''
   state.tlyric = ''
   try {
-    const info = await getSource(item.source).getLyric(item)
+    const target = state.playingItem && state.playingItem.id === item.id ? state.playingItem : item
+    const info = await getSource(target.source).getLyric(target)
     state.lyric = info.lyric ?? ''
     state.tlyric = info.tlyric ?? ''
   } catch {
@@ -117,10 +128,11 @@ async function loadLyric(item: MusicItem): Promise<void> {
 
 /** 取封面（同样不阻断） */
 async function loadPic(item: MusicItem): Promise<void> {
-  state.picUrl = item.picUrl ?? ''
+  const target = state.playingItem && state.playingItem.id === item.id ? state.playingItem : item
+  state.picUrl = target.picUrl ?? ''
   if (state.picUrl) return
   try {
-    const info = await getSource(item.source).getPic(item)
+    const info = await getSource(target.source).getPic(target)
     state.picUrl = info.url ?? ''
   } catch {
     // 忽略

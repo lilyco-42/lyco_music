@@ -92,35 +92,107 @@ function picFromTemplate(tpl: unknown, size = 480): string {
  * 取流。免费端点只给 128k，见文件头说明。
  * 优先用条目里记录的 hash（它是 128k 的），没有再从 qualitys 里翻。
  */
-async function getMusicUrl(songInfo: MusicItem, quality: Quality): Promise<MusicUrlInfo> {
+/** 问 playInfo 要一个地址；拿不到就返回 null（不抛错，便于逐条尝试） */
+async function tryPlayInfo(hash: string): Promise<{ url: string; type: string; size?: number } | null> {
   const { http } = getPlatform()
-  let hash = typeof songInfo.hash === 'string' ? songInfo.hash : ''
-  if (!hash) {
-    const entry = songInfo.qualitys?.[quality] as { hash?: string } | undefined
-    hash = entry?.hash ?? (songInfo.qualitys?.['128k'] as { hash?: string } | undefined)?.hash ?? ''
-  }
-  if (!hash) throw new Error('[lxmn/kg] 该歌曲缺少 hash，无法取流')
-
   const res = await http.request({ url: `${PLAY_URL}?cmd=playInfo&hash=${hash.toUpperCase()}`, method: 'GET' })
-  if (res.statusCode !== 200) throw new Error(`[lxmn/kg] HTTP ${res.statusCode}`)
-
+  if (res.statusCode !== 200) return null
   const parsed = JSON.parse(res.body) as {
     url?: string
     error?: string
     status?: number
-    bitRate?: number
     extName?: string
     fileSize?: number
   }
-  if (!parsed.url) {
-    throw new Error(`[lxmn/kg] 该歌曲暂无可播放地址（${parsed.error || '版权受限或需要付费'}）`)
+  if (!parsed.url) return null
+  return { url: parsed.url, type: parsed.extName || 'mp3', size: parsed.fileSize }
+}
+
+/**
+ * 取流。
+ *
+ * 这里有个必须处理的现实：酷狗同一首歌在搜索结果里会出现**多条**，
+ * 第一条常常是 VIP 版（priv=10 / pay=3），playInfo 对它只回「需要付费」；
+ * 而后面几条是免费版（priv=0 / pay=0），能直接播。
+ *
+ * 老实现只认第一条，于是「十年」这种歌在酷狗明明有免费版却报「暂无可播放」。
+ * 现在的做法：先试条目自己的 hash，不行就在同名同歌手的其他版本里挨个试。
+ * 用户要的是听到歌，不是看到一条精确的错误信息。
+ */
+async function getMusicUrl(songInfo: MusicItem, quality: Quality): Promise<MusicUrlInfo> {
+  const primary = typeof songInfo.hash === 'string' ? songInfo.hash : ''
+  const entry = songInfo.qualitys?.[quality] as { hash?: string } | undefined
+  const fallbackHash = entry?.hash ?? (songInfo.qualitys?.['128k'] as { hash?: string } | undefined)?.hash ?? ''
+  const hashes: string[] = []
+  for (const h of [primary, fallbackHash]) {
+    if (h && !hashes.includes(h.toUpperCase())) hashes.push(h.toUpperCase())
   }
-  // 服务端实际给的音质可能与请求的不同，以它回的 bitRate/extName 为准
-  return {
-    url: parsed.url,
-    quality,
-    type: parsed.extName || 'mp3',
-    size: parsed.fileSize,
+  if (!hashes.length) throw new Error('[lxmn/kg] 该歌曲缺少 hash，无法取流')
+
+  for (const h of hashes) {
+    const got = await tryPlayInfo(h)
+    if (got) return { url: got.url, quality, type: got.type, size: got.size }
+  }
+
+  // 主 hash 都失败：去搜索里找同一首歌的免费版本
+  const alts = await findFreeVersions(songInfo)
+  for (const h of alts) {
+    if (hashes.includes(h)) continue
+    const got = await tryPlayInfo(h)
+    if (got) return { url: got.url, quality, type: got.type, size: got.size }
+  }
+
+  throw new Error('[lxmn/kg] 该歌曲暂无可播放地址（版权受限或需要付费）')
+}
+
+/** 归一化标题，用于判断「是不是同一首歌」 */
+function normTitle(v: unknown): string {
+  return String(v ?? '')
+    .toLowerCase()
+    .replace(/[（(【\[].*?[）)】\]]/g, '')
+    .replace(/[\s\-_·,，.。!！?？'"“”‘’]/g, '')
+}
+
+/**
+ * 在同一次搜索里找出「同名 + 歌手对得上」的免费版本 hash。
+ *
+ * 只返回 priv=0 且 pay=0 的 —— 那些才是确定能播的。
+ * 匹配故意收紧：宁可找不到，也不要串到翻唱或同名歌上。
+ */
+async function findFreeVersions(songInfo: MusicItem): Promise<string[]> {
+  const { http } = getPlatform()
+  const wantTitle = normTitle(songInfo.name)
+  const wantSinger = normTitle(String(songInfo.singer ?? '').split(/[\/、&,，]/)[0])
+  if (!wantTitle || !wantSinger) return []
+
+  try {
+    const query = new URLSearchParams({
+      platform: 'WebFilter',
+      filter: '2',
+      iscorrection: '1',
+      privilege_filter: '0',
+      keyword: `${songInfo.name} ${songInfo.singer}`,
+      page: '1',
+      pagesize: '30',
+    })
+    const res = await http.request({ url: `${SEARCH_URL}?${query.toString()}`, method: 'GET' })
+    if (res.statusCode !== 200) return []
+    const parsed = JSON.parse(res.body) as { data?: { lists?: unknown[] } }
+
+    const out: string[] = []
+    for (const raw of parsed.data?.lists ?? []) {
+      const info = raw as Record<string, unknown>
+      // 字段名是 Privilege / PayType（不是 Priv / Pay）—— 实测确认
+      if (Number(info.Privilege ?? 0) !== 0 || Number(info.PayType ?? 0) !== 0) continue
+      if (normTitle(info.SongName) !== wantTitle && normTitle(info.OriSongName) !== wantTitle) continue
+      const singer = normTitle(String(info.SingerName ?? '').split(/[\/、&,，]/)[0])
+      if (!singer.includes(wantSinger) && !wantSinger.includes(singer)) continue
+      const h = String(info.FileHash ?? '').toUpperCase()
+      if (h && !out.includes(h)) out.push(h)
+    }
+    return out
+  } catch {
+    return []
   }
 }
 
