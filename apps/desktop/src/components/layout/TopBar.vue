@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ChevronLeft, Search, Mic, UserRound, LogIn, Crown } from 'lucide-vue-next'
 import { useAccount } from '@/lib/auth'
+import WindowControls from './WindowControls.vue'
 
 const router = useRouter()
 const keyword = ref('')
@@ -16,23 +17,23 @@ function search() {
 </script>
 
 <template>
-  <header class="flex min-w-0 items-center gap-3 border-b border-ncm-divider bg-ncm-topbar px-7">
-    <button type="button" class="flex size-10 shrink-0 items-center justify-center rounded-xl border border-ncm-divider text-ncm-faint hover:bg-white" aria-label="返回上一页" @click="router.back()">
+  <header class="flex min-w-0 items-center gap-3 border-b border-ncm-divider bg-ncm-topbar px-7 [app-region:drag]">
+    <button type="button" class="flex size-10 shrink-0 items-center justify-center rounded-xl border border-ncm-divider text-ncm-faint hover:bg-white [app-region:no-drag]" aria-label="返回上一页" @click="router.back()">
       <ChevronLeft :size="20" aria-hidden="true" />
     </button>
 
-    <div class="flex h-11 min-w-[160px] max-w-[430px] flex-1 items-center gap-3 rounded-xl border border-ncm-divider bg-white px-4 focus-within:border-ncm-accent">
+    <div class="flex h-11 min-w-[160px] max-w-[430px] flex-1 items-center gap-3 rounded-xl border border-ncm-divider bg-white px-4 focus-within:border-ncm-accent [app-region:no-drag]">
       <Search :size="20" class="shrink-0 text-ncm-faint" aria-hidden="true" />
       <input v-model="keyword" type="search" placeholder="搜索歌曲、歌手" class="w-full min-w-0 bg-transparent text-[15px] text-ncm-fg outline-none placeholder:text-ncm-fainter" @keyup.enter="search" />
     </div>
 
-    <button type="button" disabled title="语音搜索暂未开放" class="flex size-10 shrink-0 cursor-not-allowed items-center justify-center rounded-xl border border-ncm-divider text-ncm-faint opacity-55" aria-label="语音搜索暂未开放">
+    <button type="button" disabled title="语音搜索暂未开放" class="flex size-10 shrink-0 cursor-not-allowed items-center justify-center rounded-xl border border-ncm-divider text-ncm-faint opacity-55 [app-region:no-drag]" aria-label="语音搜索暂未开放">
       <Mic :size="19" aria-hidden="true" />
     </button>
 
     <div class="min-w-0 flex-1" />
 
-    <button type="button" class="flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-left text-ncm-fg hover:bg-black/5" @click="router.push('/account')">
+    <button type="button" class="flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-left text-ncm-fg hover:bg-black/5 [app-region:no-drag]" @click="router.push('/account')">
       <span class="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-ncm-divider text-ncm-muted">
         <img
           v-if="account.signedIn.value && account.profile.value?.avatar"
@@ -49,5 +50,8 @@ function search() {
         <Crown :size="13" aria-hidden="true" /> VIP
       </span>
     </button>
+
+    <!-- 无边框窗口的最小化 / 最大化 / 关闭（之前缺这一组，用户只能靠系统标题栏） -->
+    <WindowControls class="ml-1 shrink-0" />
   </header>
 </template>

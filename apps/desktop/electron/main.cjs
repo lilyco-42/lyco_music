@@ -23,6 +23,12 @@ function createWindow() {
     minHeight: 670,
     backgroundColor: '#F4F6FB',
     title: 'Lyco Music',
+    // 无边框：界面自己画右上角的最小化/最大化/关闭。
+    // 之前 frame 默认为 true，系统标题栏和页面里的自绘按钮会同时出现，
+    // 视觉上就是「多了一套缩放按钮」。
+    frame: false,
+    // macOS 上仍保留红绿灯的位置语义；Windows/Linux 完全由页面控制
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' } : {}),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -43,6 +49,13 @@ function createWindow() {
     if (/^https?:/.test(url)) shell.openExternal(url)
     return { action: 'deny' }
   })
+
+  // 最大化状态变化时通知渲染层，让自绘的最大化/还原图标跟着换
+  const pushMaximized = () => {
+    if (win && !win.isDestroyed()) win.webContents.send('lxmn:win:maximized', win.isMaximized())
+  }
+  win.on('maximize', pushMaximized)
+  win.on('unmaximize', pushMaximized)
 
   win.on('closed', () => { win = null })
 }
@@ -105,6 +118,18 @@ ipcMain.handle('lxmn:storage:remove', async (_e, key) => {
   await fs.writeFile(storePath(), JSON.stringify(s), 'utf8')
 })
 ipcMain.handle('lxmn:storage:keys', async () => Object.keys(await readStore()))
+
+/* ---------- 窗口控制（无边框模式下页面自绘按钮要用） ---------- */
+
+ipcMain.handle('lxmn:win:minimize', () => { win?.minimize(); return true })
+ipcMain.handle('lxmn:win:toggle-maximize', () => {
+  if (!win) return false
+  if (win.isMaximized()) win.unmaximize()
+  else win.maximize()
+  return win.isMaximized()
+})
+ipcMain.handle('lxmn:win:close', () => { win?.close(); return true })
+ipcMain.handle('lxmn:win:is-maximized', () => win?.isMaximized() ?? false)
 
 ipcMain.handle('lxmn:app:info', async () => ({
   version: app.getVersion(),

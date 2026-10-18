@@ -20,6 +20,8 @@ import {
   installMgSource,
   installWySource,
   hasSource,
+  listSources,
+  getSource,
   type HttpAdapter,
   type HttpRequestOptions,
   type HttpResponse,
@@ -100,6 +102,22 @@ export function ensureDesktopPlatform(): void {
   for (const s of BUILTIN) {
     if (!hasSource(s.id)) s.install()
   }
+
+  // 诊断入口：音源报错以前会被 player.search 静默吞掉，界面只表现为「某个源没结果」。
+  // 挂一个只读句柄，方便在 DevTools 里直接 __lxmn.probe('kw','起风了') 看真实错误。
+  ;(globalThis as unknown as { __lxmn?: unknown }).__lxmn = {
+    sources: () => listSources(),
+    probe: async (id: SourceId, keyword: string) => {
+      try {
+        const src = getSource(id)
+        const r = await src.musicSearch?.(keyword, 1, 3)
+        return { ok: true, count: r?.list.length ?? 0, first: r?.list[0]?.name ?? null }
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+  }
+
   done = true
 }
 

@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { coverFor } from '@/lib/covers'
 
 /**
  * 首页「推荐」—— 实测规格：
@@ -24,6 +26,26 @@ const channels = [
 ]
 
 const router = useRouter()
+
+/** 关键词 -> 真实封面 URL；取不到就留空，模板回退到内置占位图 */
+const covers = reactive<Record<string, string>>({})
+const loaded = ref(false)
+
+onMounted(async () => {
+  const keywords = [...channels.map(c => c.keyword), ...playlists.map(p => p.title)]
+  const unique = [...new Set(keywords)]
+  await Promise.all(
+    unique.map(async k => {
+      const url = await coverFor(k).catch(() => '')
+      if (url) covers[k] = url
+    }),
+  )
+  loaded.value = true
+})
+
+function picFor(keyword: string, fallback: string): string {
+  return covers[keyword] || fallback
+}
 
 function openChannel(keyword: string): void {
   void router.push({ name: 'search', query: { q: keyword } })
@@ -61,8 +83,16 @@ function openPlaylist(title: string): void {
           :style="{ background: ch.tone }"
           @click="openChannel(ch.keyword)"
         >
-          <!-- 整图背景的替代：色块 + 顶部标题 -->
-          <div class="absolute inset-0 bg-gradient-to-b from-black/5 to-black/45" />
+          <!-- 真实封面打底；取不到图时保留色块，不会出现破图 -->
+          <img
+            v-if="covers[ch.keyword]"
+            :src="covers[ch.keyword]"
+            alt=""
+            class="absolute inset-0 size-full object-cover"
+            referrerpolicy="no-referrer"
+            loading="lazy"
+          />
+          <div class="absolute inset-0 bg-gradient-to-b from-black/10 to-black/55" />
 
           <!-- 标题距左 13px -->
           <h3 class="absolute left-[13px] top-[13px] text-[21px] font-bold leading-tight text-white drop-shadow">
@@ -107,7 +137,13 @@ function openPlaylist(title: string): void {
         >
           <!-- 封面 156x157，圆角 7px；无封面数据时用生成的占位图 -->
           <div class="relative h-[157px] w-[156px] overflow-hidden rounded-cover bg-ncm-fainter/40">
-            <img :src="'./art/playlist-default.jpg'" alt="" class="size-full object-cover" loading="lazy" />
+            <img
+              :src="picFor(pl.title, './art/playlist-default.jpg')"
+              alt=""
+              class="size-full object-cover"
+              referrerpolicy="no-referrer"
+              loading="lazy"
+            />
             <div class="absolute bottom-2 right-2 flex size-[30px] items-center justify-center rounded-full bg-white/90 opacity-0 transition-opacity group-hover:opacity-100">
               <svg viewBox="0 0 24 24" class="size-3.5 fill-ncm-accent-play"><path d="M8 5v14l11-7z" /></svg>
             </div>

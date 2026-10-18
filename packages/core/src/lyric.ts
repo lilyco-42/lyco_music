@@ -29,6 +29,14 @@ export interface ParsedLyric {
   lines: LyricLine[]
   /** 有翻译行时为 true，UI 可以据此决定要不要留第二行的高度 */
   hasTranslation: boolean
+  /**
+   * 纯文本歌词（没有任何时间标签）。
+   *
+   * 网易云对播客、翻唱、纯词作品只回一段无时间戳的文本。以前这种响应会被
+   * 解析成 0 行，界面就一直停在「歌词解析中…」——用户看到的是永远转圈。
+   * 现在按行造行并打上这个标记，UI 静态展示即可（不做高亮、不可点击跳转）。
+   */
+  plain?: boolean
 }
 
 /** [mm:ss.fff] / [mm:ss:fff] / [mm:ss] —— 冒号和小数点都见过 */
@@ -93,7 +101,18 @@ export function parseLrc(raw: string | null | undefined): ParsedLyric {
   }
 
   const lines = [...byTime.values()].sort((a, b) => a.time - b.time)
-  return { lines, hasTranslation: false }
+  if (lines.length) return { lines, hasTranslation: false }
+
+  // 一条时间标签都没有：当作纯文本歌词，按行造出等距时间轴。
+  // 这样 UI 至少能把词显示出来，而不是卡在「解析中」。
+  const plain: LyricLine[] = []
+  for (const rawLine of raw.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line) continue
+    if (META_TAG.test(line)) continue
+    plain.push({ time: plain.length, text: line })
+  }
+  return { lines: plain, hasTranslation: false, plain: plain.length > 0 }
 }
 
 /**
@@ -103,6 +122,8 @@ export function parseLrc(raw: string | null | undefined): ParsedLyric {
  * 一个容差去匹配；匹配不上就丢弃，绝不硬塞 —— 错位的翻译比没有翻译更糟。
  */
 export function mergeTranslation(parsed: ParsedLyric, tlyric: string | null | undefined, tolerance = 0.35): ParsedLyric {
+  // 纯文本歌词没有有意义的时间轴，套翻译只会错位
+  if (parsed.plain) return parsed
   if (!parsed.lines.length || !tlyric) return parsed
   const tr = parseLrc(tlyric)
   if (!tr.lines.length) return parsed

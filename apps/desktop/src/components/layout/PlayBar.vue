@@ -5,8 +5,9 @@
  * 左侧歌名/歌手左边距 50px；中央控制区中心 x=960；播放按钮 52x52 圆形
  * 右侧从 x≈1642 起：音质 / 词 / 音量 / 更多
  */
-import { computed, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { parseLyric, findLineIndex } from '@lxmn/core'
 import { Button } from '@/components/ui/button'
 import { usePlayer } from '@/lib/player'
 
@@ -15,6 +16,27 @@ const player = usePlayer()
 
 const track = computed(() => player.current.value)
 const playing = computed(() => player.state.playing)
+
+/** 封面：优先用实际在播曲目的图；没有就退回内置占位图，避免出现破图 */
+const cover = computed(() => player.state.picUrl || './art/cover-default.jpg')
+
+function openPlayer(): void {
+  void router.push({ name: 'player' })
+}
+
+/** 桌面歌词浮层（点「词」开关）—— 以前这个按钮直接跳播放页，等于没有歌词开关 */
+const showLyric = ref(false)
+
+const lyricLines = computed(() => parseLyric(player.state.lyric, player.state.tlyric).lines)
+const lyricIndex = computed(() => findLineIndex(lyricLines.value, player.state.currentTime))
+const lyricWindow = computed(() => {
+  const lines = lyricLines.value
+  if (!lines.length) return []
+  const at = lyricIndex.value
+  const from = Math.max(0, (at < 0 ? 0 : at) - 1)
+  return lines.slice(from, from + 3).map((l, i) => ({ ...l, active: from + i === at }))
+})
+const hasLyric = computed(() => lyricLines.value.length > 0)
 
 /** 进度：没有时长信息时按 0 处理，避免 NaN 宽度 */
 const progress = computed(() => {
@@ -62,8 +84,24 @@ const error = computed(() => player.state.error)
     </div>
 
     <!-- 左侧歌曲信息：左边距 50px -->
-    <div class="flex w-[430px] shrink-0 items-center gap-4 pl-[50px]">
-      <div class="min-w-0">
+    <div class="flex w-[430px] shrink-0 items-center gap-4 pl-[28px]">
+      <!-- 封面：网易云底部是一直有图的，点图进播放页 -->
+      <button
+        type="button"
+        class="group relative size-[56px] shrink-0 overflow-hidden rounded-lg bg-ncm-divider"
+        :aria-label="track ? '打开播放页' : '暂无播放'"
+        :disabled="!track"
+        @click="openPlayer"
+      >
+        <img :src="cover" alt="" class="size-full object-cover" referrerpolicy="no-referrer" />
+        <span
+          class="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition-opacity group-hover:opacity-100"
+        >
+          <svg viewBox="0 0 24 24" class="size-6 fill-white"><path d="M6 9l6-6 6 6M12 3v12" stroke="white" stroke-width="2" fill="none" /><path d="M12 21v-6" stroke="white" stroke-width="2" /></svg>
+        </span>
+      </button>
+
+      <div class="min-w-0" :class="track ? 'cursor-pointer' : ''" @click="track && openPlayer()">
         <div class="flex items-center gap-1.5">
           <span class="truncate text-[18px] text-ncm-fg">{{ track ? track.name : '未在播放' }}</span>
         </div>
@@ -119,9 +157,11 @@ const error = computed(() => player.state.error)
       <button type="button" class="text-[15px] hover:text-ncm-fg" aria-label="切换音质" @click="cycleQuality">+</button>
       <button
         type="button"
-        class="text-[15px] hover:text-ncm-fg"
-        aria-label="歌词"
-        @click="router.push({ name: 'player' })"
+        class="text-[15px] [app-region:no-drag]"
+        :class="showLyric ? 'text-ncm-accent' : 'hover:text-ncm-fg'"
+        aria-label="桌面歌词"
+        :aria-pressed="showLyric"
+        @click="showLyric = !showLyric"
       >词</button>
 
       <!-- 音量 -->
@@ -133,6 +173,26 @@ const error = computed(() => player.state.error)
       </div>
 
       <button type="button" class="text-[18px] leading-none hover:text-ncm-fg" aria-label="更多">…</button>
+    </div>
+
+    <!-- 桌面歌词浮层 -->
+    <div
+      v-if="showLyric"
+      class="absolute bottom-[112px] right-[28px] w-[430px] rounded-2xl border border-ncm-divider bg-white/95 px-5 py-4 shadow-[0_12px_32px_rgba(0,0,0,.14)] backdrop-blur"
+    >
+      <div class="mb-2 flex items-center justify-between">
+        <span class="truncate text-[13px] text-ncm-faint">{{ track ? track.name + ' · ' + track.singer : '未在播放' }}</span>
+        <button type="button" class="text-[13px] text-ncm-faint hover:text-ncm-fg" @click="showLyric = false">收起</button>
+      </div>
+      <p v-if="!hasLyric" class="py-6 text-center text-[15px] text-ncm-fainter">暂无歌词</p>
+      <template v-else>
+        <p
+          v-for="(l, i) in lyricWindow"
+          :key="i"
+          class="truncate py-1 text-[16px] leading-6 transition-colors"
+          :class="l.active ? 'font-semibold text-ncm-accent' : 'text-ncm-muted'"
+        >{{ l.text || '·' }}</p>
+      </template>
     </div>
   </footer>
 </template>

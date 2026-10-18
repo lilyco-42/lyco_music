@@ -5,11 +5,11 @@
  * 这一页是「能真的听歌」的入口：TopBar 的搜索框回车 -> /search?q=xxx
  * -> 调内核的 musicSearch -> 点条目播放。
  */
-import { computed, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { getSource, hasSource, type MusicItem } from '@lxmn/core'
 import { usePlayer } from '@/lib/player'
 import { useSync } from '@/lib/sync'
-import type { MusicItem } from '@lxmn/core'
 
 const route = useRoute()
 const player = usePlayer()
@@ -35,16 +35,66 @@ const SOURCE_LABELS: Record<string, string> = {
 
 const keyword = computed(() => String(route.query.q ?? '').trim())
 
+/* ---------- 音源筛选（对齐 lx-music 的「全部 / 网易云 / 酷狗 / 酷我 / 咪咕」） ---------- */
+
+/** 当前选中的音源，'all' 表示不筛选 */
+const activeSource = ref<'all' | string>('all')
+
+/** 只列出本次结果里真实出现过的音源，避免出现点了没内容的空页签 */
+const sourceTabs = computed(() => {
+  const counts = new Map<string, number>()
+  for (const item of list.value) counts.set(item.source, (counts.get(item.source) ?? 0) + 1)
+  return [
+    { id: 'all' as const, label: '全部', count: list.value.length },
+    ...[...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([id, count]) => ({ id, label: SOURCE_LABELS[id] ?? id, count })),
+  ]
+})
+
+const filtered = computed(() =>
+  activeSource.value === 'all' ? list.value : list.value.filter(i => i.source === activeSource.value))
+
+/* ---------- 封面补齐：酷我搜索不带图，靠 getPic 逐条补 ---------- */
+
+const pics = reactive<Record<string, string>>({})
+const keyOf = (item: MusicItem): string => item.source + '-' + String(item.songmid)
+
+function picOf(item: MusicItem): string {
+  return pics[keyOf(item)] || (typeof item.picUrl === 'string' ? item.picUrl : '')
+}
+
+async function hydratePics(items: MusicItem[]): Promise<void> {
+  const missing = items.filter(i => !picOf(i) && hasSource(i.source) && Boolean(getSource(i.source).getPic))
+  let cursor = 0
+  const worker = async (): Promise<void> => {
+    while (cursor < missing.length) {
+      const item = missing[cursor++]
+      if (!item) continue
+      try {
+        const info = await getSource(item.source).getPic!(item)
+        if (info.url) pics[keyOf(item)] = info.url
+      } catch {
+        // 单条失败不影响列表
+      }
+    }
+  }
+  // 并发 3 个，避免一次打十几个请求把接口打停
+  await Promise.all([worker(), worker(), worker()])
+}
+
 async function run(): Promise<void> {
   list.value = []
   total.value = 0
   error.value = ''
+  activeSource.value = 'all'
   if (!keyword.value) return
   loading.value = true
   try {
     const r = await player.search(keyword.value, 1, 30)
     list.value = r.list
     total.value = r.total
+    void hydratePics(r.list)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -65,9 +115,27 @@ function fmtDuration(v: unknown): string {
 
 <template>
   <div class="pt-2">
-    <div class="mb-5 flex items-baseline gap-3">
+    <div class="mb-4 flex items-baseline gap-3">
       <h1 class="text-[26px] font-bold text-ncm-fg">搜索「{{ keyword }}」</h1>
       <span v-if="total" class="text-[14px] text-ncm-faint">共 {{ total }} 首</span>
+    </div>
+
+    <!-- 音源筛选：一条结果里混着四个源，按源过滤（与 lx-music 一致） -->
+    <div v-if="sourceTabs.length > 1" class="mb-3 flex flex-wrap items-center gap-2">
+      <button
+        v-for="t in sourceTabs"
+        :key="t.id"
+        type="button"
+        class="rounded-full border px-3 py-1 text-[13px] transition-colors"
+        :class="activeSource === t.id
+          ? 'border-ncm-accent bg-ncm-accent/10 text-ncm-accent'
+          : 'border-ncm-divider text-ncm-faint hover:border-ncm-accent hover:text-ncm-accent'"
+        :aria-pressed="activeSource === t.id"
+        @click="activeSource = t.id"
+      >
+        {{ t.label }}
+        <span class="ml-1 text-[11px] opacity-70">{{ t.count }}</span>
+      </button>
     </div>
 
     <p v-if="loading" class="text-[15px] text-ncm-faint">搜索中…</p>
@@ -80,7 +148,7 @@ function fmtDuration(v: unknown): string {
 
     <ul v-else class="flex flex-col">
       <li
-        v-for="(item, i) in list"
+        v-for="(item, i) in filtered"
         :key="item.source + '-' + item.songmid"
         class="group flex h-[62px] cursor-pointer items-center gap-4 rounded-nav px-3 transition-colors hover:bg-black/5"
         @dblclick="play(item)"
@@ -89,11 +157,12 @@ function fmtDuration(v: unknown): string {
 
         <div class="relative size-[44px] shrink-0 overflow-hidden rounded-[5px] bg-ncm-fainter/30">
           <img
-            v-if="item.picUrl"
-            :src="String(item.picUrl)"
+            v-if="picOf(item)"
+            :src="picOf(item)"
             alt=""
             class="size-full object-cover"
             loading="lazy"
+            referrerpolicy="no-referrer"
             @error="($event.target as HTMLImageElement).src = './art/cover-default.jpg'"
           />
           <img v-else :src="'./art/cover-default.jpg'" alt="" class="size-full object-cover" loading="lazy" />
@@ -140,7 +209,7 @@ function fmtDuration(v: unknown): string {
       </li>
     </ul>
 
-    <p v-if="list.length" class="mt-4 text-[13px] text-ncm-fainter">
+    <p v-if="filtered.length" class="mt-4 text-[13px] text-ncm-fainter">
       双击播放。搜索已整合多个音源，可优先选择有播放权限的版本；VIP 专享或下架歌曲需遵守原平台版权要求。
     </p>
   </div>

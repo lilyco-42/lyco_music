@@ -13,10 +13,11 @@
  */
 import { computed, ref, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { parseLyric, findLineIndex } from '@lxmn/core'
+import { parseLyric, findLineIndex, type MusicItem } from '@lxmn/core'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { usePlayer } from '@/lib/player'
+import WindowControls from '@/components/layout/WindowControls.vue'
 
 const router = useRouter()
 const player = usePlayer()
@@ -37,21 +38,47 @@ const spinning = computed(() => state.playing)
 const parsed = computed(() => parseLyric(state.lyric, state.tlyric))
 const lyrics = computed(() => parsed.value.lines)
 
-/** 当前唱到第几行：由 <audio> 回灌的 currentTime 驱动 */
-const currentLine = computed(() => findLineIndex(lyrics.value, state.currentTime))
+/**
+ * 纯文本歌词（没有任何时间戳）：网易云对播客/翻唱只回一段无时间轴的词。
+ * 这种词不能高亮、也不该可点击跳转 —— 只静态展示。
+ */
+const isPlainLyric = computed(() => parsed.value.plain === true)
 
-/** 正在唱的那行滚动到中间 */
+/** 当前唱到第几行：由 <audio> 回灌的 currentTime 驱动 */
+const currentLine = computed(() => (isPlainLyric.value ? -1 : findLineIndex(lyrics.value, state.currentTime)))
+
+/** 把正在唱的那行滚到可视区中间 */
 const lyricBox = ref<HTMLElement | null>(null)
+
+function centerActiveLine(behavior: ScrollBehavior = 'smooth'): void {
+  const box = lyricBox.value
+  if (!box) return
+  const el = box.querySelector<HTMLElement>('[data-active="true"]')
+  if (!el) { box.scrollTo({ top: 0, behavior }); return }
+  // 用 rect 差值算相对滚动量：offsetTop 依赖定位祖先，容器不是 relative 时会算错
+  const boxRect = box.getBoundingClientRect()
+  const elRect = el.getBoundingClientRect()
+  const delta = elRect.top - boxRect.top
+  box.scrollTo({ top: box.scrollTop + delta - box.clientHeight / 2 + elRect.height / 2, behavior })
+}
+
+/** 当前行变化时跟随滚动（歌词滚动的核心） */
 watch(currentLine, async (i) => {
   if (i < 0) return
   await nextTick()
-  const box = lyricBox.value
-  const el = box?.querySelector<HTMLElement>('[data-active="true"]')
-  if (box && el) box.scrollTo({ top: el.offsetTop - box.clientHeight / 2 + el.clientHeight / 2, behavior: 'smooth' })
+  centerActiveLine()
+})
+
+/** 歌词刚到或者换歌时，先定位一次，否则要等下一行才动 */
+watch([lyrics, () => state.lyric], async () => {
+  await nextTick()
+  centerActiveLine('auto')
 })
 
 /** 点歌词跳转播放位置（进度条之外最自然的 seek 方式） */
 function seekTo(time: number): void {
+  // 纯文本歌词的时间是造出来的，跳过去只会乱，直接忽略
+  if (isPlainLyric.value) return
   player.seek(time)
 }
 
@@ -75,6 +102,33 @@ const cover = computed(() => state.picUrl)
 const title = computed(() => current.value?.name ?? '未在播放')
 const singer = computed(() => current.value?.singer ?? '')
 const album = computed(() => current.value?.albumName ?? '')
+
+/** 相似推荐：拿当前曲目的「歌名 + 歌手」再搜一遍，去掉自己 */
+const similarSongs = ref<MusicItem[]>([])
+watch(
+  () => (current.value ? current.value.source + '-' + String(current.value.songmid) : ''),
+  async () => {
+    similarSongs.value = []
+    const t = current.value
+    if (!t) return
+    try {
+      const r = await player.search(t.name + ' ' + t.singer, 1, 10)
+      similarSongs.value = r.list
+        .filter(x => !(x.source === t.source && String(x.songmid) === String(t.songmid)))
+        .slice(0, 8)
+    } catch {
+      // 相似推荐失败不影响播放
+    }
+  },
+  { immediate: true },
+)
+
+/** 全屏切换：Electron 里交给 BrowserWindow，浏览器里退化成 Fullscreen API */
+function toggleFullscreen(): void {
+  const doc = document
+  if (!doc.fullscreenElement) void doc.documentElement.requestFullscreen().catch(() => undefined)
+  else void doc.exitFullscreen().catch(() => undefined)
+}
 
 function close(): void {
   router.push({ name: 'home' })
@@ -112,9 +166,9 @@ const vinylStyle = computed(() => ({
 <template>
   <div class="relative h-full w-full overflow-hidden bg-ncmd-bg text-ncmd-fg">
     <!-- 顶栏：与背景融合，不另做色块 -->
-    <div class="absolute inset-x-0 top-0 z-10 flex h-[100px] items-center justify-between px-[52px]">
+    <div class="absolute inset-x-0 top-0 z-10 flex h-[100px] items-center justify-between px-[52px] [app-region:drag]">
       <!-- 左上：折叠箭头 -->
-      <button type="button" class="text-ncmd-muted hover:text-ncmd-fg" aria-label="收起播放器模式" @click="close">
+      <button type="button" class="text-ncmd-muted hover:text-ncmd-fg [app-region:no-drag]" aria-label="收起播放器模式" @click="close">
         <svg viewBox="0 0 24 24" class="size-5 stroke-current" fill="none" stroke-width="1.8">
           <path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
@@ -125,18 +179,14 @@ const vinylStyle = computed(() => ({
         <span class="size-[18px] rounded-full border-[1.5px] border-current" />
         <span class="text-[18px]">播放器模式</span>
         <span class="mx-1 h-4 w-px bg-ncmd-elevated" />
-        <button type="button" class="size-[18px] rounded-[3px] border-[1.5px] border-current" aria-label="全屏" />
-        <span class="ml-3 flex items-center">
-          <button type="button" class="flex h-[44px] w-[46px] items-center justify-center hover:bg-white/5" aria-label="最小化">
-            <svg viewBox="0 0 12 12" class="size-3 stroke-current" stroke-width="1.2"><path d="M2 6h8" /></svg>
-          </button>
-          <button type="button" class="flex h-[44px] w-[46px] items-center justify-center hover:bg-white/5" aria-label="最大化">
-            <svg viewBox="0 0 12 12" class="size-3 stroke-current" fill="none" stroke-width="1.2"><rect x="2.5" y="2.5" width="7" height="7" /></svg>
-          </button>
-          <button type="button" class="flex h-[44px] w-[46px] items-center justify-center hover:bg-ncmd-accent hover:text-white" aria-label="关闭" @click="close">
-            <svg viewBox="0 0 12 12" class="size-3 stroke-current" stroke-width="1.2"><path d="M3 3l6 6M9 3l-6 6" /></svg>
-          </button>
-        </span>
+        <button
+          type="button"
+          class="size-[18px] rounded-[3px] border-[1.5px] border-current [app-region:no-drag]"
+          aria-label="全屏"
+          @click="toggleFullscreen"
+        />
+        <!-- 与主界面共用同一组窗口按钮：这里原来是一套只会画图的假按钮 -->
+        <WindowControls tone="dark" class="ml-2" />
       </div>
     </div>
 
@@ -201,7 +251,7 @@ const vinylStyle = computed(() => ({
       </div>
 
       <!-- ============ 右侧信息 + 歌词区 (x=1005 起) ============ -->
-      <div class="flex min-w-0 flex-1 flex-col pt-[25px]">
+      <div class="flex min-h-0 min-w-0 flex-1 flex-col pt-[25px]">
         <!-- 歌名行：34~36px，后跟音源 / 音质小标签 -->
         <div class="flex items-center gap-2">
           <h1 class="truncate text-[35px] leading-[44px] text-ncmd-fg">{{ title }}</h1>
@@ -218,7 +268,7 @@ const vinylStyle = computed(() => ({
         </p>
 
         <!-- 页签切换器（shadcn-vue Tabs）：222x42，圆角 21px，位于 (1005,265) -->
-        <Tabs v-model="activeTab" class="mt-[57px]">
+        <Tabs v-model="activeTab" class="mt-[57px] flex min-h-0 flex-1 flex-col">
           <TabsList>
             <TabsTrigger v-for="t in tabs" :key="t.key" :value="t.key">
               {{ t.label }}
@@ -226,22 +276,23 @@ const vinylStyle = computed(() => ({
           </TabsList>
 
           <!-- 歌词区：与页签间留约 260px 空白，起始 y=573 -->
-          <TabsContent value="lyric" class="mt-[260px] max-w-[600px] flex-1 pb-8">
-            <div ref="lyricBox" class="h-full overflow-y-auto">
-              <p v-if="!lyrics.length" class="text-[20px] leading-[32px] text-ncmd-dim">
-                {{ state.lyric ? '歌词解析中…' : '暂无歌词' }}
-              </p>
+          <TabsContent value="lyric" class="mt-[96px] flex min-h-0 max-w-[620px] flex-1 flex-col pb-6">
+            <div ref="lyricBox" class="min-h-0 flex-1 overflow-y-auto pr-3">
+              <p v-if="!lyrics.length" class="text-[20px] leading-[32px] text-ncmd-dim">暂无歌词</p>
               <div
                 v-for="(line, i) in lyrics"
                 :key="i"
                 :data-active="i === currentLine"
-                class="cursor-pointer"
-                :class="i === currentLine ? 'mb-[27px]' : 'mb-[23px]'"
+                class="transition-[margin]"
+                :class="[
+                  isPlainLyric ? 'cursor-default' : 'cursor-pointer',
+                  i === currentLine ? 'mb-[27px]' : 'mb-[23px]',
+                ]"
                 @click="seekTo(line.time)"
               >
                 <p
                   class="text-[24px] leading-[32px] transition-colors"
-                  :class="i === currentLine ? 'text-ncmd-fg' : 'text-ncmd-dim'"
+                  :class="i === currentLine ? 'text-ncmd-fg' : (isPlainLyric ? 'text-ncmd-muted' : 'text-ncmd-dim')"
                 >
                   {{ line.text || '·' }}
                 </p>
@@ -256,11 +307,18 @@ const vinylStyle = computed(() => ({
             </div>
           </TabsContent>
 
-          <TabsContent value="wiki" class="mt-[260px] text-[24px] leading-[32px] text-ncmd-dim">
-            百科内容
+          <TabsContent value="wiki" class="mt-[96px] text-[20px] leading-[32px] text-ncmd-dim">
+            <p>专辑：{{ album || '未知' }}</p>
+            <p class="mt-2">歌手：{{ singer || '未知' }}</p>
+            <p class="mt-2">来源：{{ current?.source?.toUpperCase() ?? '—' }} · 音质 {{ qualityLabel }}</p>
           </TabsContent>
-          <TabsContent value="similar" class="mt-[260px] text-[24px] leading-[32px] text-ncmd-dim">
-            相似推荐
+          <TabsContent value="similar" class="mt-[96px] text-[20px] leading-[32px] text-ncmd-dim">
+            <p v-if="similarSongs.length">正在按《{{ title }}》找相似曲目…</p>
+            <ul v-else class="space-y-1">
+              <li v-for="s in similarSongs" :key="s.source + s.songmid" class="truncate">
+                {{ s.name }} — {{ s.singer }}
+              </li>
+            </ul>
           </TabsContent>
         </Tabs>
       </div>

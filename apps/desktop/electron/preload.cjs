@@ -13,6 +13,19 @@ contextBridge.exposeInMainWorld('lxmnNative', {
     keys: () => ipcRenderer.invoke('lxmn:storage:keys'),
   },
   appInfo: () => ipcRenderer.invoke('lxmn:app:info'),
+  /** 无边框窗口的自绘控制按钮 */
+  win: {
+    minimize: () => ipcRenderer.invoke('lxmn:win:minimize'),
+    toggleMaximize: () => ipcRenderer.invoke('lxmn:win:toggle-maximize'),
+    close: () => ipcRenderer.invoke('lxmn:win:close'),
+    isMaximized: () => ipcRenderer.invoke('lxmn:win:is-maximized'),
+    /** 最大化状态变化（双击标题栏等）时同步图标 */
+    onMaximizeChange: (cb) => {
+      const handler = (_e, value) => { try { cb(Boolean(value)) } catch { /* ignore */ } }
+      ipcRenderer.on('lxmn:win:maximized', handler)
+      return () => ipcRenderer.removeListener('lxmn:win:maximized', handler)
+    },
+  },
   auth: {
     save: (token) => ipcRenderer.invoke('lxmn:auth:save', token),
     load: () => ipcRenderer.invoke('lxmn:auth:load'),

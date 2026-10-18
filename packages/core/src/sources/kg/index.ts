@@ -325,9 +325,11 @@ export const kgSource: MusicSource = {
     for (const raw of parsed.data?.lists ?? []) {
       const item = handleKgSearchItem(raw)
       if (!item) continue
-      // 把封面模板挂到条目上，getPic 直接取用
+      // 把封面模板挂到条目上，getPic 直接取用。
+      // 酷狗返回的是模板串（.../stdmusic/{size}/...），直接把模板塞给 <img>
+      // 会得到一张必然 404 的图 —— 这里就地替换成实际尺寸。
       const tpl = (raw as Record<string, unknown>).Image
-      if (typeof tpl === 'string' && tpl) item.picUrl = tpl
+      if (typeof tpl === 'string' && tpl) item.picUrl = tpl.replace(/\{size\}/g, '480')
       list.push(item)
     }
     const total = Number(parsed.data?.total ?? 0) || list.length
