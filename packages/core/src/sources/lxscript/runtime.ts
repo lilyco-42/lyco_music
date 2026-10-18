@@ -72,7 +72,8 @@ function makeRequest() {
     callback: LxRequestCallback,
   ) {
     const { http } = getPlatform()
-    if (process.env.LXMN_TRACE) console.log('[lx-request]', url.slice(0, 80), JSON.stringify(options)?.slice(0, 300))
+    // 调试探针：经环境变量开关（RN 无 process，改用可选全局）
+    if ((globalThis as { LXMN_TRACE?: boolean }).LXMN_TRACE) console.log('[lx-request]', url.slice(0, 80), JSON.stringify(options)?.slice(0, 300))
     const method = (options?.method ?? 'GET').toUpperCase() as 'GET' | 'POST' | 'PUT' | 'DELETE' | 'HEAD'
     let body: string | undefined
     // lx 脚本的 headers 可能是 Record 或 [["k","v"],...] 键值对数组（lx-music 约定），统一摊平

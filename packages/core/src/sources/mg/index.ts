@@ -194,7 +194,10 @@ function looksLikeAudio(head: Uint8Array, contentType: string): boolean {
 /** 判断响应是否是咪咕的 JSON 错误负载（不可播时返回小段 JSON，如 {"code":"...","info":"..."}） */
 function looksLikeJsonPayload(head: Uint8Array, contentType: string): boolean {
   if (/json/i.test(contentType)) return head.length > 0
-  const s = new TextDecoder().decode(head.slice(0, 64)).trimStart()
+  // 无 DOM/Node 环境也能跑：手动把 ASCII 字节转字符串即可判断 JSON 前缀
+  let s = ''
+  for (let i = 0; i < Math.min(head.length, 64); i++) s += String.fromCharCode(head[i]!)
+  s = s.trimStart()
   return s.startsWith('{') || s.startsWith('[')
 }
 
