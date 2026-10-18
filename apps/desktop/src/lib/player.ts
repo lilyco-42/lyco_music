@@ -14,6 +14,8 @@ import {
   hasSource,
   listSources,
   qualityOrder,
+  intervalSeconds,
+  isTrialClip,
   type MusicItem,
   type Quality,
 } from '@lxmn/core'
@@ -49,6 +51,8 @@ export interface PlayerState {
   lyricOpen: boolean
   /** 静音前的音量，取消静音时还原 */
   volumeBeforeMute: number
+  /** 本曲是否已经因为「只给试听」重取过，避免来回换源 */
+  trialRetried: boolean
 }
 
 const state = reactive<PlayerState>({
@@ -69,6 +73,7 @@ const state = reactive<PlayerState>({
   mode: 'loop',
   lyricOpen: false,
   volumeBeforeMute: 0.7,
+  trialRetried: false,
 })
 
 /** 播放地址的获取方式由组件注入（内核不认识 <audio>） */
@@ -121,6 +126,39 @@ async function resolveAndPlay(item: MusicItem): Promise<void> {
     state.playing = false
   } finally {
     state.loading = false
+  }
+}
+
+/** 时长工具与试听判定都放在内核（纯函数，可被单测覆盖） */
+function looksLikeTrialClip(duration: number): boolean {
+  // 串源后 playingItem 可能来自搜索结果、没有时长字段，回落到队列里那条的时长
+  const expected = Math.max(
+    intervalSeconds(state.playingItem?.interval),
+    intervalSeconds(current.value?.interval),
+  )
+  if (!expected || expected < 60) return false
+  if (!Number.isFinite(duration) || duration <= 0) return false
+  return isTrialClip(duration, expected)
+}
+
+/** 发现试听片段后，排除这个源，换别的源重取一次 */
+async function retryAfterTrialClip(): Promise<void> {
+  if (state.trialRetried) return
+  const item = state.playingItem ?? current.value
+  if (!item) return
+  state.trialRetried = true
+  try {
+    const outcome = await resolveWithFallback(item, state.quality, { exclude: item.source })
+    state.url = outcome.info.url
+    state.quality = outcome.info.quality
+    state.playingItem = outcome.switched ? outcome.item : item
+    if (state.playingItem.picUrl) state.picUrl = state.playingItem.picUrl
+    if (playUrl) await playUrl(outcome.info.url)
+    state.playing = true
+    state.error = ''
+  } catch {
+    state.error = '该音源只提供试听片段，完整版需要在对应平台开通会员'
+    state.playing = false
   }
 }
 
@@ -214,6 +252,7 @@ export function usePlayer() {
     }
     state.currentTime = 0
     state.duration = 0
+    state.trialRetried = false
     await Promise.all([resolveAndPlay(item), loadLyric(item), loadPic(item)])
   }
 
@@ -342,7 +381,11 @@ export function usePlayer() {
     toggleLyric, toggleMute,
     /** 组件回灌：<audio> 的进度/时长 */
     reportTime: (t: number) => { state.currentTime = t },
-    reportDuration: (d: number) => { state.duration = d },
+    reportDuration: (d: number) => {
+      state.duration = d
+      // 拿到真实时长后才可能发现「只给了试听片段」
+      if (looksLikeTrialClip(d)) void retryAfterTrialClip()
+    },
     setVolume: (v: number) => { state.volume = v },
     setPlaying: (p: boolean) => { state.playing = p },
     setError: (msg: string) => { state.error = msg },

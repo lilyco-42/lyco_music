@@ -17,6 +17,9 @@ const router = useRouter()
 const player = usePlayer()
 
 const track = computed(() => player.current.value)
+
+/** 实际在播的那条（串源后与队列里的可能不同）：封面/标签都跟它走 */
+const playingItem = computed(() => player.state.playingItem ?? player.current.value)
 const playing = computed(() => player.state.playing)
 
 /** 封面：优先用实际在播曲目的图；没有就退回内置占位图，避免出现破图 */

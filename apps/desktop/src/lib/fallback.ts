@@ -126,9 +126,16 @@ function isUnplayable(message: string): boolean {
 export async function resolveWithFallback(
   item: MusicItem,
   quality: Quality,
-  opts: { allowCrossSource?: boolean } = {},
+  /**
+   * exclude：跳过这个音源。
+   * 试听片段（时长只有原曲一小截）在取流阶段看不出来，只能等 <audio> 报出时长，
+   * 那时才回来说「这个源只给了试听」，于是要排除它再找下一个。
+   */
+  opts: { allowCrossSource?: boolean; exclude?: SourceId } = {},
 ): Promise<FallbackOutcome> {
+  const skip = opts.exclude
   try {
+    if (skip === item.source) throw new Error('[lxmn/fallback] 跳过仅提供试听的音源')
     const info = await getSource(item.source).getMusicUrl(item, quality)
     return { info, item, switched: false }
   } catch (e) {
@@ -136,7 +143,9 @@ export async function resolveWithFallback(
     if (opts.allowCrossSource === false || !isUnplayable(message)) throw e
 
     // 第二层：第三方脚本池。同一首歌、同一平台，只是换个实现去取流。
+    // 被排除的音源同样跳过脚本池 —— 脚本走的是同一家平台的接口。
     try {
+      if (skip === item.source) throw new Error('skip')
       const pooled = await sourcePool.getMusicUrl(item.source, toMusicInfo(item), quality)
       return {
         info: { url: pooled.url, quality, type: 'mp3' },

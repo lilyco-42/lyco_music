@@ -4,6 +4,7 @@ export * from './types'
 export * from './sign'
 export * from './lyric'
 export * from './util/bytes'
+export * from './util/duration'
 export * from './crypto'
 export * from './portable-platform'
 export * from './http/fetch'
@@ -13,7 +14,7 @@ export * from './sync'
 export * from './library'
 export * from './sources'
 
-export const CORE_VERSION = '0.2.11'
+export const CORE_VERSION = '0.2.12'
 
 /**
  * 应用对外版本号。与根 package.json 同源 —— 发版时两处一起改，
