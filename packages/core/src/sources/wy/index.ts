@@ -7,6 +7,7 @@
  */
 import type {
   MusicSource, MusicItem, LyricInfo, PicInfo, MusicUrlInfo, Quality, SearchResult,
+  CommentResult, MusicComment,
 } from '../../types'
 import { registerSource, setSupportQuality } from '../registry'
 import { formatSingerName, qualityOrder } from '../../sign'
@@ -250,6 +251,68 @@ export const wySource: MusicSource = {
       lyric: parsed.lrc?.lyric ?? '',
       tlyric: parsed.tlyric?.lyric ?? '',
       romalrc: parsed.romalrc?.lyric ?? '',
+    }
+  },
+
+  /**
+   * 热门 + 最新评论。
+   *
+   * 网易的评论接口是公开的（不需要登录），路径里带资源类型：
+   * R_SO_4_ 表示「单曲」。第 1 页额外返回 hotComments，把它拼在最前面，
+   * 和网易云客户端的观感一致。
+   */
+  async getComments(songInfo: MusicItem, page = 1, limit = 20): Promise<CommentResult> {
+    const offset = Math.max(0, (page - 1) * limit)
+    const { body } = await eapiRequest('/api/v1/resource/comments/R_SO_4_' + String(songInfo.songmid), {
+      rid: songInfo.songmid,
+      limit,
+      offset,
+      total: true,
+      csrf_token: '',
+    })
+    const parsed = JSON.parse(body) as {
+      code?: number
+      total?: number
+      more?: boolean
+      hotComments?: unknown[]
+      comments?: unknown[]
+    }
+    if (parsed.code && parsed.code !== 200) throw new Error('[lxmn/wy] 评论接口返回 ' + parsed.code)
+
+    const map = (raw: unknown): MusicComment => {
+      const c = raw as {
+        commentId?: number
+        content?: string
+        likedCount?: number
+        time?: number
+        floor?: number
+        replyCount?: number
+        beReplied?: unknown[]
+        user?: { nickname?: string; avatarUrl?: string }
+      }
+      return {
+        id: String(c.commentId ?? ''),
+        content: String(c.content ?? ''),
+        userName: String(c.user?.nickname ?? ''),
+        avatar: c.user?.avatarUrl ?? '',
+        likedCount: Number(c.likedCount ?? 0),
+        time: Number(c.time ?? 0),
+        floor: c.floor,
+        replyCount: Array.isArray(c.beReplied) && c.beReplied.length ? c.beReplied.length : Number(c.replyCount ?? 0),
+      }
+    }
+
+    const hot = page === 1
+      ? (parsed.hotComments ?? []).map(raw => ({ ...map(raw), hot: true }))
+      : []
+    const normal = (parsed.comments ?? []).map(map)
+    const list = [...hot, ...normal]
+    return {
+      list,
+      total: Number(parsed.total ?? list.length),
+      more: Boolean(parsed.more),
+      page,
+      limit,
     }
   },
 

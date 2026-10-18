@@ -55,6 +55,36 @@ export interface PicInfo {
   url: string
 }
 
+/** 一条评论 */
+export interface MusicComment {
+  id: string
+  /** 正文 */
+  content: string
+  /** 昵称 */
+  userName: string
+  /** 头像 URL（可能为空） */
+  avatar?: string
+  /** 点赞数 */
+  likedCount: number
+  /** 时间戳（毫秒），缺失为 0 */
+  time: number
+  /** 楼中楼回复数 */
+  replyCount?: number
+  /** 是否被作者置顶/热评 */
+  hot?: boolean
+  /** 所在楼层（网易云有，便于展示「xx 楼」） */
+  floor?: number
+}
+
+export interface CommentResult {
+  list: MusicComment[]
+  total: number
+  /** 是否有更多 */
+  more: boolean
+  page: number
+  limit: number
+}
+
 /**
  * 音源实现。
  *
@@ -76,6 +106,8 @@ export interface MusicSource {
 
   /** 搜索（可选：部分音源仅支持榜单/歌单） */
   musicSearch?(keyword: string, page: number, limit: number): Promise<SearchResult>
+  /** 评论（可选：目前只有网易云有公开接口） */
+  getComments?(item: MusicItem, page: number, limit: number): Promise<CommentResult>
   /** 歌曲详情页地址（可选） */
   getMusicDetailPageUrl?(item: MusicItem): string
   /** 初始化（可选） */

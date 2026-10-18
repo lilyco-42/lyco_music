@@ -13,7 +13,8 @@
  */
 import { computed, ref, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { parseLyric, findLineIndex, type MusicItem } from '@lxmn/core'
+import { parseLyric, findLineIndex, getSource, hasSource, type MusicComment, type MusicItem } from '@lxmn/core'
+import { useSync } from '@/lib/sync'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { usePlayer } from '@/lib/player'
 import WindowControls from '@/components/layout/WindowControls.vue'
@@ -27,6 +28,7 @@ const player = usePlayer()
 const activeTab = ref('lyric')
 const tabs = [
   { key: 'lyric', label: '歌词' },
+  { key: 'comment', label: '评论' },
   { key: 'wiki', label: '百科' },
   { key: 'similar', label: '相似推荐' },
 ] as const
@@ -112,6 +114,80 @@ const cover = computed(() => state.picUrl)
 const title = computed(() => current.value?.name ?? '未在播放')
 const singer = computed(() => current.value?.singer ?? '')
 const album = computed(() => current.value?.albumName ?? '')
+
+/* ---------------- 评论 ---------------- */
+
+
+const { library, favorites } = useSync()
+
+/** 评论只对实现了 getComments 的音源有效（当前是网易云） */
+const commentSource = computed(() => {
+  const src = state.playingItem?.source ?? current.value?.source ?? ''
+  return src && hasSource(src) && Boolean(getSource(src).getComments) ? src : ''
+})
+
+const comments = ref<MusicComment[]>([])
+const commentTotal = ref(0)
+const commentPage = ref(1)
+const commentLoading = ref(false)
+const commentError = ref('')
+const commentMore = ref(true)
+
+async function loadComments(reset = false): Promise<void> {
+  const item = state.playingItem ?? current.value
+  if (!item || !commentSource.value) return
+  if (commentLoading.value) return
+  if (reset) {
+    comments.value = []
+    commentPage.value = 1
+    commentTotal.value = 0
+    commentMore.value = true
+    commentError.value = ''
+  }
+  commentLoading.value = true
+  try {
+    const res = await getSource(commentSource.value).getComments!(item, commentPage.value, 20)
+    comments.value = commentPage.value === 1 ? res.list : [...comments.value, ...res.list]
+    commentTotal.value = res.total
+    commentMore.value = res.more && res.list.length > 0
+    if (res.list.length) commentPage.value += 1
+  } catch (e) {
+    commentError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    commentLoading.value = false
+  }
+}
+
+/** 切歌或切到评论页签时按需加载（不要在歌词页也去请求评论） */
+watch([() => (current.value ? current.value.source + '-' + String(current.value.songmid) : ''), activeTab], ([, tab]) => {
+  if (tab === 'comment') void loadComments(true)
+}, { immediate: true })
+
+function fmtLikes(n: number): string {
+  if (n >= 10000) return (n / 10000).toFixed(1) + '万'
+  return String(n)
+}
+
+function fmtCommentTime(t: number): string {
+  if (!t) return ''
+  const d = new Date(t)
+  const p = (x: number) => String(x).padStart(2, '0')
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+}
+
+/* ---------------- 收藏（爱心） ---------------- */
+
+function isFavorite(): boolean {
+  const item = state.playingItem ?? current.value
+  if (!item) return false
+  return favorites.value.some(f => f.source === item.source && String(f.songmid) === String(item.songmid))
+}
+
+function toggleFavorite(): void {
+  const item = state.playingItem ?? current.value
+  if (!item) return
+  void library.toggleFavorite(item)
+}
 
 /** 相似推荐：拿当前曲目的「歌名 + 歌手」再搜一遍，去掉自己 */
 const similarSongs = ref<MusicItem[]>([])
@@ -259,6 +335,26 @@ const vinylStyle = computed(() => ({
           <h1 class="truncate text-[35px] leading-[44px] text-ncmd-fg">{{ title }}</h1>
           <span class="shrink-0 rounded-[3px] border border-ncmd-muted px-1 text-[11px] leading-[17px] text-ncmd-muted">{{ current?.source?.toUpperCase() ?? '—' }}</span>
           <span class="shrink-0 rounded-[3px] border border-ncmd-muted px-1 text-[11px] leading-[17px] text-ncmd-muted">{{ qualityLabel }}</span>
+          <IconButton
+            :label="isFavorite() ? '取消收藏' : '收藏这首'"
+            tone="dark"
+            size="lg"
+            class="ml-1"
+            @click="toggleFavorite"
+          >
+            <template #default="{ size }">
+              <svg
+                viewBox="0 0 24 24"
+                :width="size"
+                :height="size"
+                :class="isFavorite() ? 'fill-ncmd-accent stroke-ncmd-accent' : 'fill-none stroke-current'"
+                stroke-width="1.8"
+                aria-hidden="true"
+              >
+                <path d="M12 20.5S4.5 15.6 3.2 11.3C2.1 7.7 4.4 4.8 7.5 4.8c1.9 0 3.4 1 4.5 2.6 1.1-1.6 2.6-2.6 4.5-2.6 3.1 0 5.4 2.9 4.3 6.5C19.5 15.6 12 20.5 12 20.5z" />
+              </svg>
+            </template>
+          </IconButton>
         </div>
 
         <!-- 副标题：18px，距歌名 15px -->
@@ -306,6 +402,56 @@ const vinylStyle = computed(() => ({
                   {{ line.translation }}
                 </p>
               </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="comment" class="mt-[16px] flex min-h-0 max-w-[680px] flex-1 flex-col pb-4">
+            <div class="mb-2 flex items-baseline gap-2 text-[13px] text-ncmd-muted">
+              <span>评论</span>
+              <span v-if="commentTotal">{{ fmtLikes(commentTotal) }}</span>
+              <span v-if="!commentSource" class="text-ncmd-dim">当前音源不提供评论</span>
+            </div>
+            <div class="min-h-0 flex-1 overflow-y-auto pr-3">
+              <p v-if="commentLoading && !comments.length" class="text-[15px] text-ncmd-dim">加载评论中…</p>
+              <p v-else-if="commentError" class="text-[15px] text-ncmd-accent">{{ commentError }}</p>
+              <p v-else-if="!comments.length" class="text-[15px] text-ncmd-dim">还没有评论</p>
+
+              <article v-for="(c, ci) in comments" :key="c.id + '-' + ci" class="mb-4 flex gap-3">
+                <img
+                  v-if="c.avatar"
+                  :src="c.avatar"
+                  alt=""
+                  class="size-9 shrink-0 rounded-full object-cover"
+                  referrerpolicy="no-referrer"
+                />
+                <span v-else class="size-9 shrink-0 rounded-full bg-ncmd-elevated" />
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2 text-[13px]">
+                    <span class="truncate text-ncmd-muted">{{ c.userName || '匿名用户' }}</span>
+                    <span v-if="c.hot" class="shrink-0 rounded-[3px] border border-ncmd-muted px-1 text-[10px] leading-[15px] text-ncmd-muted">热评</span>
+                  </div>
+                  <p class="mt-1 whitespace-pre-wrap break-words text-[15px] leading-[24px] text-ncmd-fg/90">{{ c.content }}</p>
+                  <div class="mt-1 flex items-center gap-3 text-[12px] text-ncmd-dim">
+                    <span>{{ fmtCommentTime(c.time) }}</span>
+                    <span class="flex items-center gap-1">
+                      <svg viewBox="0 0 24 24" class="size-3.5 stroke-current" fill="none" stroke-width="1.8" aria-hidden="true">
+                        <path d="M7 11v9H4v-9h3Zm0 0 4.5-8a2 2 0 0 1 3.6 1.6L14 9h5a2 2 0 0 1 2 2.3l-1.2 6A2 2 0 0 1 17.8 19H7" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                      {{ fmtLikes(c.likedCount) }}
+                    </span>
+                  </div>
+                </div>
+              </article>
+
+              <button
+                v-if="commentMore && comments.length"
+                type="button"
+                class="mb-6 w-full rounded-lg border border-ncmd-elevated py-2 text-[13px] text-ncmd-muted transition-colors hover:bg-white/5 disabled:opacity-50"
+                :disabled="commentLoading"
+                @click="loadComments()"
+              >
+                {{ commentLoading ? '加载中…' : '查看更多评论' }}
+              </button>
             </div>
           </TabsContent>
 

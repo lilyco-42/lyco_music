@@ -13,7 +13,7 @@ const delegated = computed(() => {
 </script>
 
 <template>
-  <TabsList v-bind="delegated" :class="cn('inline-flex h-[42px] w-[222px] items-center rounded-tab bg-ncmd-surface p-0.5', props.class)">
+  <TabsList v-bind="delegated" :class="cn('inline-flex h-[42px] w-auto min-w-[222px] items-center gap-0.5 rounded-tab bg-ncmd-surface p-0.5', props.class)">
     <slot />
   </TabsList>
 </template>
