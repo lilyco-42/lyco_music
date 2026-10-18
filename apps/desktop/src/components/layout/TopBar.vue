@@ -74,13 +74,14 @@ function search() {
       :items="themeItems"
       :model-value="theme.currentId.value"
       width="176px"
+      placement="bottom"
       class="[app-region:no-drag]"
       @update:model-value="theme.setTheme"
     >
       <template #trigger="{ open, toggle }">
         <button
           type="button"
-          class="flex size-9 shrink-0 items-center justify-center rounded-lg text-ncm-faint transition-colors hover:bg-black/5 hover:text-ncm-fg [app-region:no-drag]"
+          class="flex size-9 shrink-0 items-center justify-center rounded-lg text-ncm-faint transition-colors hover:bg-black/5 hover:text-ncm-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ncm-accent [app-region:no-drag]"
           :aria-label="'主题色：' + theme.current.value.name"
           aria-haspopup="menu"
           :aria-expanded="open"

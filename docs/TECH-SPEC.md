@@ -1,6 +1,6 @@
 # Lyco Music 技术与设计规范
 
-> 版本：0.2.9 · 适用范围：`apps/desktop`（Vue 3 + Electron）、`apps/mobile`（React Native）、`packages/core`
+> 版本：0.2.10 · 适用范围：`apps/desktop`（Vue 3 + Electron）、`apps/mobile`（React Native）、`packages/core`
 > 这份文档是**约定的来源**：写新组件、改样式、调图标之前先看这里；和文档不一致的代码视为待修。
 
 ---

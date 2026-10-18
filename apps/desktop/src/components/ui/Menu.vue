@@ -16,9 +16,16 @@ const props = withDefaults(defineProps<{
   modelValue?: string
   /** 打开时对齐触发器的哪一侧 */
   align?: 'left' | 'right'
+  /**
+   * 展开方向。
+   *
+   * 顶栏在窗口最上沿，向上展开会被窗口边界裁掉（实测：主题色菜单只剩一条白边）。
+   * 所以放在顶栏的菜单必须向下展开，放在底栏的向上展开。
+   */
+  placement?: 'top' | 'bottom'
   tone?: 'light' | 'dark'
   width?: string
-}>(), { align: 'right', tone: 'light', width: '180px' })
+}>(), { align: 'right', placement: 'top', tone: 'light', width: '180px' })
 
 const emit = defineEmits<{ 'update:modelValue': [string] }>()
 
@@ -99,8 +106,9 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown))
     <div
       v-if="open"
       role="menu"
-      class="absolute bottom-full z-50 mb-2 overflow-hidden rounded-xl border py-1 shadow-[0_12px_32px_rgba(0,0,0,.18)]"
+      class="absolute z-50 overflow-hidden rounded-xl border py-1 shadow-[0_12px_32px_rgba(0,0,0,.18)]"
       :class="[
+        placement === 'bottom' ? 'top-full mt-2' : 'bottom-full mb-2',
         align === 'right' ? 'right-0' : 'left-0',
         tone === 'dark' ? 'border-ncmd-elevated bg-[#2a2a2a] text-ncmd-fg' : 'border-ncm-divider bg-white text-ncm-fg',
       ]"
