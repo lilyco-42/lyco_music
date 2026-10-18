@@ -373,6 +373,23 @@ jobs:
           chmod 600 ~/.ssh/id_lain42
           ssh-keyscan -H lain42.top >> ~/.ssh/known_hosts 2>/dev/null || true
           STAGE="lyco_music/${{ steps.tag.outputs.name }}"
+
+          # 服务器只有 40G，每个版本约 640MB。v0.2.12 那次「Publish to lain42.top downloads」
+          # 失败就是因为磁盘写满（100%）。这里先量剩余空间，不够就先删最旧的版本目录
+          #（GitHub Release 与 R2 镜像仍然保留，历史版本不会丢）。
+          KEEP=3
+          FREE_KB=$(ssh -i ~/.ssh/id_lain42 root@lain42.top "df -P / | awk 'NR==2{print \$4}'")
+          echo "lain42.top 可用空间: $((FREE_KB/1024)) MB"
+          if [ "$FREE_KB" -lt 2097152 ]; then
+            echo "可用空间不足 2GB，清理旧版本（保留最新 $KEEP 个）"
+            ssh -i ~/.ssh/id_lain42 root@lain42.top "cd /var/www/studio/downloads/lyco_music && ls -1 | sort -V | head -n -$KEEP | xargs -r rm -rf; df -h / | tail -1"
+          fi
+
+          # 再确认一次；仍然不够就明确失败，而不是让 scp 半路断掉
+          FREE_KB=$(ssh -i ~/.ssh/id_lain42 root@lain42.top "df -P / | awk 'NR==2{print \$4}'")
+          if [ "$FREE_KB" -lt 1048576 ]; then
+            echo "::error::lain42.top 可用空间不足 1GB（$((FREE_KB/1024)) MB），请先清理"; exit 1
+          fi
           # 先清空再传：同一个 tag 重跑时，上一轮的文件会残留在目录里
           # （例如旧命名 app-release.apk），导致 SHA256SUMS 与下载页混入过期产物。
           ssh -i ~/.ssh/id_lain42 root@lain42.top "rm -rf /var/www/studio/downloads/$STAGE && mkdir -p /var/www/studio/downloads/$STAGE"
