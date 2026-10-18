@@ -3,12 +3,19 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ChevronLeft, Search, Mic, UserRound, LogIn, Crown } from 'lucide-vue-next'
 import { useAccount } from '@/lib/auth'
+import { useTheme } from '@/lib/theme'
+import Menu from '@/components/ui/Menu.vue'
+import { Palette } from 'lucide-vue-next'
 import WindowControls from './WindowControls.vue'
 
 const router = useRouter()
 const keyword = ref('')
 const account = useAccount()
+const theme = useTheme()
 onMounted(() => { void account.restore() })
+
+/** 主题色菜单项：色块 + 名称 */
+const themeItems = theme.presets.map(p => ({ value: p.id, label: p.name, hint: p.accent }))
 
 function search() {
   const q = keyword.value.trim()
@@ -61,6 +68,28 @@ function search() {
         <Crown :size="14" :stroke-width="1.8" aria-hidden="true" /> VIP
       </span>
     </button>
+
+    <!-- 主题色：运行时改 CSS 变量，不影响结构色对比度 -->
+    <Menu
+      :items="themeItems"
+      :model-value="theme.currentId.value"
+      width="176px"
+      class="[app-region:no-drag]"
+      @update:model-value="theme.setTheme"
+    >
+      <template #trigger="{ open, toggle }">
+        <button
+          type="button"
+          class="flex size-9 shrink-0 items-center justify-center rounded-lg text-ncm-faint transition-colors hover:bg-black/5 hover:text-ncm-fg [app-region:no-drag]"
+          :aria-label="'主题色：' + theme.current.value.name"
+          aria-haspopup="menu"
+          :aria-expanded="open"
+          @click="toggle"
+        >
+          <Palette :size="20" :stroke-width="1.8" aria-hidden="true" />
+        </button>
+      </template>
+    </Menu>
 
     <!-- 无边框窗口的最小化 / 最大化 / 关闭（之前缺这一组，用户只能靠系统标题栏） -->
     <WindowControls class="ml-1 shrink-0" />

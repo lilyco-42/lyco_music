@@ -5,7 +5,7 @@
  * 左侧歌名/歌手左边距 50px；中央控制区中心 x=960；播放按钮 52x52 圆形
  * 右侧从 x≈1642 起：音质 / 词 / 音量 / 更多
  */
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ListMusic, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward } from 'lucide-vue-next'
 import { parseLyric, findLineIndex } from '@lxmn/core'
@@ -26,8 +26,9 @@ function openPlayer(): void {
   void router.push({ name: 'player' })
 }
 
-/** 桌面歌词浮层（点「词」开关）—— 以前这个按钮直接跳播放页，等于没有歌词开关 */
-const showLyric = ref(false)
+/** 桌面歌词浮层状态放在 player store：底栏「词」按钮与 L 快捷键共用同一份 */
+const showLyric = computed(() => player.state.lyricOpen)
+function toggleLyric(): void { player.toggleLyric() }
 
 const lyricLines = computed(() => parseLyric(player.state.lyric, player.state.tlyric).lines)
 const lyricIndex = computed(() => findLineIndex(lyricLines.value, player.state.currentTime))
@@ -152,7 +153,7 @@ const error = computed(() => player.state.error)
         :class="showLyric ? 'text-ncm-accent' : 'hover:text-ncm-fg'"
         aria-label="桌面歌词"
         :aria-pressed="showLyric"
-        @click="showLyric = !showLyric"
+        @click="toggleLyric"
       >词</button>
 
       <!-- 音量 -->
@@ -173,7 +174,7 @@ const error = computed(() => player.state.error)
     >
       <div class="mb-2 flex items-center justify-between">
         <span class="truncate text-[13px] text-ncm-faint">{{ track ? track.name + ' · ' + track.singer : '未在播放' }}</span>
-        <button type="button" class="text-[13px] text-ncm-faint hover:text-ncm-fg" @click="showLyric = false">收起</button>
+        <button type="button" class="text-[13px] text-ncm-faint hover:text-ncm-fg" @click="toggleLyric">收起</button>
       </div>
       <p v-if="!hasLyric" class="py-6 text-center text-[15px] text-ncm-fainter">暂无歌词</p>
       <template v-else>

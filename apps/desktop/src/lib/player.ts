@@ -45,6 +45,10 @@ export interface PlayerState {
   playingItem: MusicItem | null
   /** 播放模式（点底栏那个循环图标切换，以前它点了没反应就是缺这个） */
   mode: PlayMode
+  /** 桌面歌词浮层是否展开（底栏「词」按钮和 L 快捷键共用） */
+  lyricOpen: boolean
+  /** 静音前的音量，取消静音时还原 */
+  volumeBeforeMute: number
 }
 
 const state = reactive<PlayerState>({
@@ -63,6 +67,8 @@ const state = reactive<PlayerState>({
   url: '',
   playingItem: null,
   mode: 'loop',
+  lyricOpen: false,
+  volumeBeforeMute: 0.7,
 })
 
 /** 播放地址的获取方式由组件注入（内核不认识 <audio>） */
@@ -278,6 +284,21 @@ export function usePlayer() {
     return MODE_LABEL[state.mode]
   }
 
+  /** 桌面歌词浮层开关（底栏「词」+ L 快捷键） */
+  function toggleLyric(): void {
+    state.lyricOpen = !state.lyricOpen
+  }
+
+  /** 静音：记住原音量，再按还原 */
+  function toggleMute(): void {
+    if (state.volume > 0) {
+      state.volumeBeforeMute = state.volume
+      state.volume = 0
+    } else {
+      state.volume = state.volumeBeforeMute || 0.7
+    }
+  }
+
   /**
    * 播放 / 暂停。
    *
@@ -318,6 +339,7 @@ export function usePlayer() {
     qualityOrder,
     search, play, next, prev, toggle, seek, setQuality,
     cycleMode, modeLabel, MODE_LABEL,
+    toggleLyric, toggleMute,
     /** 组件回灌：<audio> 的进度/时长 */
     reportTime: (t: number) => { state.currentTime = t },
     reportDuration: (d: number) => { state.duration = d },

@@ -3,6 +3,8 @@ import App from './App.vue'
 import router from './router'
 import { ensureDesktopPlatform } from './lib/platform'
 import { useMembership } from './lib/membership'
+import { initTheme } from './lib/theme'
+import { installHotkeys } from './lib/hotkeys'
 import './styles/main.css'
 
 // 安装平台适配器 + 注册内核里已移植的音源（幂等）
@@ -19,5 +21,11 @@ ensureDesktopPlatform()
  * restore() 内部是静默的：命中缓存就立刻可用，没有就什么都不发生。
  */
 void useMembership().restore()
+
+// 主题色要在首屏渲染前应用，否则会先闪一下默认红
+initTheme()
+
+// 全局快捷键（空格播放、←/→ 快进、Ctrl+←/→ 切歌、M 静音、L 歌词、Ctrl+K 搜索）
+installHotkeys()
 
 createApp(App).use(router).mount('#app')
