@@ -97,5 +97,8 @@ jobs:
         run: pnpm -r --filter './packages/**' build
 
       # 只做类型检查：真正的 apk/aab 由 release.yml 的 Android job 产出
+      - name: Test mobile app (jest + RTL, act)
+        run: pnpm --filter @lxmn/app-mobile test -- --silent
+
       - name: Typecheck mobile app
         run: pnpm --filter @lxmn/app-mobile typecheck

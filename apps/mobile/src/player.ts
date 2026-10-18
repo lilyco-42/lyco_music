@@ -265,6 +265,11 @@ export function modeLabel(): string {
   return MODE_LABEL[state.mode]
 }
 
+/** 当前播放模式（给测试与非 React 场景用） */
+export function getMode(): PlayMode {
+  return state.mode
+}
+
 export async function prev(): Promise<void> {
   if (!state.queue.length) return
   state.index = (state.index - 1 + state.queue.length) % state.queue.length
