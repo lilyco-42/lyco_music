@@ -5,7 +5,7 @@
  * 左侧歌名/歌手左边距 50px；中央控制区中心 x=960；播放按钮 52x52 圆形
  * 右侧从 x≈1642 起：音质 / 词 / 音量 / 更多
  */
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ListMusic, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward } from 'lucide-vue-next'
 import { parseLyric, findLineIndex } from '@lxmn/core'
@@ -29,9 +29,42 @@ function openPlayer(): void {
   void router.push({ name: 'player' })
 }
 
-/** 桌面歌词浮层状态放在 player store：底栏「词」按钮与 L 快捷键共用同一份 */
+/**
+ * 桌面歌词。
+ *
+ * Electron 里打开的是**独立的透明置顶窗口**（仿 lx-music 原版）：
+ * 可以拖到桌面任意位置、置顶、锁定后鼠标穿透。
+ * 浏览器预览没有多窗口能力，退回底栏浮层。
+ */
 const showLyric = computed(() => player.state.lyricOpen)
-function toggleLyric(): void { player.toggleLyric() }
+const nativeLyric = typeof window !== 'undefined' ? window.lxmnNative?.lyric : undefined
+const lyricWindowOpen = ref(false)
+
+async function toggleLyric(): Promise<void> {
+  if (!nativeLyric) {
+    player.toggleLyric()
+    return
+  }
+  if (lyricWindowOpen.value) {
+    await nativeLyric.close()
+    lyricWindowOpen.value = false
+    return
+  }
+  await nativeLyric.open({
+    name: player.current.value?.name ?? '',
+    singer: player.current.value?.singer ?? '',
+    lyric: player.state.lyric,
+    tlyric: player.state.tlyric,
+    currentTime: player.state.currentTime,
+    playing: player.state.playing,
+  })
+  lyricWindowOpen.value = true
+}
+
+onMounted(async () => {
+  if (!nativeLyric) return
+  lyricWindowOpen.value = await nativeLyric.isOpen().catch(() => false)
+})
 
 const lyricLines = computed(() => parseLyric(player.state.lyric, player.state.tlyric).lines)
 const lyricIndex = computed(() => findLineIndex(lyricLines.value, player.state.currentTime))
@@ -171,8 +204,9 @@ const error = computed(() => player.state.error)
     </div>
 
     <!-- 桌面歌词浮层 -->
+    <!-- 浏览器回退：没有独立窗口时用浮层 -->
     <div
-      v-if="showLyric"
+      v-if="showLyric && !nativeLyric"
       class="absolute bottom-[112px] right-[28px] w-[430px] rounded-2xl border border-ncm-divider bg-white/95 px-5 py-4 shadow-[0_12px_32px_rgba(0,0,0,.14)] backdrop-blur"
     >
       <div class="mb-2 flex items-center justify-between">

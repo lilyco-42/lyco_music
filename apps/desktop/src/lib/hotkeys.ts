@@ -75,10 +75,27 @@ export function installHotkeys(): void {
         player.toggleMute()
         break
       case 'l':
-      case 'L':
+      case 'L': {
         e.preventDefault()
-        player.toggleLyric()
+        // 与底栏「词」按钮同一个行为：Electron 里开关独立歌词窗口，
+        // 浏览器里退回浮层
+        const lyric = typeof window !== 'undefined' ? window.lxmnNative?.lyric : undefined
+        if (!lyric) { player.toggleLyric(); break }
+        void (async () => {
+          if (await lyric.isOpen()) await lyric.close()
+          else {
+            await lyric.open({
+              name: player.current.value?.name ?? '',
+              singer: player.current.value?.singer ?? '',
+              lyric: player.state.lyric,
+              tlyric: player.state.tlyric,
+              currentTime: player.state.currentTime,
+              playing: player.state.playing,
+            })
+          }
+        })()
         break
+      }
       default:
         break
     }

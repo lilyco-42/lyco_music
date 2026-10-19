@@ -98,3 +98,13 @@ body {
   background: var(--color-ncm-scrollbar);
   border-radius: 3px;
 }
+
+/*
+ * 桌面歌词窗口：整个文档必须透明。
+ * 用 html 上的 data 属性区分 —— 主窗口绝不能透明（否则白底组件会透出桌面）。
+ */
+html[data-window='lyric'],
+html[data-window='lyric'] body,
+html[data-window='lyric'] #app {
+  background: transparent !important;
+}

@@ -14,7 +14,7 @@ export * from './sync'
 export * from './library'
 export * from './sources'
 
-export const CORE_VERSION = '0.2.15'
+export const CORE_VERSION = '0.2.16'
 
 /**
  * 应用对外版本号。与根 package.json 同源 —— 发版时两处一起改，

@@ -1,6 +1,6 @@
 # Lyco Music 技术与设计规范
 
-> 版本：0.2.15 · 适用范围：`apps/desktop`（Vue 3 + Electron）、`apps/mobile`（React Native）、`packages/core`
+> 版本：0.2.16 · 适用范围：`apps/desktop`（Vue 3 + Electron）、`apps/mobile`（React Native）、`packages/core`
 > 这份文档是**约定的来源**：写新组件、改样式、调图标之前先看这里；和文档不一致的代码视为待修。
 
 ---
@@ -176,6 +176,17 @@ apps/*  ──►  packages/platform-*  ──►  packages/core
 约束：焦点在 `input/textarea/select/contenteditable` 内不抢键；快捷键必须对应界面上真实存在的操作。
 
 ---
+
+## 6.1 桌面歌词窗口（仿 lx-music）
+
+* 独立 `BrowserWindow`：`frame:false` + `transparent` + `alwaysOnTop('screen-saver')` + `skipTaskbar`，
+  路由 `#/lyric-window`，与主窗口同一个前端包。
+* **数据只能由主窗口推**：主窗口每 200ms 通过 `lxmn:lyric:update` 推送
+  `{name,singer,lyric,tlyric,currentTime,playing}`，主进程转发给歌词窗口。
+  歌词窗口自己**不得**再装这个桥 —— 它的 store 是空的，会把真实歌词冲掉（已在实测中踩到）。
+* 锁定 = `setIgnoreMouseEvents(true, {forward:true})`，**不落盘**：上次锁定、这次一打开就穿透，
+  用户会以为窗口坏了。字号/颜色/位置才持久化。
+* 双击歌词 = 锁定/解锁；悬停出现工具条（锁定、A-/A+、换色、关闭）。
 
 ## 7. 主题机制
 

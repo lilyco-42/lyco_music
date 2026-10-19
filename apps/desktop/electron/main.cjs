@@ -71,6 +71,121 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
+
+/* ---------- 桌面歌词窗口（仿 lx-music 的独立置顶歌词） ---------- */
+
+/**
+ * 为什么要独立窗口：在主界面里画浮层，最小化主窗口就看不见了，
+ * 也没法拖到屏幕任意位置、不能置顶穿透。lx-music 的做法是开一个
+ * 无边框透明窗口，主窗口只负责把歌词数据推给它。
+ */
+let lyricWin = null
+
+const lyricStatePath = () => path.join(app.getPath('userData'), 'lyric-window.json')
+
+async function readLyricState() {
+  try { return JSON.parse(await fs.readFile(lyricStatePath(), 'utf8')) } catch { return {} }
+}
+
+async function saveLyricState(patch) {
+  const cur = await readLyricState()
+  await fs.writeFile(lyricStatePath(), JSON.stringify({ ...cur, ...patch }), 'utf8')
+}
+
+async function createLyricWindow() {
+  if (lyricWin && !lyricWin.isDestroyed()) return lyricWin
+  const saved = await readLyricState()
+  lyricWin = new BrowserWindow({
+    width: saved.width || 900,
+    height: saved.height || 170,
+    x: typeof saved.x === 'number' ? saved.x : undefined,
+    y: typeof saved.y === 'number' ? saved.y : undefined,
+    frame: false,
+    transparent: true,
+    resizable: true,
+    movable: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    // 不抢焦点：用户点歌词不该把主窗口的输入打断
+    focusable: false,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  })
+
+  // 永远压在最上层（含全屏应用之上）
+  lyricWin.setAlwaysOnTop(true, 'screen-saver')
+  lyricWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+
+  if (isDev && devUrl) lyricWin.loadURL(devUrl + '#/lyric-window')
+  else lyricWin.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { hash: '/lyric-window' })
+
+  const persistBounds = () => {
+    if (!lyricWin || lyricWin.isDestroyed()) return
+    const b = lyricWin.getBounds()
+    void saveLyricState({ x: b.x, y: b.y, width: b.width, height: b.height })
+  }
+  lyricWin.on('moved', persistBounds)
+  lyricWin.on('resized', persistBounds)
+  lyricWin.on('closed', () => { lyricWin = null })
+
+  // 歌曲信息推给歌词窗口（主窗口 -> 主进程 -> 歌词窗口）
+  return lyricWin
+}
+
+/** 把歌词数据广播给歌词窗口；没有窗口就忽略 */
+function pushLyric(payload) {
+  if (lyricWin && !lyricWin.isDestroyed()) lyricWin.webContents.send('lxmn:lyric:data', payload)
+}
+
+ipcMain.handle('lxmn:lyric:open', async (_e, initial) => {
+  const w = await createLyricWindow()
+  w.showInactive()
+  if (initial) pushLyric(initial)
+  return true
+})
+
+ipcMain.handle('lxmn:lyric:close', async () => {
+  if (lyricWin && !lyricWin.isDestroyed()) lyricWin.close()
+  return true
+})
+
+ipcMain.handle('lxmn:lyric:is-open', async () => Boolean(lyricWin && !lyricWin.isDestroyed()))
+
+/** 主窗口每次播放状态变化时推过来 */
+ipcMain.handle('lxmn:lyric:update', async (_e, payload) => {
+  pushLyric(payload)
+  return true
+})
+
+/** 锁定：锁定后鼠标事件穿透到下面的窗口（lx-music 的「锁定歌词」语义） */
+ipcMain.handle('lxmn:lyric:set-click-through', async (_e, through) => {
+  if (!lyricWin || lyricWin.isDestroyed()) return false
+  lyricWin.setIgnoreMouseEvents(Boolean(through), { forward: true })
+  lyricWin.setFocusable(!through)
+  return true
+})
+
+ipcMain.handle('lxmn:lyric:get-style', async () => {
+  const s = await readLyricState()
+  // 锁定状态不持久化：上次锁了、这次一打开就穿透，用户会以为窗口坏了
+  return { fontSize: s.fontSize ?? 34, color: s.color ?? '#4ade80', locked: false }
+})
+
+ipcMain.handle('lxmn:lyric:set-style', async (_e, patch) => {
+  const { locked: _ignored, ...persisted } = patch ?? {}
+  if (Object.keys(persisted).length) await saveLyricState(persisted)
+  return true
+})
+
 /* ---------- 渲染层需要的原生能力 ---------- */
 
 /**

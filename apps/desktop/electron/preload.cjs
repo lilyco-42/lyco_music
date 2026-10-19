@@ -38,6 +38,22 @@ contextBridge.exposeInMainWorld('lxmnNative', {
     load: () => ipcRenderer.invoke('lxmn:oauth:load'),
     clear: () => ipcRenderer.invoke('lxmn:oauth:clear'),
   },
+  /** 桌面歌词（独立置顶窗口，仿 lx-music） */
+  lyric: {
+    open: (initial) => ipcRenderer.invoke('lxmn:lyric:open', initial),
+    close: () => ipcRenderer.invoke('lxmn:lyric:close'),
+    isOpen: () => ipcRenderer.invoke('lxmn:lyric:is-open'),
+    update: (payload) => ipcRenderer.invoke('lxmn:lyric:update', payload),
+    setClickThrough: (through) => ipcRenderer.invoke('lxmn:lyric:set-click-through', through),
+    getStyle: () => ipcRenderer.invoke('lxmn:lyric:get-style'),
+    setStyle: (patch) => ipcRenderer.invoke('lxmn:lyric:set-style', patch),
+    /** 歌词窗口订阅数据 */
+    onData: (cb) => {
+      const handler = (_e, payload) => { try { cb(payload) } catch { /* ignore */ } }
+      ipcRenderer.on('lxmn:lyric:data', handler)
+      return () => ipcRenderer.removeListener('lxmn:lyric:data', handler)
+    },
+  },
   /** 用系统浏览器打开外部链接（购买页等） */
   openExternal: (url) => ipcRenderer.invoke('lxmn:open-external', url),
 })

@@ -5,6 +5,7 @@ import { ensureDesktopPlatform } from './lib/platform'
 import { useMembership } from './lib/membership'
 import { initTheme } from './lib/theme'
 import { installHotkeys } from './lib/hotkeys'
+import { installLyricBridge } from './lib/lyric-window'
 import './styles/main.css'
 
 // 安装平台适配器 + 注册内核里已移植的音源（幂等）
@@ -29,3 +30,6 @@ initTheme()
 installHotkeys()
 
 createApp(App).use(router).mount('#app')
+
+// 桌面歌词窗口的数据桥（只在 Electron 里生效，浏览器下是 no-op）
+installLyricBridge()

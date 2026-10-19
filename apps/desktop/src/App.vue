@@ -13,14 +13,22 @@ import AudioHost from './components/AudioHost.vue'
 const route = useRoute()
 /** 播放器模式为独立全屏界面（实测深色截图） */
 const isPlayerMode = computed(() => route.name === 'player')
+/**
+ * 桌面歌词窗口：同一个前端包，但加载在独立的透明窗口里。
+ * 它不能画侧栏/顶栏/底栏，也不能有不透明背景，否则就不是「浮在桌面上的歌词」。
+ */
+const isLyricWindow = computed(() => route.name === 'lyric-window')
 </script>
 
 <template>
   <!-- <audio> 宿主：全应用只应存在一个，放在最外层避免路由切换时被销毁 -->
   <AudioHost />
 
+  <!-- 桌面歌词窗口：透明背景，只有歌词本体 -->
+  <RouterView v-if="isLyricWindow" />
+
   <!-- 播放器模式：全屏，无左右栏 -->
-  <RouterView v-if="isPlayerMode" />
+  <RouterView v-else-if="isPlayerMode" />
 
   <!-- 常规界面 -->
   <div v-else class="flex h-full w-full flex-col overflow-hidden bg-ncm-bg">
