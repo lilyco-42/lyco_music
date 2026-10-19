@@ -5,7 +5,7 @@
  * 左侧歌名/歌手左边距 50px；中央控制区中心 x=960；播放按钮 52x52 圆形
  * 右侧从 x≈1642 起：音质 / 词 / 音量 / 更多
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ListMusic, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward } from 'lucide-vue-next'
 import { parseLyric, findLineIndex } from '@lxmn/core'
@@ -39,6 +39,8 @@ function openPlayer(): void {
 const showLyric = computed(() => player.state.lyricOpen)
 const nativeLyric = typeof window !== 'undefined' ? window.lxmnNative?.lyric : undefined
 const lyricWindowOpen = ref(false)
+/** 高亮状态：Electron 里看独立窗口是否打开，浏览器里看浮层开关 */
+const lyricActive = computed(() => (nativeLyric ? lyricWindowOpen.value : showLyric.value))
 
 async function toggleLyric(): Promise<void> {
   if (!nativeLyric) {
@@ -46,6 +48,15 @@ async function toggleLyric(): Promise<void> {
     return
   }
   if (lyricWindowOpen.value) {
+    /**
+     * 锁定后歌词窗口鼠标穿透，双击/右键都收不到 —— 它自己解不了锁。
+     * 所以「词」按钮在锁定时先解锁（而不是关闭），这是唯一的逃生通道。
+     */
+    const isLocked = await nativeLyric.isLocked().catch(() => false)
+    if (isLocked) {
+      await nativeLyric.setLock(false).catch(() => false)
+      return
+    }
     await nativeLyric.close()
     lyricWindowOpen.value = false
     return
@@ -84,6 +95,119 @@ const progress = computed(() => {
   return Math.min(100, Math.max(0, (currentTime / duration) * 100))
 })
 
+/* ---------------- 进度条：点击 / 拖动跳转 ---------------- */
+
+/**
+ * 之前这条只是「显示」进度，点上去什么都不发生 —— 用户第一反应就是「进度条没反应」。
+ * 现在按网易云的做法：整条可点可拖，悬停放大并显示落点时间。
+ */
+const seekBar = ref<HTMLElement | null>(null)
+const seeking = ref(false)
+const hoverRatio = ref<number | null>(null)
+
+function ratioAt(e: MouseEvent): number {
+  const el = seekBar.value
+  if (!el) return 0
+  const r = el.getBoundingClientRect()
+  if (!r.width) return 0
+  return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width))
+}
+
+function seekToRatio(ratio: number): void {
+  const { duration } = player.state
+  if (!duration || !Number.isFinite(duration) || duration <= 0) return
+  player.seek(ratio * duration)
+}
+
+function onSeekMove(e: MouseEvent): void {
+  hoverRatio.value = ratioAt(e)
+  if (seeking.value) seekToRatio(hoverRatio.value)
+}
+
+function onSeekUp(): void {
+  seeking.value = false
+  window.removeEventListener('mousemove', onSeekMove)
+  window.removeEventListener('mouseup', onSeekUp)
+}
+
+function onSeekDown(e: MouseEvent): void {
+  if (!player.state.duration) return
+  seeking.value = true
+  hoverRatio.value = ratioAt(e)
+  seekToRatio(hoverRatio.value)
+  // 拖出进度条也要继续跟手：挂在 window 上而不是元素上
+  window.addEventListener('mousemove', onSeekMove)
+  window.addEventListener('mouseup', onSeekUp)
+}
+
+onBeforeUnmount(() => {
+  window.removeEventListener('mousemove', onSeekMove)
+  window.removeEventListener('mouseup', onSeekUp)
+})
+
+/** 悬停/拖动时在进度条下方显示落点时间 */
+const seekHint = computed(() => {
+  const r = hoverRatio.value
+  const { duration } = player.state
+  if (r === null || !duration) return ''
+  return `${fmtTime(r * duration)} / ${fmtTime(duration)}`
+})
+
+/* ---------------- 右侧「…」菜单与播放队列 ---------------- */
+
+/** 面板互斥：同时只开一个，避免两层浮层叠在一起 */
+const openPanel = ref<'none' | 'more' | 'queue'>('none')
+
+function togglePanel(name: 'more' | 'queue'): void {
+  openPanel.value = openPanel.value === name ? 'none' : name
+}
+
+const moreItems = computed(() => {
+  const t = track.value
+  if (!t) return []
+  return [
+    { key: 'singer', label: `歌手：${t.singer || '未知'}`, hint: '在搜索里查看这位歌手' },
+    { key: 'album', label: `专辑：${t.albumName || '未知'}`, hint: '在搜索里查看这张专辑' },
+    { key: 'copy', label: '复制歌名 - 歌手', hint: '粘贴到别处分享' },
+    { key: 'lyric', label: lyricActive.value ? '关闭桌面歌词' : '打开桌面歌词', hint: '' },
+    { key: 'queue', label: `播放队列（${player.state.queue.length}）`, hint: '' },
+  ]
+})
+
+async function onMore(key: string): Promise<void> {
+  const t = track.value
+  openPanel.value = 'none'
+  if (!t) return
+  if (key === 'singer' || key === 'album') {
+    const q = key === 'singer' ? t.singer : t.albumName
+    if (!q) return
+    void router.push({ name: 'search', query: { q } })
+    return
+  }
+  if (key === 'copy') {
+    try {
+      await navigator.clipboard.writeText(`${t.name} - ${t.singer}`)
+    } catch {
+      // 剪贴板被拒时不要静默失败：退回到选中文本让用户自己复制
+      console.warn('clipboard denied')
+    }
+    return
+  }
+  if (key === 'lyric') {
+    await toggleLyric()
+    return
+  }
+  if (key === 'queue') {
+    openPanel.value = 'queue'
+  }
+}
+
+function playFromQueue(i: number): void {
+  const item = player.state.queue[i]
+  if (!item) return
+  void player.play(item)
+}
+
 const volume = computed({
   get: () => Math.round(player.state.volume * 100),
   set: v => player.setVolume(Number(v) / 100),
@@ -113,9 +237,37 @@ const error = computed(() => player.state.error)
 
 <template>
   <footer class="relative flex items-center bg-ncm-bottombar">
-    <!-- 进度条：贴顶，高 4px，全宽 -->
-    <div class="absolute inset-x-0 top-0 h-[4px] bg-ncm-divider">
-      <div class="h-full bg-ncm-progress" :style="{ width: progress + '%' }" />
+    <!-- 进度条：贴顶全宽。可点击/拖动跳转，悬停放大并显示落点时间 -->
+    <div
+      ref="seekBar"
+      class="group/seek absolute inset-x-0 top-0 z-10 h-[10px] cursor-pointer"
+      role="slider"
+      aria-label="播放进度"
+      :aria-valuemin="0"
+      :aria-valuemax="Math.round(player.state.duration || 0)"
+      :aria-valuenow="Math.round(player.state.currentTime || 0)"
+      :tabindex="track ? 0 : -1"
+      @mousedown.prevent="onSeekDown"
+      @mousemove="onSeekMove"
+      @mouseleave="hoverRatio = null"
+    >
+      <div class="absolute inset-x-0 top-0 h-[4px] bg-ncm-divider transition-[height] duration-150 group-hover/seek:h-[6px]">
+        <div class="h-full bg-ncm-progress" :style="{ width: progress + '%' }" />
+        <!-- 拖动手柄：悬停/拖动时才出现，平时不打扰 -->
+        <div
+          v-if="track && (hoverRatio !== null || seeking)"
+          class="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-ncm-accent-play shadow"
+          :style="{ left: (hoverRatio !== null ? hoverRatio * 100 : progress) + '%' }"
+        />
+      </div>
+      <!-- 落点时间：贴在进度条下方，避免超出窗口顶部 -->
+      <div
+        v-if="seekHint"
+        class="pointer-events-none absolute top-[10px] -translate-x-1/2 rounded bg-black/75 px-1.5 py-0.5 text-[11px] text-white tabular-nums"
+        :style="{ left: (hoverRatio ?? 0) * 100 + '%' }"
+      >
+        {{ seekHint }}
+      </div>
     </div>
 
     <!-- 左侧歌曲信息：左边距 50px -->
@@ -175,7 +327,7 @@ const error = computed(() => player.state.error)
         <template #default="{ size, stroke }"><SkipForward :size="size" :stroke-width="stroke" aria-hidden="true" /></template>
       </IconButton>
 
-      <IconButton label="播放列表" size="xl">
+      <IconButton label="播放列表" size="xl" :class="openPanel === 'queue' ? 'text-ncm-accent' : ''" @click="togglePanel('queue')">
         <template #default="{ size, stroke }"><ListMusic :size="size" :stroke-width="stroke" aria-hidden="true" /></template>
       </IconButton>
     </div>
@@ -186,9 +338,10 @@ const error = computed(() => player.state.error)
       <button
         type="button"
         class="text-[15px] [app-region:no-drag]"
-        :class="showLyric ? 'text-ncm-accent' : 'hover:text-ncm-fg'"
+        :class="lyricActive ? 'text-ncm-accent' : 'hover:text-ncm-fg'"
         aria-label="桌面歌词"
-        :aria-pressed="showLyric"
+        title="桌面歌词（窗口锁定时点此解锁）"
+        :aria-pressed="lyricActive"
         @click="toggleLyric"
       >词</button>
 
@@ -200,7 +353,66 @@ const error = computed(() => player.state.error)
         <input v-model="volume" type="range" min="0" max="100" class="h-1 w-[70px] accent-ncm-accent-play" />
       </div>
 
-      <button type="button" class="text-[18px] leading-none hover:text-ncm-fg" aria-label="更多">…</button>
+      <button
+        type="button"
+        class="text-[18px] leading-none hover:text-ncm-fg"
+        :class="openPanel === 'more' ? 'text-ncm-accent' : ''"
+        aria-label="更多"
+        title="更多操作"
+        @click="togglePanel('more')"
+      >…</button>
+    </div>
+
+    <!-- 点空白处收起面板 -->
+    <div v-if="openPanel !== 'none'" class="fixed inset-0 z-40" @click="openPanel = 'none'" />
+
+    <!-- 「…」菜单：只放真能用的动作，不做占位项 -->
+    <div
+      v-if="openPanel === 'more'"
+      class="absolute bottom-[112px] right-[28px] z-50 w-[300px] overflow-hidden rounded-2xl border border-ncm-divider bg-white py-1 shadow-[0_12px_32px_rgba(0,0,0,.14)]"
+    >
+      <button
+        v-for="it in moreItems"
+        :key="it.key"
+        type="button"
+        class="flex w-full items-start justify-between gap-3 px-4 py-2 text-left transition-colors hover:bg-black/5"
+        @click="onMore(it.key)"
+      >
+        <span class="min-w-0">
+          <span class="block truncate text-[14px] text-ncm-fg">{{ it.label }}</span>
+          <span v-if="it.hint" class="block truncate text-[11px] text-ncm-fainter">{{ it.hint }}</span>
+        </span>
+      </button>
+    </div>
+
+    <!-- 播放队列 -->
+    <div
+      v-if="openPanel === 'queue'"
+      class="absolute bottom-[112px] right-[28px] z-50 flex max-h-[440px] w-[400px] flex-col overflow-hidden rounded-2xl border border-ncm-divider bg-white shadow-[0_12px_32px_rgba(0,0,0,.14)]"
+    >
+      <div class="flex items-center justify-between border-b border-ncm-divider px-4 py-2.5">
+        <span class="text-[14px] text-ncm-fg">播放队列</span>
+        <span class="text-[12px] text-ncm-fainter">{{ player.state.queue.length }} 首</span>
+      </div>
+      <div class="min-h-0 flex-1 overflow-y-auto">
+        <p v-if="!player.state.queue.length" class="px-4 py-8 text-center text-[13px] text-ncm-fainter">队列是空的</p>
+        <button
+          v-for="(item, i) in player.state.queue"
+          :key="item.songmid + item.source + i"
+          type="button"
+          class="flex w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-black/5"
+          :class="i === player.state.index ? 'bg-ncm-accent/10' : ''"
+          @click="playFromQueue(i)"
+        >
+          <span class="w-4 shrink-0 text-[12px] tabular-nums" :class="i === player.state.index ? 'text-ncm-accent' : 'text-ncm-fainter'">
+            {{ i === player.state.index ? '♪' : i + 1 }}
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-[13px]" :class="i === player.state.index ? 'text-ncm-accent' : 'text-ncm-fg'">{{ item.name }}</span>
+            <span class="block truncate text-[11px] text-ncm-fainter">{{ item.singer }}</span>
+          </span>
+        </button>
+      </div>
     </div>
 
     <!-- 桌面歌词浮层 -->

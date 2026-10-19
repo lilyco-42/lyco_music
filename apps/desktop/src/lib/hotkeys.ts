@@ -11,7 +11,7 @@
  *   ← / →        快退 / 快进 5 秒
  *   Ctrl+← / →   上一首 / 下一首
  *   M            静音开关
- *   L            桌面歌词浮层
+ *   L            桌面歌词窗口（已打开则关闭；锁定时先解锁）
  *   Ctrl/⌘+K     聚焦搜索框
  */
 import { usePlayer } from './player'
@@ -82,8 +82,11 @@ export function installHotkeys(): void {
         const lyric = typeof window !== 'undefined' ? window.lxmnNative?.lyric : undefined
         if (!lyric) { player.toggleLyric(); break }
         void (async () => {
-          if (await lyric.isOpen()) await lyric.close()
-          else {
+          if (await lyric.isOpen()) {
+            // 锁定状态下窗口鼠标穿透，键盘 L 是另一条逃生通道
+            if (await lyric.isLocked().catch(() => false)) await lyric.setLock(false).catch(() => false)
+            else await lyric.close()
+          } else {
             await lyric.open({
               name: player.current.value?.name ?? '',
               singer: player.current.value?.singer ?? '',

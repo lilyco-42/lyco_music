@@ -4,7 +4,7 @@
  * 只做外壳：加载 Vite 构建产物，保留 lx-music 上游的自定义音源能力
  * （渲染层可通过 preload 暴露的 API 读写本地文件 / 发起无 CORS 请求）。
  */
-const { app, BrowserWindow, shell, ipcMain, net, safeStorage } = require('electron')
+const { app, BrowserWindow, shell, ipcMain, net, safeStorage, screen } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs/promises')
 const { startLoginFlow } = require('./oauth.cjs')
@@ -80,8 +80,53 @@ app.on('window-all-closed', () => {
  * 无边框透明窗口，主窗口只负责把歌词数据推给它。
  */
 let lyricWin = null
+/** 锁定状态只在内存里：窗口一关就复位（不写盘，见 get-style 注释） */
+let lyricLocked = false
+/**
+ * 右键样式面板打开时窗口临时加高，关掉要还原。
+ * 记下「加高之前」的高度，同时阻止 resized 事件把它当成用户改的尺寸写盘。
+ */
+let lyricBaseHeight = 0
+/** 正在被用户拖动：这期间不把 moved 写盘 */
+let lyricDragging = false
 
 const lyricStatePath = () => path.join(app.getPath('userData'), 'lyric-window.json')
+
+/**
+ * 样式落盘前的兜底归一化。
+ *
+ * 真正的规则在 src/lib/lyric-style.ts（有单测）；这里是主进程侧的防线：
+ * 渲染层一旦传进 NaN / 非法颜色，写进 style 的表现是「歌词凭空消失」，
+ * 而界面上看不出任何异常，排查成本极高。所以宁可在这里再夹一次。
+ */
+const LYRIC_STYLE_KEYS = ['fontSize', 'playedColor', 'unplayedColor', 'fontFamily', 'stroke', 'lines']
+const LYRIC_FONT_STACKS = new Set([
+  '',
+  '"Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif',
+  'KaiTi, "Kaiti SC", STKaiti, "Noto Serif SC", serif',
+  '"YouYuan", "Yuanti SC", "Microsoft YaHei", sans-serif',
+  'ui-monospace, Consolas, "Cascadia Mono", monospace',
+])
+const HEX = /^#[0-9a-f]{6}$/i
+
+function clampInt(v, min, max, fallback) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(max, Math.max(min, Math.round(n)))
+}
+
+function normalizeLyricStyle(raw) {
+  const s = raw || {}
+  const color = (v, fb) => (typeof v === 'string' && HEX.test(v) ? v.toLowerCase() : fb)
+  return {
+    fontSize: clampInt(s.fontSize, 18, 72, 34),
+    playedColor: color(s.playedColor ?? s.color, '#4ade80'),
+    unplayedColor: color(s.unplayedColor ?? s.color, '#4ade80'),
+    fontFamily: LYRIC_FONT_STACKS.has(s.fontFamily) ? s.fontFamily : '',
+    stroke: clampInt(s.stroke, 0, 3, 1),
+    lines: Number(s.lines) === 1 ? 1 : 2,
+  }
+}
 
 async function readLyricState() {
   try { return JSON.parse(await fs.readFile(lyricStatePath(), 'utf8')) } catch { return {} }
@@ -130,12 +175,16 @@ async function createLyricWindow() {
 
   const persistBounds = () => {
     if (!lyricWin || lyricWin.isDestroyed()) return
+    // 面板展开导致的高度变化不是用户意图，不能写进「下次打开的位置尺寸」
+    if (lyricBaseHeight) return
+    // 拖动过程中每一帧都会触发 moved，等松手再落盘一次就够了
+    if (lyricDragging) return
     const b = lyricWin.getBounds()
     void saveLyricState({ x: b.x, y: b.y, width: b.width, height: b.height })
   }
   lyricWin.on('moved', persistBounds)
   lyricWin.on('resized', persistBounds)
-  lyricWin.on('closed', () => { lyricWin = null })
+  lyricWin.on('closed', () => { lyricWin = null; lyricLocked = false; stopLyricDrag(false) })
 
   // 歌曲信息推给歌词窗口（主窗口 -> 主进程 -> 歌词窗口）
   return lyricWin
@@ -169,21 +218,136 @@ ipcMain.handle('lxmn:lyric:update', async (_e, payload) => {
 /** 锁定：锁定后鼠标事件穿透到下面的窗口（lx-music 的「锁定歌词」语义） */
 ipcMain.handle('lxmn:lyric:set-click-through', async (_e, through) => {
   if (!lyricWin || lyricWin.isDestroyed()) return false
-  lyricWin.setIgnoreMouseEvents(Boolean(through), { forward: true })
-  lyricWin.setFocusable(!through)
+  lyricLocked = Boolean(through)
+  lyricWin.setIgnoreMouseEvents(lyricLocked, { forward: true })
+  lyricWin.setFocusable(!lyricLocked)
+  return true
+})
+
+/**
+ * 锁定状态放在主进程内存里：锁定后歌词窗口收不到任何鼠标事件（穿透），
+ * 它自己没法「记得自己锁了」，只能由主窗口问主进程。
+ * 播放器底栏的「词」按钮靠这两个接口给用户留一条解锁的路。
+ */
+ipcMain.handle('lxmn:lyric:is-locked', async () => Boolean(lyricLocked && lyricWin && !lyricWin.isDestroyed()))
+
+ipcMain.handle('lxmn:lyric:set-lock', async (_e, locked) => {
+  if (!lyricWin || lyricWin.isDestroyed()) return false
+  lyricLocked = Boolean(locked)
+  lyricWin.setIgnoreMouseEvents(lyricLocked, { forward: true })
+  lyricWin.setFocusable(!lyricLocked)
+  return lyricLocked
+})
+
+/**
+ * 拖动歌词窗口。
+ *
+ * 为什么不用 -webkit-app-region: drag：这个窗口是 transparent + focusable:false，
+ * 拖动区一旦是 pointer-events:none（原来那 24px 的条子）就根本命中不到；
+ * 而把整块设成 drag 又会让工具条/面板上的按钮点不动。
+ *
+ * 为什么坐标要主进程自己取：渲染层能拿到的只有 clientX/screenX，
+ * 而窗口是「跟着鼠标动」的 —— 这两种坐标都会随着窗口移动而变，
+ * 算出来的位移会自激（实测拖 150px，窗口跑了 754px）。
+ * screen.getCursorScreenPoint() 是操作系统的真实光标位置，不受窗口影响。
+ *
+ * 顺带解决 DPI：缩放不是 100% 时 setPosition 会按比例重新取整，
+ * 拖一次窗口就胖一点（实测拖 18 次从 907 涨到 1088），所以固定用 setBounds 带着原尺寸。
+ */
+let lyricDrag = null
+
+function stopLyricDrag(persist = true) {
+  if (!lyricDrag) return
+  clearInterval(lyricDrag.timer)
+  const drag = lyricDrag
+  lyricDrag = null
+  lyricDragging = false
+  if (!persist || !lyricWin || lyricWin.isDestroyed()) return
+  const b = lyricWin.getBounds()
+  // 尺寸用拖动开始时的值：setBounds 在非 100% 缩放下会取整，每次 +1px 会越拖越胖
+  void saveLyricState({ x: b.x, y: b.y, width: drag.width, height: drag.height })
+}
+
+ipcMain.handle('lxmn:lyric:drag-start', async () => {
+  if (!lyricWin || lyricWin.isDestroyed()) return null
+  stopLyricDrag(false)
+  const b = lyricWin.getBounds()
+  const start = screen.getCursorScreenPoint()
+  lyricDragging = true
+  lyricDrag = {
+    x: b.x,
+    y: b.y,
+    width: b.width,
+    height: b.height,
+    cursor: start,
+    still: 0,
+    timer: setInterval(() => {
+      if (!lyricWin || lyricWin.isDestroyed()) { stopLyricDrag(false); return }
+      const p = screen.getCursorScreenPoint()
+      if (p.x === lyricDrag.cursor.x && p.y === lyricDrag.cursor.y) {
+        // 鼠标松手事件万一丢了，光标不动就别一直跟着（1 秒内没动就收工）
+        if (++lyricDrag.still > 60) stopLyricDrag()
+        return
+      }
+      lyricDrag.still = 0
+      lyricWin.setBounds({
+        x: lyricDrag.x + (p.x - lyricDrag.cursor.x),
+        y: lyricDrag.y + (p.y - lyricDrag.cursor.y),
+        width: lyricDrag.width,
+        height: lyricDrag.height,
+      })
+    }, 16),
+  }
+  return b
+})
+
+ipcMain.handle('lxmn:lyric:drag-end', async () => {
+  stopLyricDrag()
   return true
 })
 
 ipcMain.handle('lxmn:lyric:get-style', async () => {
   const s = await readLyricState()
   // 锁定状态不持久化：上次锁了、这次一打开就穿透，用户会以为窗口坏了
-  return { fontSize: s.fontSize ?? 34, color: s.color ?? '#4ade80', locked: false }
+  return { ...normalizeLyricStyle(s), locked: false }
+})
+
+/**
+ * 给右键面板腾地方：透明窗口里画不下就往外长。
+ * 面板是渲染层的普通流内元素，所以这里只负责把窗口高度加上去，
+ * 位置尽量不动（往下长），贴到屏幕底边时再往上顶。
+ */
+ipcMain.handle('lxmn:lyric:reserve', async (_e, extra) => {
+  if (!lyricWin || lyricWin.isDestroyed()) return false
+  const b = lyricWin.getBounds()
+  if (!lyricBaseHeight) lyricBaseHeight = b.height
+  const want = Math.max(0, Math.round(Number(extra) || 0))
+  const height = lyricBaseHeight + want
+  const area = screen.getDisplayMatching(b).workArea
+  let y = b.y
+  if (y + height > area.y + area.height) y = Math.max(area.y, area.y + area.height - height)
+  lyricWin.setBounds({ x: b.x, y, width: b.width, height })
+  return true
+})
+
+ipcMain.handle('lxmn:lyric:release', async () => {
+  if (!lyricWin || lyricWin.isDestroyed()) { lyricBaseHeight = 0; return false }
+  if (lyricBaseHeight) {
+    const b = lyricWin.getBounds()
+    lyricWin.setBounds({ x: b.x, y: b.y, width: b.width, height: lyricBaseHeight })
+  }
+  lyricBaseHeight = 0
+  return true
 })
 
 ipcMain.handle('lxmn:lyric:set-style', async (_e, patch) => {
-  const { locked: _ignored, ...persisted } = patch ?? {}
-  if (Object.keys(persisted).length) await saveLyricState(persisted)
-  return true
+  const { locked: _ignored, ...rest } = patch ?? {}
+  const cur = normalizeLyricStyle(await readLyricState())
+  // 只接受白名单字段，并且落盘的是归一化之后的值 ——
+  // 渲染层传个 NaN 进来会让歌词直接看不见，而界面上「看起来正常」
+  const next = normalizeLyricStyle({ ...cur, ...rest }, cur)
+  await saveLyricState(next)
+  return next
 })
 
 /* ---------- 渲染层需要的原生能力 ---------- */

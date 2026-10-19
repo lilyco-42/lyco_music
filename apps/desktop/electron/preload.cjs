@@ -45,8 +45,17 @@ contextBridge.exposeInMainWorld('lxmnNative', {
     isOpen: () => ipcRenderer.invoke('lxmn:lyric:is-open'),
     update: (payload) => ipcRenderer.invoke('lxmn:lyric:update', payload),
     setClickThrough: (through) => ipcRenderer.invoke('lxmn:lyric:set-click-through', through),
+    /** 锁定状态由主进程持有：锁定后窗口穿透，自己收不到事件，只能被问 */
+    isLocked: () => ipcRenderer.invoke('lxmn:lyric:is-locked'),
+    setLock: (locked) => ipcRenderer.invoke('lxmn:lyric:set-lock', locked),
     getStyle: () => ipcRenderer.invoke('lxmn:lyric:get-style'),
     setStyle: (patch) => ipcRenderer.invoke('lxmn:lyric:set-style', patch),
+    /** 右键面板展开时给窗口腾地方（透明窗口里画不下就往外长） */
+    reserve: (extra) => ipcRenderer.invoke('lxmn:lyric:reserve', extra),
+    release: () => ipcRenderer.invoke('lxmn:lyric:release'),
+    /** 拖动窗口：渲染层只发「按下/松手」，坐标由主进程读系统光标 */
+    dragStart: () => ipcRenderer.invoke('lxmn:lyric:drag-start'),
+    dragEnd: () => ipcRenderer.invoke('lxmn:lyric:drag-end'),
     /** 歌词窗口订阅数据 */
     onData: (cb) => {
       const handler = (_e, payload) => { try { cb(payload) } catch { /* ignore */ } }

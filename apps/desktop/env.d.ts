@@ -24,14 +24,29 @@ interface LxmnLyricPayload {
   playing?: boolean
 }
 
+interface LxmnLyricStyle {
+  fontSize: number
+  playedColor: string
+  unplayedColor: string
+  fontFamily: string
+  stroke: number
+  lines: 1 | 2
+}
+
 interface LxmnLyricApi {
   open: (initial?: LxmnLyricPayload) => Promise<boolean>
   close: () => Promise<boolean>
   isOpen: () => Promise<boolean>
   update: (payload: LxmnLyricPayload) => Promise<boolean>
   setClickThrough: (through: boolean) => Promise<boolean>
-  getStyle: () => Promise<{ fontSize: number; color: string; locked: boolean }>
-  setStyle: (patch: Record<string, unknown>) => Promise<boolean>
+  isLocked: () => Promise<boolean>
+  setLock: (locked: boolean) => Promise<boolean>
+  getStyle: () => Promise<LxmnLyricStyle & { locked: boolean }>
+  setStyle: (patch: Partial<LxmnLyricStyle>) => Promise<LxmnLyricStyle>
+  reserve: (extra: number) => Promise<boolean>
+  release: () => Promise<boolean>
+  dragStart: () => Promise<{ x: number; y: number; width: number; height: number } | null>
+  dragEnd: () => Promise<boolean>
   onData: (cb: (payload: LxmnLyricPayload) => void) => () => void
 }
 

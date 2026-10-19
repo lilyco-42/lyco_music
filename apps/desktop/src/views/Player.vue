@@ -14,6 +14,7 @@
 import { computed, ref, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { parseLyric, findLineIndex, getSource, hasSource, type MusicComment, type MusicItem } from '@lxmn/core'
+import { lyricScrollDelta, type LyricScrollMode } from '@/lib/lyric-style'
 import { useSync } from '@/lib/sync'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { usePlayer } from '@/lib/player'
@@ -54,6 +55,39 @@ const currentLine = computed(() => (isPlainLyric.value ? -1 : findLineIndex(lyri
 /** 把正在唱的那行滚到可视区中间 */
 const lyricBox = ref<HTMLElement | null>(null)
 
+/**
+ * 滚动方式（仿 lx-music 的「居中 / 逐行」）：
+ *   center —— 当前行始终停在可视区正中，跳转感最明显；
+ *   line   —— 当前行钉在顶部，一行一行往下推，长歌词读起来更稳。
+ * 存 localStorage：这是纯观感偏好，不值得为它加一条服务端同步。
+ */
+const SCROLL_KEY = 'lxmn.lyric.scroll'
+const SCROLL_MODES = [
+  { id: 'center' as const, label: '居中' },
+  { id: 'line' as const, label: '逐行' },
+]
+
+function readScrollMode(): LyricScrollMode {
+  try {
+    return localStorage.getItem(SCROLL_KEY) === 'line' ? 'line' : 'center'
+  } catch {
+    return 'center'
+  }
+}
+
+const scrollMode = ref<LyricScrollMode>(readScrollMode())
+
+function setScrollMode(mode: LyricScrollMode): void {
+  scrollMode.value = mode
+  try {
+    localStorage.setItem(SCROLL_KEY, mode)
+  } catch {
+    // 隐私模式下写不进去，只影响下次启动的默认值
+  }
+  // 切完立刻按新模式重定位，否则要等下一句歌词才动
+  void nextTick().then(() => centerActiveLine())
+}
+
 function centerActiveLine(behavior: ScrollBehavior = 'smooth'): void {
   const box = lyricBox.value
   if (!box) return
@@ -62,8 +96,12 @@ function centerActiveLine(behavior: ScrollBehavior = 'smooth'): void {
   // 用 rect 差值算相对滚动量：offsetTop 依赖定位祖先，容器不是 relative 时会算错
   const boxRect = box.getBoundingClientRect()
   const elRect = el.getBoundingClientRect()
-  const delta = elRect.top - boxRect.top
-  box.scrollTo({ top: box.scrollTop + delta - box.clientHeight / 2 + elRect.height / 2, behavior })
+  const delta = lyricScrollDelta(scrollMode.value, {
+    boxHeight: box.clientHeight,
+    lineTop: elRect.top - boxRect.top,
+    lineHeight: elRect.height,
+  })
+  box.scrollTo({ top: box.scrollTop + delta, behavior })
 }
 
 /** 当前行变化时跟随滚动（歌词滚动的核心） */
@@ -367,11 +405,29 @@ const vinylStyle = computed(() => ({
 
         <!-- 页签切换器（shadcn-vue Tabs）：222x42，圆角 21px，位于 (1005,265) -->
         <Tabs v-model="activeTab" class="mt-[28px] flex min-h-0 flex-1 flex-col">
-          <TabsList>
-            <TabsTrigger v-for="t in tabs" :key="t.key" :value="t.key">
-              {{ t.label }}
-            </TabsTrigger>
-          </TabsList>
+          <div class="flex items-center justify-between gap-3">
+            <TabsList>
+              <TabsTrigger v-for="t in tabs" :key="t.key" :value="t.key">
+                {{ t.label }}
+              </TabsTrigger>
+            </TabsList>
+
+            <!-- 滚动方式：只在歌词页签出现，切到评论就收起来 -->
+            <div v-if="activeTab === 'lyric'" class="flex items-center gap-1 text-[12px] text-ncmd-dim">
+              <span>滚动</span>
+              <button
+                v-for="m in SCROLL_MODES"
+                :key="m.id"
+                type="button"
+                class="rounded-full px-2 py-[2px] transition-colors"
+                :class="scrollMode === m.id ? 'bg-white/15 text-ncmd-fg' : 'hover:bg-white/10 hover:text-ncmd-muted'"
+                :title="m.id === 'center' ? '当前行始终停在可视区中间' : '当前行钉在顶部，一行一行往下推'"
+                @click="setScrollMode(m.id)"
+              >
+                {{ m.label }}
+              </button>
+            </div>
+          </div>
 
           <!-- 歌词区：与页签间留约 260px 空白，起始 y=573 -->
           <TabsContent value="lyric" class="mt-[24px] flex min-h-0 max-w-[620px] flex-1 flex-col pb-4">
