@@ -6,6 +6,8 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('lxmnNative', {
   request: (options) => ipcRenderer.invoke('lxmn:request', options),
+  /** 弹系统另存为对话框并写文件：歌词导出（content）/ 音频下载（url） */
+  saveFile: (payload) => ipcRenderer.invoke('lxmn:save-file', payload),
   storage: {
     get: (k) => ipcRenderer.invoke('lxmn:storage:get', k),
     set: (k, v) => ipcRenderer.invoke('lxmn:storage:set', k, v),
@@ -56,6 +58,14 @@ contextBridge.exposeInMainWorld('lxmnNative', {
     /** 拖动窗口：渲染层只发「按下/松手」，坐标由主进程读系统光标 */
     dragStart: () => ipcRenderer.invoke('lxmn:lyric:drag-start'),
     dragEnd: () => ipcRenderer.invoke('lxmn:lyric:drag-end'),
+    /** 歌词窗口点时间条/歌词行：请求主窗口跳转 */
+    seek: (time) => ipcRenderer.invoke('lxmn:lyric:seek', time),
+    /** 主窗口订阅「歌词窗口要求跳转」 */
+    onSeekRequest: (cb) => {
+      const handler = (_e, time) => { try { cb(Number(time) || 0) } catch { /* ignore */ } }
+      ipcRenderer.on('lxmn:lyric:seek-request', handler)
+      return () => ipcRenderer.removeListener('lxmn:lyric:seek-request', handler)
+    },
     /** 歌词窗口订阅数据 */
     onData: (cb) => {
       const handler = (_e, payload) => { try { cb(payload) } catch { /* ignore */ } }

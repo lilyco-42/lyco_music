@@ -4,7 +4,7 @@
  * 只做外壳：加载 Vite 构建产物，保留 lx-music 上游的自定义音源能力
  * （渲染层可通过 preload 暴露的 API 读写本地文件 / 发起无 CORS 请求）。
  */
-const { app, BrowserWindow, shell, ipcMain, net, safeStorage, screen } = require('electron')
+const { app, BrowserWindow, shell, ipcMain, net, safeStorage, screen, dialog } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs/promises')
 const { startLoginFlow } = require('./oauth.cjs')
@@ -215,6 +215,20 @@ ipcMain.handle('lxmn:lyric:update', async (_e, payload) => {
   return true
 })
 
+/**
+ * 歌词窗口点时间条/歌词行要跳转。
+ *
+ * 歌词窗口是另一个渲染进程，碰不到主窗口的 player store，所以只能
+ * 「歌词窗口 -> 主进程 -> 主窗口」绕一圈。主窗口收到后自己 seek，
+ * 再由它把新的 currentTime 推回来，两边才不会各算一套。
+ */
+ipcMain.handle('lxmn:lyric:seek', async (_e, time) => {
+  const t = Number(time)
+  if (!Number.isFinite(t) || t < 0) return false
+  if (win && !win.isDestroyed()) win.webContents.send('lxmn:lyric:seek-request', t)
+  return true
+})
+
 /** 锁定：锁定后鼠标事件穿透到下面的窗口（lx-music 的「锁定歌词」语义） */
 ipcMain.handle('lxmn:lyric:set-click-through', async (_e, through) => {
   if (!lyricWin || lyricWin.isDestroyed()) return false
@@ -376,6 +390,56 @@ ipcMain.handle('lxmn:request', async (_e, options) => {
     headers: Object.fromEntries(res.headers.entries()),
     body: buf.toString('utf8'),
     raw: buf,
+  }
+})
+
+/**
+ * 保存文件：歌词导出（content）与音频下载（url）共用一条通道。
+ *
+ * 放在主进程而不是渲染层用 <a download>，是为了两件渲染层做不到的事：
+ *   1. 弹系统「另存为」对话框 —— 用户能选目录、能改文件名，
+ *      而跨域的 <a download> 在 file:// 页面里文件名会被服务器路径覆盖；
+ *   2. 直接抓音频流 —— 渲染层抓 CDN 会被 CORS 拦，主进程的 net.fetch 不会。
+ */
+ipcMain.handle('lxmn:save-file', async (_e, payload) => {
+  const { filename, content, url, dir } = payload || {}
+  if (typeof filename !== 'string' || !filename) return { ok: false, error: '缺少文件名' }
+  // 先校验再弹框：参数不对时弹出一个「另存为」再失败，用户只会觉得莫名其妙
+  const hasContent = typeof content === 'string'
+  const hasUrl = typeof url === 'string' && /^https?:\/\//i.test(url)
+  if (!hasContent && !hasUrl) return { ok: false, error: '没有可保存的内容' }
+
+  // 给了目录就直接存（第二次以后的下载不该再弹框，批量下十首歌弹十次是灾难）。
+  // 目录由渲染层记住「用户上次选的目录」，所以不会写到他不知道的地方。
+  let filePath = ''
+  if (typeof dir === 'string' && dir) {
+    try {
+      await fs.mkdir(dir, { recursive: true })
+      filePath = path.join(dir, path.basename(filename))
+    } catch (e) {
+      return { ok: false, error: '下载目录不可写：' + (e && e.message ? e.message : String(e)) }
+    }
+  } else {
+    const picked = await dialog.showSaveDialog(win ?? undefined, { defaultPath: filename })
+    if (picked.canceled || !picked.filePath) return { ok: false, canceled: true }
+    filePath = picked.filePath
+  }
+
+  try {
+    if (hasContent) {
+      await fs.writeFile(filePath, content, 'utf8')
+      return { ok: true, path: filePath, size: Buffer.byteLength(content, 'utf8') }
+    }
+    if (!hasUrl) return { ok: false, error: '没有可保存的内容' }
+    const res = await net.fetch(url)
+    if (!res.ok) return { ok: false, error: `下载失败（HTTP ${res.status}）` }
+    const buf = Buffer.from(await res.arrayBuffer())
+    // 空文件说明这条地址已经失效（酷狗/酷我的签名地址过期就是这个表现）
+    if (!buf.length) return { ok: false, error: '下载到的文件是空的，地址可能已过期' }
+    await fs.writeFile(filePath, buf)
+    return { ok: true, path: filePath, size: buf.length }
+  } catch (e) {
+    return { ok: false, error: e && e.message ? e.message : String(e) }
   }
 })
 

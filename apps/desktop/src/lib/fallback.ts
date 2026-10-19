@@ -53,14 +53,21 @@ function titleScore(a: string, b: string): number {
  *
  * 门槛故意高：标题要几乎一致、歌手要能对上。
  * 串错歌比放不出来更让人恼火 —— 用户点的是周杰伦，播出来一个翻唱。
+ *
+ * avoid：这些音源刚被证明「给的地址放不出来」，本轮不要再选。
  */
-export function pickBestMatch(item: MusicItem, candidates: MusicItem[]): MusicItem | null {
+export function pickBestMatch(
+  item: MusicItem,
+  candidates: MusicItem[],
+  avoid?: ReadonlySet<SourceId>,
+): MusicItem | null {
   const wantTitle = normTitle(item.name)
   const wantSinger = normSinger(item.singer)
   let best: { item: MusicItem; score: number } | null = null
 
   for (const c of candidates) {
     if (c.source === item.source) continue
+    if (avoid?.has(c.source)) continue
     const t = titleScore(wantTitle, normTitle(c.name))
     if (t < 0.9) continue
     const s = normSinger(c.singer)
@@ -80,22 +87,23 @@ export function pickBestMatch(item: MusicItem, candidates: MusicItem[]): MusicIt
  * 曲库全的音源排前面，用户更快听到歌。拿不到订阅时退回内置顺序。
  * 同时尊重 enabled —— 服务端可以把某个音源临时下线。
  */
-async function candidateSources(exclude: SourceId): Promise<SourceId[]> {
+async function candidateSources(exclude: SourceId | undefined, avoid: ReadonlySet<SourceId>): Promise<SourceId[]> {
+  const usable = (id: SourceId): boolean => id !== exclude && !avoid.has(id) && hasSource(id)
   const fallback: SourceId[] = ['kg', 'kw', 'mg', 'wy']
   try {
     const status = await subscription.status()
     if (status.state !== 'active') {
-      return fallback.filter(id => id !== exclude && hasSource(id))
+      return fallback.filter(usable)
     }
     const ranked = status.sources
       .filter(s => s.enabled !== false)
       .map((s, i) => ({ id: s.id as SourceId, order: s.order ?? 100 + i }))
-      .filter(s => s.id !== exclude && hasSource(s.id))
+      .filter(s => usable(s.id))
       .sort((a, b) => a.order - b.order)
       .map(s => s.id)
-    return ranked.length ? ranked : fallback.filter(id => id !== exclude && hasSource(id))
+    return ranked.length ? ranked : fallback.filter(usable)
   } catch {
-    return fallback.filter(id => id !== exclude && hasSource(id))
+    return fallback.filter(usable)
   }
 }
 
@@ -131,9 +139,21 @@ export async function resolveWithFallback(
    * 试听片段（时长只有原曲一小截）在取流阶段看不出来，只能等 <audio> 报出时长，
    * 那时才回来说「这个源只给了试听」，于是要排除它再找下一个。
    */
-  opts: { allowCrossSource?: boolean; exclude?: SourceId } = {},
+  opts: {
+    allowCrossSource?: boolean
+    exclude?: SourceId
+    /**
+     * avoid：这些音源本轮不要再选。
+     *
+     * 和 exclude 的区别是「只跳过串源候选，不跳过原源自己」：
+     * 原源重取一次（换张新签名）往往就活了，但已知放不出来的其他源
+     * 没必要再挑一遍 —— 否则重试三次会连着踩同一个坏地址。
+     */
+    avoid?: SourceId[]
+  } = {},
 ): Promise<FallbackOutcome> {
   const skip = opts.exclude
+  const avoid = new Set<SourceId>(opts.avoid ?? [])
   try {
     if (skip === item.source) throw new Error('[lxmn/fallback] 跳过仅提供试听的音源')
     const info = await getSource(item.source).getMusicUrl(item, quality)
@@ -157,13 +177,13 @@ export async function resolveWithFallback(
     }
 
     const keyword = (String(item.name ?? '') + ' ' + normSinger(item.singer)).trim()
-    const others = await candidateSources(item.source)
+    const others = await candidateSources(item.source, avoid)
     for (const id of others) {
       const source = getSource(id)
       if (!source.musicSearch) continue
       try {
         const found = await source.musicSearch(keyword, 1, 15)
-        const match = pickBestMatch(item, found.list)
+        const match = pickBestMatch(item, found.list, avoid)
         if (!match) continue
         const info = await getSource(match.source).getMusicUrl(match, quality)
         return { info, item: match, switched: true }

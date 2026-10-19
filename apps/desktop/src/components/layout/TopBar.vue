@@ -14,8 +14,11 @@ const account = useAccount()
 const theme = useTheme()
 onMounted(() => { void account.restore() })
 
-/** 主题色菜单项：色块 + 名称 */
-const themeItems = theme.presets.map(p => ({ value: p.id, label: p.name, hint: p.accent }))
+/** 主题菜单项：色块 + 名称；末尾附两套皮肤（材质不同，不只是颜色） */
+const themeItems = [
+  ...theme.presets.map(p => ({ value: p.id, label: p.name, hint: p.accent })),
+  ...theme.skins.map(s => ({ value: 'skin:' + s.id, label: '皮肤 · ' + s.name, hint: '' })),
+]
 
 function search() {
   const q = keyword.value.trim()

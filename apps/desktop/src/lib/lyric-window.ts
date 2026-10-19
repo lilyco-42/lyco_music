@@ -14,7 +14,9 @@ interface Payload {
   singer?: string
   lyric?: string
   tlyric?: string
+  romalrc?: string
   currentTime?: number
+  duration?: number
   playing?: boolean
 }
 
@@ -47,11 +49,19 @@ export function installLyricBridge(): void {
       singer: player.current.value?.singer ?? '',
       lyric: player.state.lyric,
       tlyric: player.state.tlyric,
+      romalrc: player.state.romalrc,
       currentTime: player.state.currentTime,
+      duration: player.state.duration,
       playing: player.state.playing,
     }
     void api.update(payload)
   }
+
+  // 歌词窗口没有自己的播放器，它点时间条时只能喊主窗口干活
+  const offSeek = api.onSeekRequest?.((t: number) => {
+    if (Number.isFinite(t) && t >= 0) player.seek(t)
+  })
+  void offSeek
 
   // 进度/歌词/切歌都要同步；force 用于「切歌」这类关键变化
   const stop = playerWatch(() => {

@@ -59,8 +59,51 @@ function applyPreset(preset: ThemePreset): void {
   root.dataset.theme = preset.id
 }
 
+/* ---------------- 皮肤（结构层，不只是强调色） ---------------- */
+
+/**
+ * 皮肤和「主题色」是两件事：
+ *   - 主题色只换强调色（accent / progress），结构色不动；
+ *   - 皮肤换的是**材质**：面板是否半透明、有没有毛玻璃、背景是不是渐变。
+ *
+ * 目前两套：
+ *   classic —— 原版实色面板；
+ *   glass   —— Apple Liquid Glass 风格：半透明 + 背景模糊 + 边缘高光。
+ *              参数照 Liquid Glass 的三条原则来：模糊要够（24px+）、
+ *              边缘要有 1px 高光、玻璃下面不能是不透明色块（否则等于没用）。
+ */
+export type SkinId = 'classic' | 'glass'
+
+export const SKINS: Array<{ id: SkinId; name: string }> = [
+  { id: 'classic', name: '经典' },
+  { id: 'glass', name: '液态玻璃' },
+]
+
+const SKIN_KEY = 'lxmn.theme.skin'
+const skinId = ref<SkinId>(readSkin())
+
+function readSkin(): SkinId {
+  try {
+    return localStorage.getItem(SKIN_KEY) === 'glass' ? 'glass' : 'classic'
+  } catch {
+    return 'classic'
+  }
+}
+
+function applySkin(id: SkinId): void {
+  document.documentElement.dataset.skin = id
+}
+
 export function useTheme() {
   function setTheme(id: string): void {
+    // 菜单里皮肤项用 skin: 前缀，避免和颜色预设撞 id
+    if (id.startsWith('skin:')) {
+      const next = id.slice(5) === 'glass' ? 'glass' : 'classic'
+      skinId.value = next
+      applySkin(next)
+      try { localStorage.setItem(SKIN_KEY, next) } catch { /* 忽略 */ }
+      return
+    }
     const preset = THEME_PRESETS.find(p => p.id === id)
     if (!preset) return
     currentId.value = preset.id
@@ -68,10 +111,11 @@ export function useTheme() {
     try { localStorage.setItem(STORAGE_KEY, preset.id) } catch { /* 忽略 */ }
   }
 
-  return { presets: THEME_PRESETS, current, currentId, setTheme }
+  return { presets: THEME_PRESETS, current, currentId, setTheme, skins: SKINS, skinId }
 }
 
 /** 启动时立即应用，避免先闪一下红色再变色 */
 export function initTheme(): void {
   applyPreset(current.value)
+  applySkin(skinId.value)
 }

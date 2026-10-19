@@ -15,6 +15,15 @@
  *   [00:12.34]              —— 空行，用来做间奏占位
  */
 
+/** 一个「字/词」的时间片（来自网易 yrc 逐字歌词） */
+export interface LyricWord {
+  /** 开始时间，秒 */
+  time: number
+  /** 持续时长，秒 */
+  duration: number
+  text: string
+}
+
 /** 一行歌词 */
 export interface LyricLine {
   /** 该行开始时间，秒 */
@@ -23,12 +32,23 @@ export interface LyricLine {
   text: string
   /** 翻译（来自 tlyric，按时间戳对齐） */
   translation?: string
+  /** 罗马音（来自 romalrc，按时间戳对齐；日文歌才用得上） */
+  romaji?: string
+  /**
+   * 逐字时间轴（来自 yrc）。
+   * 有它就能做「唱到哪个字，哪个字变色」；没有就退回整行高亮。
+   */
+  words?: LyricWord[]
 }
 
 export interface ParsedLyric {
   lines: LyricLine[]
   /** 有翻译行时为 true，UI 可以据此决定要不要留第二行的高度 */
   hasTranslation: boolean
+  /** 有罗马音行时为 true */
+  hasRomaji: boolean
+  /** 有逐字时间轴时为 true（UI 据此决定要不要做逐字染色） */
+  hasWords?: boolean
   /**
    * 纯文本歌词（没有任何时间标签）。
    *
@@ -61,7 +81,7 @@ function toSeconds(min: string, sec: string, frac?: string): number {
  * 相同时间戳会覆盖前面的，这样 tlyric 合并进来时行为是可预期的。
  */
 export function parseLrc(raw: string | null | undefined): ParsedLyric {
-  if (!raw) return { lines: [], hasTranslation: false }
+  if (!raw) return { lines: [], hasTranslation: false, hasRomaji: false }
 
   const byTime = new Map<number, LyricLine>()
   let offsetMs = 0
@@ -101,7 +121,7 @@ export function parseLrc(raw: string | null | undefined): ParsedLyric {
   }
 
   const lines = [...byTime.values()].sort((a, b) => a.time - b.time)
-  if (lines.length) return { lines, hasTranslation: false }
+  if (lines.length) return { lines, hasTranslation: false, hasRomaji: false }
 
   // 一条时间标签都没有：当作纯文本歌词，按行造出等距时间轴。
   // 这样 UI 至少能把词显示出来，而不是卡在「解析中」。
@@ -112,7 +132,7 @@ export function parseLrc(raw: string | null | undefined): ParsedLyric {
     if (META_TAG.test(line)) continue
     plain.push({ time: plain.length, text: line })
   }
-  return { lines: plain, hasTranslation: false, plain: plain.length > 0 }
+  return { lines: plain, hasTranslation: false, hasRomaji: false, plain: plain.length > 0 }
 }
 
 /**
@@ -145,12 +165,124 @@ export function mergeTranslation(parsed: ParsedLyric, tlyric: string | null | un
       if (text) { line.translation = text; used.add(best); has = true }
     }
   }
-  return { lines: parsed.lines, hasTranslation: has }
+  return { ...parsed, lines: parsed.lines, hasTranslation: has }
 }
 
-/** 一次性解析原文 + 翻译 */
-export function parseLyric(lyric: string | null | undefined, tlyric?: string | null): ParsedLyric {
-  return mergeTranslation(parseLrc(lyric), tlyric)
+/**
+ * 把罗马音按时间戳合并进原文（日文歌专用）。
+ *
+ * 逻辑与翻译完全相同，唯一的区别是写进 `romaji` 字段 —— 两者可以同时存在，
+ * 界面上是「原文 / 罗马音 / 翻译」三行叠在一起的观感。
+ */
+export function mergeRomaji(parsed: ParsedLyric, romalrc: string | null | undefined, tolerance = 0.35): ParsedLyric {
+  if (parsed.plain) return parsed
+  if (!parsed.lines.length || !romalrc) return parsed
+  const ro = parseLrc(romalrc)
+  if (!ro.lines.length) return parsed
+
+  const used = new Set<number>()
+  let has = false
+  for (const line of parsed.lines) {
+    let best = -1
+    let bestDelta = Infinity
+    for (let i = 0; i < ro.lines.length; i++) {
+      if (used.has(i)) continue
+      const cand = ro.lines[i]
+      if (!cand) continue
+      const d = Math.abs(cand.time - line.time)
+      if (d < bestDelta) { bestDelta = d; best = i }
+    }
+    if (best >= 0 && bestDelta <= tolerance) {
+      const text = ro.lines[best]?.text
+      if (text) { line.romaji = text; used.add(best); has = true }
+    }
+  }
+  return { ...parsed, lines: parsed.lines, hasRomaji: has }
+}
+
+/** 一次性解析原文 + 翻译 + 罗马音 */
+export function parseLyric(
+  lyric: string | null | undefined,
+  tlyric?: string | null,
+  romalrc?: string | null,
+  yrc?: string | null,
+): ParsedLyric {
+  const base = parseLrc(lyric)
+  const withTranslation = mergeTranslation(base, tlyric)
+  const withRomaji = mergeRomaji(withTranslation, romalrc)
+  return mergeWords(withRomaji, yrc)
+}
+
+/**
+ * 解析逐字歌词（网易 yrc）。
+ *
+ * 格式长这样（每个字一个 `(起始ms,时长ms,0)`，行首是 `[起始ms,时长ms,0]`）：
+ *   [1000,2000,0](1000,400,0)君(1400,600,0)の(2000,1000,0)名(3000,0,0)前
+ *
+ * 注意：**这里只取逐字时间，文本仍以 lrc 为准**。
+ * yrc 里的字与 lrc 的行文偶尔有细微差异（标点、空格），
+ * 直接用 yrc 的文本会让歌词在两套数据之间跳字；用 lrc 的文本 + yrc 的时间最稳。
+ */
+export function parseYrc(raw: string | null | undefined): LyricLine[] {
+  if (!raw) return []
+  const out: LyricLine[] = []
+  for (const rawLine of raw.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line) continue
+    const head = /^\[(\d+),(\d+),\d+\]/.exec(line)
+    if (!head) continue
+    const startMs = Number(head[1])
+    const words: LyricWord[] = []
+    const wordRe = /\((\d+),(\d+),\d+\)([^()]*)/g
+    let m: RegExpExecArray | null
+    let text = ''
+    while ((m = wordRe.exec(line)) !== null) {
+      const w = m[3] ?? ''
+      const dur = Number(m[2]) || 0
+      // 空白片不打字，但仍要占时间，否则下一句会提前亮
+      if (w.trim()) {
+        words.push({ time: Number(m[1]) / 1000, duration: dur / 1000, text: w })
+        text += w
+      }
+    }
+    if (!text.trim()) continue
+    out.push({ time: startMs / 1000, text, words })
+  }
+  return out.sort((a, b) => a.time - b.time)
+}
+
+/**
+ * 把逐字时间轴并进已有歌词行。
+ *
+ * 匹配用行首时间（容差 0.2s）：yrc 与 lrc 的起始时间一般完全一致，
+ * 差得多说明是两条不同的歌词流，宁可不要逐字也不要错位。
+ */
+export function mergeWords(parsed: ParsedLyric, yrc: string | null | undefined, tolerance = 0.2): ParsedLyric {
+  if (parsed.plain) return parsed
+  if (!parsed.lines.length || !yrc) return parsed
+  const timed = parseYrc(yrc)
+  if (!timed.length) return parsed
+
+  const used = new Set<number>()
+  let has = false
+  for (const line of parsed.lines) {
+    let best = -1
+    let bestDelta = Infinity
+    for (let i = 0; i < timed.length; i++) {
+      if (used.has(i)) continue
+      const cand = timed[i]
+      if (!cand) continue
+      const d = Math.abs(cand.time - line.time)
+      if (d < bestDelta) { bestDelta = d; best = i }
+    }
+    const cand = best >= 0 ? timed[best] : undefined
+    if (cand?.words?.length && bestDelta <= tolerance) {
+      line.words = cand.words
+      used.add(best)
+      has = true
+    }
+  }
+  return { ...parsed, lines: parsed.lines, hasWords: has }
 }
 
 /**

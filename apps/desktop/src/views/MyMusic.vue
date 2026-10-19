@@ -420,6 +420,7 @@ watch(playlists, () => {
               @error="($event.target as HTMLImageElement).src = './art/cover-default.jpg'"
             />
             <img v-else :src="'./art/cover-default.jpg'" alt="" class="size-full object-cover" loading="lazy" />
+            <span class="tex-img" aria-hidden="true" />
             <span class="absolute right-2 top-2 rounded-pill bg-black/45 px-2 py-0.5 text-[12px] text-white">{{ pl.items.length }} 首</span>
           </div>
           <span class="mt-2 line-clamp-2 text-[14px] leading-5 text-ncm-fg group-hover:text-ncm-accent">{{ pl.name }}</span>
@@ -439,7 +440,7 @@ watch(playlists, () => {
       </button>
 
       <div class="flex items-start gap-5">
-        <div class="size-[132px] shrink-0 overflow-hidden rounded-cover bg-ncm-fainter/30">
+        <div class="relative size-[132px] shrink-0 overflow-hidden rounded-cover bg-ncm-fainter/30">
           <img
             :src="coverOf(opened) || './art/cover-default.jpg'"
             alt=""
@@ -447,6 +448,7 @@ watch(playlists, () => {
             loading="lazy"
             @error="($event.target as HTMLImageElement).src = './art/cover-default.jpg'"
           />
+          <span class="tex-img" aria-hidden="true" />
         </div>
 
         <div class="min-w-0 flex-1">

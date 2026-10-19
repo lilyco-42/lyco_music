@@ -20,7 +20,9 @@ interface LxmnLyricPayload {
   singer?: string
   lyric?: string
   tlyric?: string
+  romalrc?: string
   currentTime?: number
+  duration?: number
   playing?: boolean
 }
 
@@ -47,6 +49,8 @@ interface LxmnLyricApi {
   release: () => Promise<boolean>
   dragStart: () => Promise<{ x: number; y: number; width: number; height: number } | null>
   dragEnd: () => Promise<boolean>
+  seek: (time: number) => Promise<boolean>
+  onSeekRequest: (cb: (time: number) => void) => () => void
   onData: (cb: (payload: LxmnLyricPayload) => void) => () => void
 }
 

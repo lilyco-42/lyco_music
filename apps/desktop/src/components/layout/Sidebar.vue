@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   Disc3, Music2, Sparkles, Podcast, Compass, UsersRound,
   Heart, History, Download, Ellipsis, Crown, Cloud, UserRound,
-  ListMusic, Plus,
+  ListMusic, Plus, Settings2,
 } from 'lucide-vue-next'
 import { useSync } from '@/lib/sync'
 
@@ -24,6 +24,7 @@ const navServices = [
   { key: 'membership', label: '音乐会员', icon: Crown, route: '/membership' },
   { key: 'sync', label: '云同步', icon: Cloud, route: '/sync' },
   { key: 'friends', label: '好友', icon: UsersRound, route: '/friends' },
+  { key: 'settings', label: '设置', icon: Settings2, route: '/settings' },
   { key: 'account', label: '我的账户', icon: UserRound, route: '/account' },
 ]
 const navMine = [

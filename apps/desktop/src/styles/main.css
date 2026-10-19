@@ -108,3 +108,177 @@ html[data-window='lyric'] body,
 html[data-window='lyric'] #app {
   background: transparent !important;
 }
+
+/*
+ * ============================================================
+ * 皮肤：液态玻璃（Apple Liquid Glass 的 Web 版做法）
+ *
+ * 三条硬约束，少一条就不是液态玻璃而只是「半透明」：
+ *   1. 玻璃后面必须有东西可模糊 —— 所以背景是渐变而不是纯色；
+ *   2. 面板半透明 + backdrop-filter（blur 要够大，24px 起步）；
+ *   3. 边缘要有 1px 高光 + 外侧柔和投影，否则看起来像一块塑料片。
+ *
+ * 只作用在外壳三块面板（侧栏/顶栏/底栏）和卡片上。
+ * Liquid Glass 规范明确反对「给每个元素都上玻璃」，层级一多就糊成一团。
+ * ============================================================ */
+html[data-skin='glass'] body {
+  /*
+   * 颜色要「够浓」：玻璃靠背后的色块体现存在感，
+   * 淡到几乎看不见的渐变，看起来就只是一块白面板（第一版就是这样翻车的）。
+   */
+  background:
+    radial-gradient(1400px 980px at 4% -6%, #8fb6ff 0%, transparent 58%),
+    radial-gradient(1300px 900px at 100% 2%, #ff9fc4 0%, transparent 56%),
+    radial-gradient(1200px 1000px at 46% 118%, #7fe0c4 0%, transparent 58%),
+    #e6ecf6;
+  background-attachment: fixed;
+}
+
+/* 面板本身：半透明 + 模糊 + 饱和度提升（玻璃会把背后的颜色「吸」出来） */
+html[data-skin='glass'] .bg-ncm-sidebar,
+html[data-skin='glass'] .bg-ncm-topbar,
+html[data-skin='glass'] .bg-ncm-bottombar {
+  background-color: rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(26px) saturate(180%);
+  -webkit-backdrop-filter: blur(26px) saturate(180%);
+  /* 顶部 1px 高光 + 内侧 1px 描边：玻璃边缘的反光 */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.45),
+    0 8px 28px rgba(31, 45, 61, 0.08);
+}
+
+/* 主内容区不要实底，否则玻璃面板背后是一片死色，模糊不出东西 */
+html[data-skin='glass'] .bg-ncm-bg {
+  background-color: transparent;
+}
+
+/* 卡片与悬停底色跟着半透明化，避免玻璃面板里突然出现一块实白 */
+html[data-skin='glass'] .bg-white {
+  background-color: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+}
+
+/* 分隔线改成一像素亮线，玻璃之间的接缝才自然 */
+html[data-skin='glass'] .border-ncm-divider {
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+/* 交互反馈：按下去轻微回弹，对应规范里的 interactive() */
+html[data-skin='glass'] button:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+/* 深色播放页同样给一层玻璃质感（底色本来就深，用低透明度白提亮） */
+html[data-skin='glass'] .bg-ncmd-bottombar,
+html[data-skin='glass'] .bg-ncmd-topbar,
+html[data-skin='glass'] .bg-ncmd-sidebar {
+  background-color: rgba(28, 28, 30, 0.55);
+  backdrop-filter: blur(26px) saturate(160%);
+  -webkit-backdrop-filter: blur(26px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* ============================================================
+ * 质感滤镜（只作用在「带图片的组件」上）
+ *
+ * 第一版是全屏铺一层网点，结果很难看 —— 满屏都是点，文字边缘也脏。
+ * 现在收窄成：**只有承载图片的元素**才贴纹理。
+ *
+ * 为什么只给图片：图片本身有明暗和噪点，压一层网屏像印刷品；
+ * 纯色面板压网点只会显脏，文字上更是直接糊掉。
+ *
+ * 用法：在 <img> 后面紧跟一个
+ *   <span class="tex-img" />
+ * 它绝对定位铺满父容器（父容器必须是 relative + overflow-hidden），
+ * 靠 DOM 顺序保证「盖住图片、但压不住后面的标题和按钮」。
+ * ============================================================ */
+.tex-img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: var(--tex-strength, 0.5);
+  /*
+   * 柔光而不是正片叠底：图片本身已经有明暗，正片叠底会把暗部直接压死，
+   * 柔光只改对比、不动整体亮度，暗封面和亮封面都能看见网点。
+   */
+  mix-blend-mode: soft-light;
+  /*
+   * 网屏不要铺满整块：从左下角往外逐渐淡出，
+   * 一张均匀的网点像壁纸，有疏密的才像印上去的。
+   */
+  -webkit-mask-image: radial-gradient(150% 150% at 8% 100%, #000 0%, rgba(0, 0, 0, 0.55) 58%, transparent 100%);
+  mask-image: radial-gradient(150% 150% at 8% 100%, #000 0%, rgba(0, 0, 0, 0.55) 58%, transparent 100%);
+}
+
+/* ---- 半调网点：8px 网格、45° 交错，两层点径叠出疏密 ---- */
+html[data-texture='halftone'] .tex-img,
+.tex-preview[data-texture='halftone'] > .tex-img {
+  background-image:
+    radial-gradient(circle at 50% 50%, rgba(12, 18, 32, 0.85) 0.6px, transparent 0.95px),
+    radial-gradient(circle at 50% 50%, rgba(12, 18, 32, 0.7) 1.25px, transparent 1.6px);
+  background-size: 8px 8px, 8px 8px;
+  background-position: 0 0, 4px 4px;
+}
+
+/* ---- 胶片颗粒 ----
+ * 颗粒不能只靠柔光：柔光对饱和度高的封面几乎无效（红封面上完全看不见）。
+ * 这里两手一起上 —— 噪点本身先拉高对比（feComponentTransfer），
+ * 再换成 overlay，暗部亮部都能翻出来。
+ */
+html[data-texture='grain'] .tex-img,
+.tex-preview[data-texture='grain'] > .tex-img {
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='2.2' intercept='-0.6'/%3E%3CfeFuncG type='linear' slope='2.2' intercept='-0.6'/%3E%3CfeFuncB type='linear' slope='2.2' intercept='-0.6'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+/* ---- 抖动噪点：2x2 硬边棋盘 ---- */
+html[data-texture='dither'] .tex-img,
+.tex-preview[data-texture='dither'] > .tex-img {
+  background-image: repeating-conic-gradient(rgba(12, 18, 32, 0.85) 0% 25%, transparent 0% 50%);
+  background-size: 4px 4px;
+}
+
+/* ---- 细密网格 ---- */
+html[data-texture='grid'] .tex-img,
+.tex-preview[data-texture='grid'] > .tex-img {
+  background-image:
+    linear-gradient(to right, rgba(12, 18, 32, 0.5) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(12, 18, 32, 0.5) 1px, transparent 1px);
+  background-size: 6px 6px;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+/* 纯净档：连合成都省掉 */
+html[data-texture='none'] .tex-img,
+.tex-preview[data-texture='none'] > .tex-img {
+  display: none;
+}
+
+/* ============================================================
+ * 设置页的预览块：把「一张图 + 网点」缩成小方块，
+ * 所见即所得 —— 预览和真实封面走的是同一套图案定义。
+ * ============================================================ */
+.tex-preview {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  /* 用一段彩色渐变冒充封面：纯灰底看不出柔光的效果 */
+  background:
+    radial-gradient(120% 120% at 15% 100%, #4a5b8c 0%, transparent 62%),
+    linear-gradient(135deg, #8fa6d8 0%, #d8b0c8 55%, #f0dcc8 100%);
+}
+
+.tex-preview > .tex-img {
+  /* 预览块里 100% 铺满，不用渐变蒙版，小尺寸看不清 */
+  -webkit-mask-image: none;
+  mask-image: none;
+  border-radius: 0;
+}

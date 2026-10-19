@@ -9,6 +9,7 @@ import Sidebar from './components/layout/Sidebar.vue'
 import TopBar from './components/layout/TopBar.vue'
 import PlayBar from './components/layout/PlayBar.vue'
 import AudioHost from './components/AudioHost.vue'
+import { toastText } from './lib/toast'
 
 const route = useRoute()
 /** 播放器模式为独立全屏界面（实测深色截图） */
@@ -16,8 +17,11 @@ const isPlayerMode = computed(() => route.name === 'player')
 /**
  * 桌面歌词窗口：同一个前端包，但加载在独立的透明窗口里。
  * 它不能画侧栏/顶栏/底栏，也不能有不透明背景，否则就不是「浮在桌面上的歌词」。
+ *
+ * 判断里带了 hash 兜底：路由解析是异步的，首帧 route.name 还是 undefined，
+ * 只看路由会让歌词窗口先渲染出一整套普通界面（用户看到的就是一块白面板）。
  */
-const isLyricWindow = computed(() => route.name === 'lyric-window')
+const isLyricWindow = computed(() => route.name === 'lyric-window' || location.hash.includes('/lyric-window'))
 </script>
 
 <template>
@@ -49,5 +53,13 @@ const isLyricWindow = computed(() => route.name === 'lyric-window')
 
     <!-- 底栏：实测 102px -->
     <PlayBar class="h-bottombar shrink-0" />
+  </div>
+
+  <!-- 全局轻提示：下载/导出的结果。放在最外层，播放器模式也能看到 -->
+  <div
+    v-if="toastText"
+    class="pointer-events-none fixed inset-x-0 bottom-[124px] z-[100] flex justify-center"
+  >
+    <div class="rounded-full bg-black/80 px-4 py-2 text-[13px] text-white shadow-lg">{{ toastText }}</div>
   </div>
 </template>

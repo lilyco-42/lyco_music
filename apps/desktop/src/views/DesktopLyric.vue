@@ -27,7 +27,9 @@ interface Payload {
   singer?: string
   lyric?: string
   tlyric?: string
+  romalrc?: string
   currentTime?: number
+  duration?: number
   playing?: boolean
 }
 
@@ -43,9 +45,67 @@ const api = typeof window !== 'undefined' ? window.lxmnNative?.lyric : undefined
 const LINE_OPTIONS = [1, 2] as const
 
 /** 面板占的高度：主进程按这个值把窗口往下长，面板才不会被歌词挤掉 */
-const MENU_RESERVE = 172
+const MENU_RESERVE = 198
 
-const lines = computed<LyricLine[]>(() => parseLyric(data.value.lyric, data.value.tlyric).lines)
+/* ---------------- 三层歌词：原文 / 罗马音 / 翻译 ---------------- */
+
+type LayerKey = 'original' | 'romaji' | 'translation'
+
+/**
+ * 桌面歌词的开关单独存一份，不和播放页共用。
+ *
+ * 两个场景要的行数不一样：播放页有整屏可以铺，桌面歌词只有一两行 ——
+ * 在播放页关掉罗马音不该顺手把桌面歌词也关掉。
+ */
+const LAYER_KEY = 'lxmn.lyric.win.layers'
+
+const LAYER_OPTIONS: { key: LayerKey; label: string; short: string }[] = [
+  { key: 'original', label: '原文', short: '原' },
+  { key: 'romaji', label: '罗马音', short: '罗' },
+  { key: 'translation', label: '翻译', short: '译' },
+]
+
+function readLayers(): Record<LayerKey, boolean> {
+  try {
+    const raw = localStorage.getItem(LAYER_KEY)
+    if (raw) {
+      const v = JSON.parse(raw) as Partial<Record<LayerKey, boolean>>
+      return { original: v.original !== false, romaji: v.romaji !== false, translation: v.translation !== false }
+    }
+  } catch {
+    // 读不出来就用默认值
+  }
+  return { original: true, romaji: true, translation: true }
+}
+
+const layers = ref<Record<LayerKey, boolean>>(readLayers())
+
+function toggleLayer(key: LayerKey): void {
+  layers.value = { ...layers.value, [key]: !layers.value[key] }
+  try {
+    localStorage.setItem(LAYER_KEY, JSON.stringify(layers.value))
+  } catch {
+    // 只影响下次启动的默认值
+  }
+}
+
+const lines = computed<LyricLine[]>(
+  () => parseLyric(data.value.lyric, data.value.tlyric, data.value.romalrc).lines,
+)
+
+/** 纯文本歌词（没有任何时间戳）不能点着跳转，跳过去只会乱 */
+const isPlain = computed(() => !/\[\d{1,3}:\d{1,2}/.test(data.value.lyric ?? ''))
+
+/** 这一行要显示哪几行字：第一行是主行，其余当小字副行 */
+function layersOf(line: LyricLine): string[] {
+  const out: string[] = []
+  if (layers.value.original && line.text) out.push(line.text)
+  if (layers.value.romaji && line.romaji) out.push(line.romaji)
+  if (layers.value.translation && line.translation) out.push(line.translation)
+  if (!out.length) out.push(line.text || '·')
+  return out
+}
+
 const activeIndex = computed(() => findLineIndex(lines.value, data.value.currentTime ?? 0))
 
 /** 当前行 +（双行时）下一行：多了会挡住别的窗口 */
@@ -58,6 +118,63 @@ const visible = computed(() => {
 })
 
 const empty = computed(() => !lines.value.length)
+
+/* ---------------- 时间条：显示进度 + 点/拖跳转 ---------------- */
+
+const barEl = ref<HTMLElement | null>(null)
+const seeking = ref(false)
+
+const duration = computed(() => {
+  const d = Number(data.value.duration)
+  return Number.isFinite(d) && d > 0 ? d : 0
+})
+const progressPct = computed(() => {
+  if (!duration.value) return 0
+  const t = Math.min(duration.value, Math.max(0, data.value.currentTime ?? 0))
+  return (t / duration.value) * 100
+})
+
+function fmt(sec: number): string {
+  const s = Number.isFinite(sec) && sec > 0 ? Math.floor(sec) : 0
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0')
+}
+
+/** 把鼠标 x 换成秒数：时间条宽度对应整首时长 */
+function timeAt(clientX: number): number | null {
+  const box = barEl.value
+  if (!box || !duration.value) return null
+  const r = box.getBoundingClientRect()
+  if (r.width <= 0) return null
+  const ratio = Math.min(1, Math.max(0, (clientX - r.left) / r.width))
+  return ratio * duration.value
+}
+
+function onBarDown(e: MouseEvent): void {
+  if (locked.value) return
+  e.preventDefault()
+  e.stopPropagation()
+  seeking.value = true
+  const t = timeAt(e.clientX)
+  if (t !== null) void api?.seek(t)
+}
+
+function onBarMove(e: MouseEvent): void {
+  if (!seeking.value) return
+  e.stopPropagation()
+  const t = timeAt(e.clientX)
+  if (t !== null) void api?.seek(t)
+}
+
+function onBarUp(): void {
+  seeking.value = false
+}
+
+/** 点歌词行跳过去（拖动窗口时不能误触，见下面 onPressMove） */
+function seekTo(time: number): void {
+  if (isPlain.value) return
+  if (!Number.isFinite(time) || time < 0) return
+  void api?.seek(time)
+}
 
 /** 描边 + 阴影一次算好，模板里不用重复拼字符串 */
 const paint = computed(() => strokePaint(style.value.stroke))
@@ -77,13 +194,15 @@ onMounted(async () => {
   }
   // 点空白处收面板。不能只依赖 Esc：窗口 focusable:false，键盘事件根本到不了
   document.addEventListener('mousedown', onDocDown)
-  window.addEventListener('mouseup', onDragEnd)
+  window.addEventListener('mousemove', onPressMove)
+  window.addEventListener('mouseup', onPressUp)
 })
 
 onBeforeUnmount(() => {
   off?.()
   document.removeEventListener('mousedown', onDocDown)
-  window.removeEventListener('mouseup', onDragEnd)
+  window.removeEventListener('mousemove', onPressMove)
+  window.removeEventListener('mouseup', onPressUp)
   delete document.documentElement.dataset.window
 })
 
@@ -139,17 +258,48 @@ function closeMenu(): void {
  *
  * 渲染层这里只负责「按下 / 松手」两个信号，真正的坐标由主进程读系统光标：
  * 窗口是跟着鼠标走的，用 clientX/screenX 都会自激（实测拖 150px 窗口跑 754px）。
+ *
+ * 现在按下不再立刻开始拖：要先挪动超过 DRAG_SLOP 才算拖。
+ * 否则「点一下歌词行跳转」和「拖窗口」是同一个 mousedown，永远分不开。
  */
-async function onDragStart(e: MouseEvent): Promise<void> {
+const DRAG_SLOP = 4
+
+let pressAt: { x: number; y: number } | null = null
+let pressLine: number | null = null
+let dragging = false
+
+function onPressDown(e: MouseEvent): void {
   if (locked.value || e.button !== 0) return
-  // 只从歌词本体起拖：工具条/面板上的按钮有自己的点击语义
+  // 工具条按钮、时间条有自己的点击语义
   const el = e.target as HTMLElement | null
-  if (el?.closest('button')) return
-  await api?.dragStart().catch(() => null)
+  if (el?.closest('button') || el?.closest('[data-seekbar]')) return
+  pressAt = { x: e.clientX, y: e.clientY }
+  dragging = false
+  const row = el?.closest('[data-line-time]') as HTMLElement | null
+  const t = row ? Number(row.dataset.lineTime) : NaN
+  pressLine = Number.isFinite(t) ? t : null
 }
 
-function onDragEnd(): void {
-  void api?.dragEnd().catch(() => false)
+function onPressMove(e: MouseEvent): void {
+  if (!pressAt || dragging) return
+  if (Math.abs(e.clientX - pressAt.x) <= DRAG_SLOP && Math.abs(e.clientY - pressAt.y) <= DRAG_SLOP) return
+  dragging = true
+  void api?.dragStart().catch(() => null)
+}
+
+function onPressUp(): void {
+  const line = pressLine
+  const wasDragging = dragging
+  pressAt = null
+  pressLine = null
+  dragging = false
+  onBarUp()
+  if (wasDragging) {
+    void api?.dragEnd().catch(() => false)
+    return
+  }
+  // 没拖动就是单击：点歌词行跳到那一句
+  if (line !== null) seekTo(line)
 }
 
 async function close(): Promise<void> {
@@ -165,7 +315,7 @@ async function close(): Promise<void> {
     @mouseleave="hovering = false"
     @dblclick="menuOpen ? closeMenu() : toggleLock()"
     @contextmenu="openMenu"
-    @mousedown="onDragStart"
+    @mousedown="onPressDown"
   >
     <!-- 歌词本体：占满剩余高度并垂直居中；面板展开时它自然缩到上半部分 -->
     <div class="flex min-h-0 flex-1 flex-col items-center justify-center px-4" :class="locked ? '' : 'cursor-move'">
@@ -186,20 +336,55 @@ async function close(): Promise<void> {
         <p
           v-for="(l, i) in visible"
           :key="i"
+          :data-line-time="l.time"
           class="select-none text-center leading-[1.45] transition-all"
+          :class="isPlain ? '' : 'cursor-pointer'"
           :style="{
             fontSize: (i === 0 ? style.fontSize : Math.round(style.fontSize * 0.78)) + 'px',
             color: i === 0 ? style.playedColor : style.unplayedColor,
             fontFamily: fontStack,
             opacity: i === 0 ? 1 : 0.65,
             fontWeight: i === 0 ? 700 : 400,
-            ...paint,
             marginTop: i === 0 ? 0 : Math.round(style.fontSize * 0.2) + 'px',
+            ...paint,
           }"
         >
-          {{ l.text || '·' }}
+          <!-- 主行大字，罗马音/翻译作为小字副行挂在下面 -->
+          <span
+            v-for="(t, li) in layersOf(l)"
+            :key="li"
+            class="block whitespace-pre-wrap"
+            :style="li === 0 ? undefined : {
+              fontSize: Math.round(style.fontSize * 0.56) + 'px',
+              fontWeight: 400,
+              opacity: 0.85,
+              marginTop: '2px',
+            }"
+          >{{ t }}</span>
         </p>
       </template>
+    </div>
+
+    <!-- 时间条：悬停时出现，点一下/按住拖都能跳转（歌词窗口自己没有播放器，靠主窗口执行） -->
+    <div
+      v-if="hovering && !locked && !menuOpen"
+      data-seekbar
+      class="absolute inset-x-0 bottom-0 flex h-[16px] cursor-pointer items-center gap-1.5 px-2"
+      role="slider"
+      :aria-valuenow="Math.round(progressPct)"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      aria-label="播放进度"
+      @mousedown="onBarDown"
+      @mousemove="onBarMove"
+      @mouseup="onBarUp"
+      @dblclick.stop
+    >
+      <span class="w-[32px] shrink-0 text-right text-[10px] tabular-nums text-white/70">{{ fmt(data.currentTime ?? 0) }}</span>
+      <div ref="barEl" class="relative h-[3px] flex-1 overflow-hidden rounded-full bg-white/25">
+        <div class="h-full rounded-full bg-white/85" :style="{ width: progressPct + '%' }" />
+      </div>
+      <span class="w-[32px] shrink-0 text-[10px] tabular-nums text-white/45">{{ fmt(duration) }}</span>
     </div>
 
     <!-- 工具条：悬停且未锁定时出现（面板打开时让位，避免两层浮层叠在一起） -->
@@ -211,6 +396,17 @@ async function close(): Promise<void> {
       <button type="button" class="rounded px-1.5 text-[12px] text-white/85 hover:bg-white/15" title="锁定（锁定后鼠标穿透，到播放器底栏点「词」解锁）" @click="toggleLock">🔓</button>
       <button type="button" class="rounded px-1.5 text-[12px] text-white/85 hover:bg-white/15" title="调小" @click="bump(-2)">A-</button>
       <button type="button" class="rounded px-1.5 text-[12px] text-white/85 hover:bg-white/15" title="调大" @click="bump(2)">A+</button>
+      <span class="mx-0.5 h-3 w-px bg-white/25" aria-hidden="true" />
+      <!-- 三层开关：原文 / 罗马音 / 翻译 -->
+      <button
+        v-for="o in LAYER_OPTIONS"
+        :key="o.key"
+        type="button"
+        class="rounded px-1.5 text-[12px]"
+        :class="layers[o.key] ? 'bg-white/20 text-white' : 'text-white/40 hover:bg-white/15'"
+        :title="(layers[o.key] ? '隐藏' : '显示') + o.label"
+        @click="toggleLayer(o.key)"
+      >{{ o.short }}</button>
       <span class="mx-0.5 h-3 w-px bg-white/25" aria-hidden="true" />
       <button
         v-for="c in LYRIC_COLORS.slice(-6)"
@@ -260,6 +456,23 @@ async function close(): Promise<void> {
             {{ n === 1 ? '单行' : '双行' }}
           </button>
         </span>
+      </div>
+
+      <!-- 显示层：原文 / 罗马音 / 翻译 各自独立开关 -->
+      <div class="mt-1 flex h-[26px] items-center gap-1.5">
+        <span class="w-9 shrink-0 text-[11px] text-white/45">显示</span>
+        <button
+          v-for="o in LAYER_OPTIONS"
+          :key="'l' + o.key"
+          type="button"
+          class="rounded px-2 text-[11px]"
+          :class="layers[o.key] ? 'bg-white/90 text-black' : 'bg-white/10 text-white/70 hover:bg-white/20'"
+          :title="(layers[o.key] ? '隐藏' : '显示') + o.label"
+          @click="toggleLayer(o.key)"
+        >
+          {{ o.label }}
+        </button>
+        <span class="ml-auto text-[11px] text-white/30">没这几层时多半是源没给</span>
       </div>
 
       <!-- 颜色：当前行 / 下一行 -->

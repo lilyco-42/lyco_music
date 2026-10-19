@@ -4,6 +4,7 @@ import router from './router'
 import { ensureDesktopPlatform } from './lib/platform'
 import { useMembership } from './lib/membership'
 import { initTheme } from './lib/theme'
+import { initTexture } from './lib/texture'
 import { installHotkeys } from './lib/hotkeys'
 import { installLyricBridge } from './lib/lyric-window'
 import './styles/main.css'
@@ -25,6 +26,20 @@ void useMembership().restore()
 
 // 主题色要在首屏渲染前应用，否则会先闪一下默认红
 initTheme()
+
+// 质感滤镜同理：晚一步就会先出现一帧没有纹理的纯色面板
+initTexture()
+
+/**
+ * 桌面歌词窗口的透明背景必须**在挂载之前**打上。
+ *
+ * 以前这个标记是在 DesktopLyric.vue 的 onMounted 里加的，于是第一帧
+ * 走的是普通界面的白底 + 侧栏 + 底栏 —— 用户看到的是一大块白色面板
+ * 盖在应用上（截图里那个「初始化窗口错乱」就是这么来的）。
+ * 这里直接读 hash 判断，和路由解析无关，首帧就是透明的。
+ */
+const IS_LYRIC_WINDOW = location.hash.includes('/lyric-window')
+if (IS_LYRIC_WINDOW) document.documentElement.dataset.window = 'lyric'
 
 // 全局快捷键（空格播放、←/→ 快进、Ctrl+←/→ 切歌、M 静音、L 歌词、Ctrl+K 搜索）
 installHotkeys()

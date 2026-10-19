@@ -236,21 +236,31 @@ export const wySource: MusicSource = {
 
   /** 对应原 getLyric(songInfo.songmid) */
   async getLyric(songInfo: MusicItem): Promise<LyricInfo> {
+    // lv=原文 kv=逐字 tv=翻译 rv=罗马音 yv=逐字(yrc)。
+    // rv 必须显式传 -1，不传接口根本不返回 romalrc（日文歌的罗马音就是这么丢的）。
+    //
+    // 注意端点：`/api/song/lyric` 返回的是标准 LRC；
+    // `/api/song/lyric/v1` 会把 lrc 换成 `{"t":0,"c":[{"tx":"..."}]}` 这种富文本 JSON，
+    // 而且实测并不额外给 yrc —— 换成 v1 只会把歌词解析搞坏，别再试了。
     const { body } = await eapiRequest('/api/song/lyric', {
       id: songInfo.songmid,
       lv: -1,
       kv: -1,
       tv: -1,
+      rv: -1,
+      yv: -1,
     })
     const parsed = JSON.parse(body) as {
       lrc?: { lyric?: string }
       tlyric?: { lyric?: string }
       romalrc?: { lyric?: string }
+      yrc?: { lyric?: string }
     }
     return {
       lyric: parsed.lrc?.lyric ?? '',
       tlyric: parsed.tlyric?.lyric ?? '',
       romalrc: parsed.romalrc?.lyric ?? '',
+      ylyric: parsed.yrc?.lyric ?? '',
     }
   },
 

@@ -18,9 +18,12 @@ import {
   isTrialClip,
   type MusicItem,
   type Quality,
+  type SourceId,
 } from '@lxmn/core'
 import { library } from './sync'
 import { resolveWithFallback } from './fallback'
+import { findSameSong } from './same-song'
+import { describePlayError, isRetriablePlayError } from './play-error'
 
 /** 播放模式：顺序 / 列表循环 / 单曲循环 / 随机 */
 export type PlayMode = 'order' | 'loop' | 'single' | 'shuffle'
@@ -41,6 +44,10 @@ export interface PlayerState {
   /** 当前曲目的歌词行（原始 LRC） */
   lyric: string
   tlyric: string
+  /** 罗马音歌词（日文歌用；只有网易云提供） */
+  romalrc: string
+  /** 逐字歌词（只有网易云提供），用于逐字染色 */
+  ylyric: string
   picUrl: string
   url: string
   /** 实际在播的曲目：串源后可能与队列里的那条不同 */
@@ -67,6 +74,8 @@ const state = reactive<PlayerState>({
   error: '',
   lyric: '',
   tlyric: '',
+  romalrc: '',
+  ylyric: '',
   picUrl: '',
   url: '',
   playingItem: null,
@@ -94,39 +103,109 @@ const current = computed<MusicItem | null>(() => state.queue[state.index] ?? nul
 export const availableSources = computed(() => listSources().filter(id => hasSource(id)))
 
 /**
+ * 一次播放最多重试几次。
+ *
+ * 这个数字是「其他源」可用性的核心：酷狗/酷我给的地址带时效签名
+ * （sharefs.kugou.com 的路径里就有时间戳），CDN 还会按 IP 限流，
+ * 同一首歌上一分钟能播、下一分钟就 403 —— 实测复现过。
+ * 拿到地址 ≠ 能播，而 <audio> 只会在真正加载时才发现，所以必须留重试。
+ */
+const MAX_STREAM_RETRY = 2
+
+/** 这次播放已经重试到第几级（0=首次，1=原源重取，2=跨源） */
+let streamAttempt = 0
+
+/**
+ * 本轮播放里「地址取到了但放不出来」的音源。
+ *
+ * 重试时把它们从串源候选里剔掉，否则三级阶梯会连着三次踩同一个坏地址 ——
+ * 酷我的占位音频、酷狗限流后的 403 都属于这种「每次都一样坏」的情况。
+ */
+const badSources = new Set<SourceId>()
+
+/**
  * 取流并交给宿主播放。
  *
  * 内核的 getMusicUrl 已经内置降档回退（高音质被锁时自动往低试），
- * 这里只负责把最终结果交给 <audio> 并回填封面。
+ * 这里负责把最终结果交给 <audio>，并处理「地址拿到了但打不开」。
+ *
+ * 三级阶梯（全程静默，用户只看到「在加载」）：
+ *   0. 正常取流（原源 -> 脚本池 -> 跨源，fallback 内部已经串好）
+ *   1. 原源重取一次 —— 地址过期是最常见的原因，重取就是换一张新签名
+ *   2. 排除原源，直接跨源 —— 这个源确实放不了这首歌
  */
-async function resolveAndPlay(item: MusicItem): Promise<void> {
+async function resolveAndPlay(item: MusicItem, from = 0): Promise<void> {
   state.loading = true
   state.error = ''
   state.url = ''
-  try {
-    // 取流失败时静默换音源：网易标 VIP 的歌，酷我/酷狗/咪咕常常能放。
-    // 故意**不提示**用户 —— 用户要的是「能听」，不是「我们换了哪个接口」。
-    const outcome = await resolveWithFallback(item, state.quality)
-    const info = outcome.info
-    state.url = info.url
-    // 实际拿到的音质可能与请求的不同（降档了），如实回填
-    state.quality = info.quality
-    // 串源后封面/歌词都跟着实际播放的那条走，
-    // 否则会出现「听着酷狗的歌、显示网易的封面」。
-    const played = outcome.switched ? outcome.item : item
-    state.playingItem = played
-    if (!state.picUrl && played.picUrl) state.picUrl = played.picUrl
-    if (playUrl) await playUrl(info.url)
-    state.playing = true
-    // 播放记录：只有真的拿到流才记，避免把取流失败的歌也算进「最近播放」。
-    // 失败不影响播放本身。
-    void library.recordPlay(played).catch(() => undefined)
-  } catch (e) {
-    state.error = e instanceof Error ? e.message : String(e)
-    state.playing = false
-  } finally {
-    state.loading = false
+  let lastErr: unknown = null
+
+  for (let attempt = from; attempt <= MAX_STREAM_RETRY; attempt++) {
+    streamAttempt = attempt
+    try {
+      // 第 2 级才排除原源：前两级留着它，是因为「重新签一次名」经常就好了
+      const exclude = attempt >= MAX_STREAM_RETRY ? item.source : undefined
+      // 取流失败时静默换音源：网易标 VIP 的歌，酷我/酷狗/咪咕常常能放。
+      // 故意**不提示**用户 —— 用户要的是「能听」，不是「我们换了哪个接口」。
+      const outcome = await resolveWithFallback(item, state.quality, { exclude, avoid: [...badSources] })
+      const info = outcome.info
+      state.url = info.url
+      // 实际拿到的音质可能与请求的不同（降档了），如实回填
+      state.quality = info.quality
+      // 串源后封面/歌词都跟着实际播放的那条走，
+      // 否则会出现「听着酷狗的歌、显示网易的封面」。
+      const played = outcome.switched ? outcome.item : item
+      state.playingItem = played
+      if (!state.picUrl && played.picUrl) state.picUrl = played.picUrl
+      if (playUrl) await playUrl(info.url)
+      state.playing = true
+      streamAttempt = 0
+      // 播放记录：只有真的拿到流才记，避免把取流失败的歌也算进「最近播放」。
+      // 失败不影响播放本身。
+      void library.recordPlay(played).catch(() => undefined)
+      state.loading = false
+      return
+    } catch (e) {
+      lastErr = e
+      state.url = ''
+      // 地址已经设给 <audio> 才失败 -> 这个源给的地址是坏的，后面别再用
+      if (state.playingItem) badSources.add(state.playingItem.source)
+      if (!isRetriablePlayError(e)) break
+      // 换源要重搜，稍微等一下，别把几个音源的接口一起打爆
+      if (attempt < MAX_STREAM_RETRY) await new Promise(r => setTimeout(r, 260))
+    }
   }
+
+  state.error = describePlayError(lastErr)
+  state.playing = false
+  state.loading = false
+}
+
+/**
+ * 拿一条「现在就能用」的流地址，用于下载这类不进播放器的场景。
+ *
+ * 不直接读 state.url 是因为它可能是几分钟前取的、签名已经过期；
+ * 也不复用 resolveAndPlay 是因为下载不该顺手把歌播起来。
+ */
+async function ensureStreamUrl(): Promise<string> {
+  const item = state.playingItem ?? current.value
+  if (!item) throw new Error('没有正在播放的歌曲')
+  const outcome = await resolveWithFallback(item, state.quality)
+  return outcome.info.url
+}
+
+/**
+ * 播放中途失败时的自愈入口（AudioHost 的 @error 和加载看门狗都调它）。
+ *
+ * 和 resolveAndPlay 的区别：这时地址已经设给 <audio> 了，属于「播到一半断了」
+ * 或「迟迟加载不出来」，所以从第 1 级（原源重取）接着往下走，不重头来。
+ */
+async function recoverStreamError(): Promise<void> {
+  const item = state.playingItem ?? current.value
+  if (!item) return
+  // 已经在重试链里就别插队，否则会和正在跑的那次互相覆盖 url
+  if (state.loading) return
+  await resolveAndPlay(item, Math.max(1, streamAttempt))
 }
 
 /** 时长工具与试听判定都放在内核（纯函数，可被单测覆盖） */
@@ -162,18 +241,89 @@ async function retryAfterTrialClip(): Promise<void> {
   }
 }
 
-/** 取歌词（失败不阻断播放：没有歌词也应该能听） */
+/**
+ * 歌词加载的世代号。
+ *
+ * 跨源补词要发好几次请求，用户很可能中途就切歌了；
+ * 没有这个令牌的话，上一首的歌词会在几秒后盖掉当前这首的。
+ */
+let lyricToken = 0
+
+/**
+ * 取歌词。失败不阻断播放 —— 没有歌词也应该能听。
+ *
+ * 但「当前音源没词」是常态而不是异常：实测酷我同一首歌的多个版本里，
+ * 大部分版本的歌词接口返回 0 行（DJ 版、纯音乐、翻唱尤其明显），
+ * 而同一首歌在别的平台上往往有完整词。所以这里做两次补全：
+ *   1. 没词 -> 按「歌名 + 歌手」去别的音源找同一首，取它的词；
+ *   2. 有词但没有翻译/罗马音 -> 去网易云找同一首，借它的 tlyric / romalrc。
+ *      酷狗、酷我、咪咕都没有翻译和罗马音接口，网易云是唯一来源。
+ */
 async function loadLyric(item: MusicItem): Promise<void> {
+  const token = ++lyricToken
   state.lyric = ''
   state.tlyric = ''
-  try {
-    const target = state.playingItem && state.playingItem.id === item.id ? state.playingItem : item
-    const info = await getSource(target.source).getLyric(target)
-    state.lyric = info.lyric ?? ''
-    state.tlyric = info.tlyric ?? ''
-  } catch {
-    // 歌词是可选的，静默失败
+  state.romalrc = ''
+  state.ylyric = ''
+  const target = state.playingItem && state.playingItem.id === item.id ? state.playingItem : item
+
+  /** 只有还是同一世代才写回，避免串歌 */
+  const commit = (lyric: string, tlyric: string, romalrc: string, ylyric: string): boolean => {
+    if (token !== lyricToken) return false
+    state.lyric = lyric
+    state.tlyric = tlyric
+    state.romalrc = romalrc
+    state.ylyric = ylyric
+    return true
   }
+
+  let lyric = ''
+  let tlyric = ''
+  let romalrc = ''
+  let ylyric = ''
+
+  try {
+    const info = await getSource(target.source).getLyric(target)
+    lyric = info.lyric ?? ''
+    tlyric = info.tlyric ?? ''
+    romalrc = info.romalrc ?? ''
+    ylyric = info.ylyric ?? ''
+  } catch {
+    // 原音源没词或接口失败，都继续往下找
+  }
+
+  // 第一层补全：整首词都没有，换一家拿词
+  if (!lyric.trim()) {
+    const alt = await findSameSong(target)
+    if (alt) {
+      try {
+        const info = await getSource(alt.source).getLyric(alt)
+        lyric = info.lyric ?? ''
+        tlyric = tlyric || (info.tlyric ?? '')
+        romalrc = romalrc || (info.romalrc ?? '')
+        ylyric = ylyric || (info.ylyric ?? '')
+      } catch {
+        // 这家也没词
+      }
+    }
+  }
+
+  // 第二层补全：有词但缺翻译/罗马音/逐字，去网易云借
+  if (lyric.trim() && (!tlyric || !romalrc || !ylyric) && target.source !== 'wy') {
+    const wyItem = await findSameSong(target, 'wy')
+    if (wyItem) {
+      try {
+        const info = await getSource('wy').getLyric(wyItem)
+        tlyric = tlyric || (info.tlyric ?? '')
+        romalrc = romalrc || (info.romalrc ?? '')
+        ylyric = ylyric || (info.ylyric ?? '')
+      } catch {
+        // 网易云也没这首的翻译
+      }
+    }
+  }
+
+  commit(lyric, tlyric, romalrc, ylyric)
 }
 
 /** 取封面（同样不阻断） */
@@ -253,6 +403,8 @@ export function usePlayer() {
     state.currentTime = 0
     state.duration = 0
     state.trialRetried = false
+    streamAttempt = 0
+    badSources.clear()
     await Promise.all([resolveAndPlay(item), loadLyric(item), loadPic(item)])
   }
 
@@ -368,7 +520,10 @@ export function usePlayer() {
   async function setQuality(q: Quality): Promise<void> {
     state.quality = q
     const item = current.value
-    if (item) await resolveAndPlay(item)
+    if (item) {
+      streamAttempt = 0
+      await resolveAndPlay(item)
+    }
   }
 
   return {
@@ -379,6 +534,18 @@ export function usePlayer() {
     search, play, next, prev, toggle, seek, setQuality,
     cycleMode, modeLabel, MODE_LABEL,
     toggleLyric, toggleMute,
+    /** 流地址失效/加载超时后的自愈（AudioHost 调用，用户无感） */
+    recoverStreamError,
+    /** 取一条当前可用的流地址（下载用，不触发播放） */
+    ensureStreamUrl,
+    /** 用户手动「重试」：从头再走一遍取流阶梯 */
+    retry: async () => {
+      const item = state.playingItem ?? current.value
+      if (!item) return
+      streamAttempt = 0
+      badSources.clear()
+      await resolveAndPlay(item, 0)
+    },
     /** 组件回灌：<audio> 的进度/时长 */
     reportTime: (t: number) => { state.currentTime = t },
     reportDuration: (d: number) => {

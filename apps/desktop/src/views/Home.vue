@@ -92,6 +92,8 @@ function openPlaylist(title: string): void {
             referrerpolicy="no-referrer"
             loading="lazy"
           />
+          <!-- 质感滤镜：只贴在图片上，标题和渐变压在上面，字不会被网点弄脏 -->
+          <span class="tex-img" aria-hidden="true" />
           <div class="absolute inset-0 bg-gradient-to-b from-black/10 to-black/55" />
 
           <!-- 标题距左 13px -->
@@ -144,6 +146,7 @@ function openPlaylist(title: string): void {
               referrerpolicy="no-referrer"
               loading="lazy"
             />
+            <span class="tex-img" aria-hidden="true" />
             <div class="absolute bottom-2 right-2 flex size-[30px] items-center justify-center rounded-full bg-white/90 opacity-0 transition-opacity group-hover:opacity-100">
               <svg viewBox="0 0 24 24" class="size-3.5 fill-ncm-accent-play"><path d="M8 5v14l11-7z" /></svg>
             </div>

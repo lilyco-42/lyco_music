@@ -40,6 +40,12 @@ export interface LyricInfo {
   rlyric?: string
   /** 罗马音歌词（网易接口的 romalrc） */
   romalrc?: string
+  /**
+   * 逐字歌词（网易接口的 yrc）。
+   * 格式：`[起始ms,时长ms,0](字起始ms,字时长ms,0)字...`，
+   * 用来做「唱到哪个字哪个字变色」。
+   */
+  ylyric?: string
   lxlyric?: string
 }
 

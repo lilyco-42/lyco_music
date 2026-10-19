@@ -57,4 +57,24 @@ describe.skipIf(!live)('wy against the real NetEase API', () => {
     expect(l.lyric.length).toBeGreaterThan(0)
     expect(l.lyric).toMatch(/\[\d{2}:\d{2}/)
   }, 60000)
+
+  /**
+   * 罗马音（日文歌）。
+   *
+   * 这条用例的意义：歌词接口的 rv 参数漏传时，接口不会报错，
+   * 只是安静地不返回 romalrc —— 表现就是「日文歌永远没有罗马音」。
+   * 只有真打一次接口才能发现这种沉默的缺失。
+   */
+  it('fetches romaji for a japanese song', async () => {
+    const r = await getSource('wy').musicSearch!('夜に駆ける YOASOBI', 1, 5)
+    expect(r.list.length).toBeGreaterThan(0)
+    let roma = ''
+    for (const s of r.list) {
+      const l = await getSource('wy').getLyric(s)
+      if (l.romalrc?.trim()) { roma = l.romalrc; break }
+    }
+    console.log('  romaji bytes:', roma.length)
+    expect(roma.length).toBeGreaterThan(0)
+    expect(roma).toMatch(/\[\d{2}:\d{2}/)
+  }, 60000)
 })

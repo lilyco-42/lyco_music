@@ -13,6 +13,8 @@ import { usePlayer } from '@/lib/player'
 import { useSync } from '@/lib/sync'
 import IconButton from '@/components/ui/IconButton.vue'
 import QualityMenu from '@/components/layout/QualityMenu.vue'
+import { saveUrl, safeFileName, audioExt } from '@/lib/download'
+import { toast } from '@/lib/toast'
 
 const router = useRouter()
 const player = usePlayer()
@@ -79,7 +81,7 @@ onMounted(async () => {
   lyricWindowOpen.value = await nativeLyric.isOpen().catch(() => false)
 })
 
-const lyricLines = computed(() => parseLyric(player.state.lyric, player.state.tlyric).lines)
+const lyricLines = computed(() => parseLyric(player.state.lyric, player.state.tlyric, player.state.romalrc).lines)
 const lyricIndex = computed(() => findLineIndex(lyricLines.value, player.state.currentTime))
 const lyricWindow = computed(() => {
   const lines = lyricLines.value
@@ -174,6 +176,7 @@ const moreItems = computed(() => {
     { key: 'singer', label: `歌手：${t.singer || '未知'}`, hint: '在搜索里查看这位歌手' },
     { key: 'album', label: `专辑：${t.albumName || '未知'}`, hint: '在搜索里查看这张专辑' },
     { key: 'addto', label: '添加到歌单', hint: playlists.value.length ? `共 ${playlists.value.length} 个歌单` : '还没有歌单，可以直接新建' },
+    { key: 'download', label: '下载歌曲', hint: downloading.value ? '正在下载…' : '另存为音频文件' },
     { key: 'copy', label: '复制歌名 - 歌手', hint: '粘贴到别处分享' },
     { key: 'lyric', label: lyricActive.value ? '关闭桌面歌词' : '打开桌面歌词', hint: '' },
     { key: 'queue', label: `播放队列（${player.state.queue.length}）`, hint: '' },
@@ -219,6 +222,37 @@ async function addCurrentToNew(): Promise<void> {
   }
 }
 
+/* ---- 下载当前歌曲 ---- */
+
+const downloading = ref(false)
+
+/**
+ * 下载当前曲目。
+ *
+ * 地址现取现用：state.url 可能是几分钟前取的，酷狗/酷我的签名早就过期了。
+ * 真正写文件交给主进程（能弹「另存为」、也能绕开渲染层的 CORS）。
+ */
+async function downloadCurrent(): Promise<void> {
+  const t = track.value
+  if (!t || downloading.value) return
+  downloading.value = true
+  toast('正在准备下载…', 60000)
+  try {
+    const url = await player.ensureStreamUrl()
+    const filename = safeFileName(`${t.name} - ${t.singer}`) + '.' + audioExt(url)
+    const res = await saveUrl(filename, url)
+    if (res.canceled) {
+      toast('已取消下载')
+      return
+    }
+    toast(res.ok ? '已保存' : `下载失败：${res.error ?? '未知错误'}`)
+  } catch (e) {
+    toast(`下载失败：${e instanceof Error ? e.message : String(e)}`)
+  } finally {
+    downloading.value = false
+  }
+}
+
 async function onMore(key: string): Promise<void> {
   const t = track.value
   openPanel.value = 'none'
@@ -245,6 +279,10 @@ async function onMore(key: string): Promise<void> {
   if (key === 'addto') {
     addHint.value = ''
     openPanel.value = 'addto'
+    return
+  }
+  if (key === 'download') {
+    await downloadCurrent()
     return
   }
   if (key === 'queue') {
@@ -331,6 +369,7 @@ const error = computed(() => player.state.error)
         @click="openPlayer"
       >
         <img :src="cover" alt="" class="size-full object-cover" referrerpolicy="no-referrer" />
+        <span class="tex-img" aria-hidden="true" />
         <span
           class="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition-opacity group-hover:opacity-100"
         >
@@ -343,7 +382,15 @@ const error = computed(() => player.state.error)
           <span class="truncate text-[18px] text-ncm-fg">{{ track ? track.name : '未在播放' }}</span>
         </div>
         <div class="mt-[7px] truncate text-[17px] text-ncm-faint">{{ track ? track.singer : '双击歌曲开始播放' }}</div>
-        <div v-if="error" class="mt-1 truncate text-[12px] text-ncm-accent">{{ error }}</div>
+        <div v-if="error" class="mt-1 flex items-center gap-1.5 text-[12px] text-ncm-accent">
+          <span class="truncate" :title="error">{{ error }}</span>
+          <!-- 自动重取失败后总得留一条手动通道，否则用户只能切歌 -->
+          <button
+            type="button"
+            class="shrink-0 underline decoration-dotted underline-offset-2 hover:text-ncm-fg"
+            @click.stop="player.retry()"
+          >重试</button>
+        </div>
         <div v-else-if="timeText" class="mt-1 text-[12px] text-ncm-fainter">{{ timeText }}</div>
       </div>
 
