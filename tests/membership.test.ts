@@ -45,9 +45,9 @@ const makePlatform = (responder: (url: string) => { status: number; body: string
   })
 
 describe('membership constants', () => {
-  it('points at the real shop and the 88 CNY/year price', () => {
+  it('points at the real shop and the 128 CNY/year price', () => {
     expect(SHOP_URL).toBe('https://lain42.top/shop/')
-    expect(ANNUAL_PRICE_CNY).toBe(88)
+    expect(ANNUAL_PRICE_CNY).toBe(128)
   })
 })
 

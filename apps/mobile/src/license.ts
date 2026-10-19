@@ -1,7 +1,7 @@
 /**
  * 会员 / 音源订阅。
  *
- * 流程：用户在 https://lain42.top/shop/ 购买「音乐会员 · 年卡」（88 元 / 年），
+ * 流程：用户在 https://lain42.top/shop/ 购买「音乐会员 · 年卡」（128 元 / 年），
  * 拿到订阅链接 -> 粘进客户端 -> 一键补全全部第三方音源。
  */
 import { useCallback, useEffect, useState } from 'react'

@@ -1,6 +1,6 @@
 {
   "name": "@lxmn/platform-mobile",
-  "version": "0.2.18",
+  "version": "0.2.19",
   "description": "React Native 平台实现 — 零原生模块，纯 JS 加密",
   "type": "module",
   "main": "./dist/index.js",

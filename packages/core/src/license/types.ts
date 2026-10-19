@@ -93,4 +93,4 @@ export interface SubscriptionClientOptions {
 /** 购买入口（用于「一键购买会员」按钮） */
 export const SHOP_URL = 'https://lain42.top/shop/'
 /** 会员价格展示 */
-export const ANNUAL_PRICE_CNY = 88
+export const ANNUAL_PRICE_CNY = 128
