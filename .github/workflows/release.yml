@@ -415,6 +415,10 @@ jobs:
       # 几百 MB 的安装包在 Cloudflare 内部流转，也不撞 Worker 的请求体大小限制。
       # 未配置 R2_UPLOAD_TOKEN 时自动跳过，下载页主源仍是 lain42.top。
       - name: Mirror to Cloudflare R2
+        # R2 只是边缘加速副本，主源是 lain42.top（已成功）。
+        # v0.2.14 实测：镜像失败会把整个 job 判红，连带 GitHub Release 都不创建，
+        # 于是一个「可选加速步骤」把正式发布也拖下水 —— 这里降级为非致命。
+        continue-on-error: true
         shell: bash
         env:
           R2_UPLOAD_TOKEN: ${{ secrets.R2_UPLOAD_TOKEN }}
