@@ -8,6 +8,7 @@ import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, Text, TextIn
 import { getSource, hasSource, listSources, type MusicItem } from '@lxmn/core'
 import { play, usePlayerState } from '../player'
 import { library } from '../sync'
+import { safe } from '../lib/safe'
 import { colors, topInset } from '../theme'
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -143,7 +144,7 @@ export default function SearchScreen({ initialKeyword }: { initialKeyword?: stri
             fontSize: 15,
           }}
         />
-        <Pressable onPress={run} hitSlop={10}>
+        <Pressable onPress={safe('搜索', run)} hitSlop={10}>
           <Text style={{ color: colors.accent, fontSize: 15 }}>搜索</Text>
         </Pressable>
       </View>
@@ -203,7 +204,7 @@ export default function SearchScreen({ initialKeyword }: { initialKeyword?: stri
             const active = item.songmid === currentId
             return (
               <Pressable
-                onPress={() => void play(item, list)}
+                onPress={safe('播放', () => play(item, list))}
                 style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 10, gap: 12 }}
               >
                 <Text style={{ color: colors.fainter, fontSize: 13, width: 20 }}>{index + 1}</Text>
@@ -220,7 +221,7 @@ export default function SearchScreen({ initialKeyword }: { initialKeyword?: stri
                   </Text>
                 </View>
                 <Pressable
-                  onPress={() => void toggleFav(item)}
+                  onPress={safe('收藏', () => toggleFav(item))}
                   hitSlop={12}
                   style={{ paddingHorizontal: 4, paddingVertical: 6 }}
                 >

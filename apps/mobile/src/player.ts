@@ -142,6 +142,24 @@ export function setupPlayer(): Promise<void> {
   return ready
 }
 
+
+/**
+ * 确保原生播放器已就绪。
+ *
+ * TrackPlayer 的每个方法都要求先 setupPlayer()；冷启动时用户如果先点了
+ * 播放/暂停/进度条，原生侧会抛异常。RN 的 release 包里未捕获的原生异常
+ * 会杀掉进程 —— 这就是「点按钮闪退」的主要来源之一。
+ */
+async function ensureReady(): Promise<boolean> {
+  try {
+    await setupPlayer()
+    return true
+  } catch (error) {
+    reportPlayerError('播放器初始化', error)
+    return false
+  }
+}
+
 /** 取流并播放。内核的 getMusicUrl 已内置降档回退，这里只管交给原生播放器。 */
 async function resolveAndPlay(item: MusicItem): Promise<void> {
   state.loading = true

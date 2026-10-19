@@ -14,6 +14,7 @@ import {
 } from '../components/Icons'
 import { colors, topInset } from '../theme'
 import { library } from '../sync'
+import { safe } from '../lib/safe'
 import {
   currentItem, cycleMode, cycleQuality, modeLabel, next, play, prev, seek, toggle,
   useLyricLines, usePlayerState, useProgressState,
@@ -258,7 +259,7 @@ export default function PlayerScreen() {
               const active = index === activeIndex
               const distance = Math.abs(index - activeIndex)
               return (
-                <Pressable onPress={() => void seek(line.time)}>
+                <Pressable onPress={safe('歌词跳转', () => seek(line.time))}>
                   <Text
                     numberOfLines={1}
                     style={{
@@ -312,14 +313,14 @@ export default function PlayerScreen() {
 
       {/* 控制条 */}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 36, marginTop: 16 }}>
-        <Pressable hitSlop={10} onPress={cycleQuality}>
+        <Pressable hitSlop={10} onPress={safe('切换音质', () => cycleQuality())}>
           <Text style={{ color: colors.muted, fontSize: 12 }}>{st.quality}</Text>
         </Pressable>
-        <Pressable hitSlop={10} onPress={() => void prev()} disabled={!st.queue.length}>
+        <Pressable hitSlop={10} onPress={safe('上一首', () => prev())} disabled={!st.queue.length}>
           <SkipIcon size={24} direction="prev" />
         </Pressable>
         <Pressable
-          onPress={() => void toggle()}
+          onPress={safe('播放/暂停', () => toggle())}
           disabled={st.loading || !item}
           style={{
             width: 64,
@@ -333,12 +334,12 @@ export default function PlayerScreen() {
         >
           {playing ? <PauseIcon size={24} /> : <PlayIcon size={24} />}
         </Pressable>
-        <Pressable hitSlop={10} onPress={() => void next()} disabled={!st.queue.length}>
+        <Pressable hitSlop={10} onPress={safe('下一首', () => next())} disabled={!st.queue.length}>
           <SkipIcon size={24} direction="next" />
         </Pressable>
         <Pressable
           hitSlop={10}
-          onPress={() => cycleMode()}
+          onPress={safe('切换播放模式', () => cycleMode())}
           accessibilityLabel={modeLabel()}
           style={{ alignItems: 'center' }}
         >
@@ -350,20 +351,20 @@ export default function PlayerScreen() {
 
       {/* 底部功能行 */}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingHorizontal: 32, paddingVertical: 20 }}>
-        <Pressable hitSlop={10} onPress={() => void onToggleFav()} accessibilityLabel={fav ? '取消收藏' : '收藏'}>
+        <Pressable hitSlop={10} onPress={safe('收藏', onToggleFav)} accessibilityLabel={fav ? '取消收藏' : '收藏'}>
             <HeartIcon size={22} filled={fav} color={fav ? colors.accent : undefined} />
           </Pressable>
         <Pressable
           hitSlop={10}
-          onPress={() => setPane(p => (p === 'comment' ? 'lyric' : 'comment'))}
+          onPress={safe('切换评论', () => setPane(p => (p === 'comment' ? 'lyric' : 'comment')))}
           accessibilityLabel={pane === 'comment' ? '返回歌词' : '查看评论'}
         >
           <CommentIcon size={22} color={pane === 'comment' ? colors.accent : undefined} />
         </Pressable>
-        <Pressable hitSlop={10} onPress={onShare} accessibilityLabel="分享">
+        <Pressable hitSlop={10} onPress={safe('分享', onShare)} accessibilityLabel="分享">
           <ShareIcon size={22} />
         </Pressable>
-        <Pressable hitSlop={10} onPress={() => setQueueOpen(true)} accessibilityLabel="播放列表">
+        <Pressable hitSlop={10} onPress={safe('打开播放列表', () => setQueueOpen(true))} accessibilityLabel="播放列表">
           <ListIcon size={22} />
         </Pressable>
       </View>
@@ -382,7 +383,7 @@ export default function PlayerScreen() {
               {st.queue.map((q, i) => (
                 <Pressable
                   key={q.source + '-' + String(q.songmid) + '-' + i}
-                  onPress={() => { setQueueOpen(false); void play(q) }}
+                  onPress={safe('队列选歌', () => { setQueueOpen(false); return play(q) })}
                   style={{ paddingHorizontal: 20, paddingVertical: 10 }}
                 >
                   <Text numberOfLines={1} style={{ color: i === st.index ? colors.accent : colors.fg, fontSize: 14 }}>

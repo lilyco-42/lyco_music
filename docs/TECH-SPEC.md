@@ -1,6 +1,6 @@
 # Lyco Music 技术与设计规范
 
-> 版本：0.2.14 · 适用范围：`apps/desktop`（Vue 3 + Electron）、`apps/mobile`（React Native）、`packages/core`
+> 版本：0.2.15 · 适用范围：`apps/desktop`（Vue 3 + Electron）、`apps/mobile`（React Native）、`packages/core`
 > 这份文档是**约定的来源**：写新组件、改样式、调图标之前先看这里；和文档不一致的代码视为待修。
 
 ---
@@ -230,7 +230,16 @@ node ./node_modules/vitest/vitest.mjs run
 
 涉及界面的改动，必须用 CDP 打开真实窗口截图确认（不能只看代码推断）。
 
-### 9.4 版本
+### 9.4 崩溃防护（移动端强制）
+
+RN release 包没有红屏：**事件回调里任何未捕获异常都会杀掉 JS 线程**，表现出来就是「点一下就闪退」。因此：
+
+1. 所有 `onPress` 回调必须经 `safe(label, fn)` 包装（`src/lib/safe.ts`），同步异常与 Promise 拒绝都只记录不抛出；
+2. 任何 `TrackPlayer.*` 调用前必须 `await ensureReady()`（冷启动未初始化时原生会抛异常）；
+3. 根组件必须包 `<ErrorBoundary>`，渲染期异常显示可截图的诊断卡片而不是退出；
+4. `index.js` 安装 `ErrorUtils.setGlobalHandler`，致命错误也先记录再决定是否上抛。
+
+### 9.5 版本
 
 * 版本号只在根 `package.json` 维护；`tests/version-consistency.test.ts` 会校验子包、`CORE_VERSION`、Android `build.gradle`、iOS `pbxproj` 全部一致。
 * 发版：`git tag vX.Y.Z && git push origin vX.Y.Z`，Release 工作流自动产出 msi/exe/dmg/apk/ipa/AppImage。

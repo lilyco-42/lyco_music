@@ -18,6 +18,7 @@ import { setupPlayer, useTrackPlayerEvents } from './src/player'
 import { colors, subscribeAccent, TAB_BAR_HEIGHT, topInset } from './src/theme'
 import FriendsScreen from './src/screens/FriendsScreen'
 import AccountScreen from './src/screens/AccountScreen'
+import ErrorBoundary from './src/components/ErrorBoundary'
 
 type TabKey = 'home' | 'search' | 'my' | 'player' | 'member' | 'sync' | 'friends' | 'account'
 
@@ -51,6 +52,7 @@ export default function App() {
   useTrackPlayerEvents()
 
   return (
+    <ErrorBoundary>
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor={colors.bg} translucent={false} />
 
@@ -93,6 +95,7 @@ export default function App() {
         })}
       </View>
     </View>
+    </ErrorBoundary>
   )
 }
 
