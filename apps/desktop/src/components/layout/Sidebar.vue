@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   Disc3, Music2, Sparkles, Podcast, Compass, UsersRound,
   Heart, History, Download, Ellipsis, Crown, Cloud, UserRound,
-  ListMusic,
+  ListMusic, Plus,
 } from 'lucide-vue-next'
 import { useSync } from '@/lib/sync'
 
@@ -27,18 +27,36 @@ const navServices = [
   { key: 'account', label: '我的账户', icon: UserRound, route: '/account' },
 ]
 const navMine = [
-  { key: 'like', label: '我喜欢的音乐', icon: Heart, route: '/my' },
-  { key: 'recent', label: '最近播放', icon: History, route: '/my' },
-  { key: 'download', label: '下载管理', icon: Download, route: '' },
-  { key: 'more', label: '更多', icon: Ellipsis, route: '/account' },
+  { key: 'like', label: '我喜欢的音乐', icon: Heart, route: '/my', tab: 'fav' },
+  { key: 'recent', label: '最近播放', icon: History, route: '/my', tab: 'recent' },
+  { key: 'download', label: '下载管理', icon: Download, route: '', tab: '' },
+  { key: 'more', label: '更多', icon: Ellipsis, route: '/account', tab: '' },
 ]
 
-function go(item: { route?: string; query?: string }) {
-  if (item.route) void router.push(item.route)
-  else if (item.query) void router.push({ name: 'search', query: { q: item.query } })
+type NavItem = { key: string; label: string; route?: string; query?: string; tab?: string }
+
+function go(item: NavItem) {
+  if (item.route === '/my') {
+    void router.push({ path: '/my', query: { tab: item.tab || 'fav' } })
+  } else if (item.route) {
+    void router.push(item.route)
+  } else if (item.query) {
+    void router.push({ name: 'search', query: { q: item.query } })
+  }
 }
-function selected(item: { route?: string; query?: string }) {
+
+/** 点侧边栏的「+」：跳到我的音乐并直接打开新建输入框 */
+function newPlaylist(): void {
+  void router.push({ path: '/my', query: { new: '1' } })
+}
+
+function selected(item: NavItem) {
   if (item.route === '/') return route.name === 'home'
+  if (item.route === '/my') {
+    // 我的音乐三个页签共用一个路由，靠 ?tab= 区分，别让两个条目同时高亮
+    if (route.path !== '/my' || route.query.pl) return false
+    return (route.query.tab ?? 'fav') === (item.tab || 'fav')
+  }
   if (item.route && route.path === item.route) return true
   return !!item.query && route.name === 'search' && route.query.q === item.query
 }
@@ -83,14 +101,25 @@ const rowClass = 'mx-4 flex h-11 w-[calc(100%-2rem)] shrink-0 items-center gap-3
 
     <div class="mb-2 mt-5 flex items-center gap-2 px-7 text-xs text-ncm-fainter">
       <ListMusic :size="16" :stroke-width="1.8" aria-hidden="true" />
-      <span>本机歌单（{{ playlists.length }}）</span>
+      <span class="flex-1">本机歌单（{{ playlists.length }}）</span>
+      <button
+        type="button"
+        class="-mr-1 rounded-full p-1 transition-colors hover:bg-black/5 hover:text-ncm-accent"
+        title="新建歌单"
+        aria-label="新建歌单"
+        @click="newPlaylist"
+      >
+        <Plus :size="15" :stroke-width="2.6" aria-hidden="true" />
+      </button>
     </div>
     <p v-if="!playlists.length" class="px-7 pb-6 text-xs text-ncm-fainter">还没有创建歌单</p>
     <button v-for="pl in playlists" :key="pl.id" type="button"
-            class="mx-4 flex min-h-11 items-center gap-3 rounded-lg px-4 text-left text-sm text-ncm-muted hover:bg-black/5"
-            @click="router.push('/my')">
+            class="mx-4 flex min-h-11 items-center gap-3 rounded-lg px-4 text-left text-sm transition-colors"
+            :class="route.query.pl === pl.id ? 'bg-ncm-accent-nav text-white' : 'text-ncm-muted hover:bg-black/5'"
+            @click="router.push({ path: '/my', query: { pl: pl.id } })">
       <ListMusic :size="16" :stroke-width="1.8" class="shrink-0" aria-hidden="true" />
-      <span class="truncate">{{ pl.name }}</span>
+      <span class="min-w-0 flex-1 truncate">{{ pl.name }}</span>
+      <span class="shrink-0 text-[11px] opacity-60">{{ pl.items.length }}</span>
     </button>
   </aside>
 </template>

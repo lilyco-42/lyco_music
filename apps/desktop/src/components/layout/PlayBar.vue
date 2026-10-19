@@ -10,11 +10,13 @@ import { useRouter } from 'vue-router'
 import { ListMusic, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward } from 'lucide-vue-next'
 import { parseLyric, findLineIndex } from '@lxmn/core'
 import { usePlayer } from '@/lib/player'
+import { useSync } from '@/lib/sync'
 import IconButton from '@/components/ui/IconButton.vue'
 import QualityMenu from '@/components/layout/QualityMenu.vue'
 
 const router = useRouter()
 const player = usePlayer()
+const { library, playlists } = useSync()
 
 const track = computed(() => player.current.value)
 
@@ -159,7 +161,7 @@ const seekHint = computed(() => {
 /* ---------------- 右侧「…」菜单与播放队列 ---------------- */
 
 /** 面板互斥：同时只开一个，避免两层浮层叠在一起 */
-const openPanel = ref<'none' | 'more' | 'queue'>('none')
+const openPanel = ref<'none' | 'more' | 'queue' | 'addto'>('none')
 
 function togglePanel(name: 'more' | 'queue'): void {
   openPanel.value = openPanel.value === name ? 'none' : name
@@ -171,11 +173,51 @@ const moreItems = computed(() => {
   return [
     { key: 'singer', label: `歌手：${t.singer || '未知'}`, hint: '在搜索里查看这位歌手' },
     { key: 'album', label: `专辑：${t.albumName || '未知'}`, hint: '在搜索里查看这张专辑' },
+    { key: 'addto', label: '添加到歌单', hint: playlists.value.length ? `共 ${playlists.value.length} 个歌单` : '还没有歌单，可以直接新建' },
     { key: 'copy', label: '复制歌名 - 歌手', hint: '粘贴到别处分享' },
     { key: 'lyric', label: lyricActive.value ? '关闭桌面歌词' : '打开桌面歌词', hint: '' },
     { key: 'queue', label: `播放队列（${player.state.queue.length}）`, hint: '' },
   ]
 })
+
+/* ---- 添加到歌单 ---- */
+
+const addHint = ref('')
+const addNewName = ref('')
+const addBusy = ref(false)
+
+async function addCurrentTo(playlistId: string): Promise<void> {
+  const t = track.value
+  if (!t) return
+  const pl = playlists.value.find(p => p.id === playlistId)
+  const ok = await library.addToPlaylist(playlistId, t)
+  addHint.value = ok
+    ? `已加入「${pl?.name ?? '歌单'}」`
+    : `「${pl?.name ?? '歌单'}」里已经有这首了`
+}
+
+/** 建一个新歌单，并把当前这首放进去（名字重了就自动加序号） */
+async function addCurrentToNew(): Promise<void> {
+  const t = track.value
+  if (!t || addBusy.value) return
+  addBusy.value = true
+  try {
+    const base = addNewName.value.replace(/\s+/g, ' ').trim().slice(0, 32) || '新建歌单'
+    const used = new Set(playlists.value.map(p => p.name))
+    let name = base
+    let n = 2
+    while (used.has(name)) {
+      name = `${base} ${n}`
+      n++
+    }
+    const pl = await library.createPlaylist(name)
+    await library.addToPlaylist(pl.id, t)
+    addNewName.value = ''
+    addHint.value = `已新建「${pl.name}」并加入`
+  } finally {
+    addBusy.value = false
+  }
+}
 
 async function onMore(key: string): Promise<void> {
   const t = track.value
@@ -198,6 +240,11 @@ async function onMore(key: string): Promise<void> {
   }
   if (key === 'lyric') {
     await toggleLyric()
+    return
+  }
+  if (key === 'addto') {
+    addHint.value = ''
+    openPanel.value = 'addto'
     return
   }
   if (key === 'queue') {
@@ -386,6 +433,43 @@ const error = computed(() => player.state.error)
           <span v-if="it.hint" class="block truncate text-[11px] text-ncm-fainter">{{ it.hint }}</span>
         </span>
       </button>
+    </div>
+
+    <!-- 添加到歌单 -->
+    <div
+      v-if="openPanel === 'addto'"
+      class="absolute bottom-[112px] right-[28px] z-50 flex max-h-[420px] w-[320px] flex-col overflow-hidden rounded-2xl border border-ncm-divider bg-white shadow-[0_12px_32px_rgba(0,0,0,.14)]"
+    >
+      <div class="border-b border-ncm-divider px-4 py-2.5 text-[14px] text-ncm-fg">添加到歌单</div>
+      <div class="min-h-0 flex-1 overflow-y-auto py-1">
+        <p v-if="!playlists.length" class="px-4 py-6 text-center text-[13px] text-ncm-fainter">还没有歌单，在下面直接建一个</p>
+        <button
+          v-for="pl in playlists"
+          :key="pl.id"
+          type="button"
+          class="flex w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-black/5"
+          @click="addCurrentTo(pl.id)"
+        >
+          <ListMusic :size="16" :stroke-width="1.8" class="shrink-0 text-ncm-faint" aria-hidden="true" />
+          <span class="min-w-0 flex-1 truncate text-[13px] text-ncm-fg">{{ pl.name }}</span>
+          <span class="shrink-0 text-[11px] text-ncm-fainter">{{ pl.items.length }}</span>
+        </button>
+      </div>
+      <p v-if="addHint" class="border-t border-ncm-divider bg-ncm-accent/5 px-4 py-1.5 text-[12px] text-ncm-accent">{{ addHint }}</p>
+      <form class="flex items-center gap-2 border-t border-ncm-divider p-2.5" @submit.prevent="addCurrentToNew">
+        <input
+          v-model="addNewName"
+          type="text"
+          maxlength="40"
+          placeholder="新建歌单并加入…"
+          class="min-w-0 flex-1 rounded-[6px] border border-ncm-divider px-2 py-1 text-[13px] text-ncm-fg outline-none placeholder:text-ncm-fainter focus:border-ncm-accent"
+        />
+        <button
+          type="submit"
+          class="shrink-0 rounded-pill bg-ncm-accent px-3 py-1 text-[12px] text-white disabled:opacity-50"
+          :disabled="addBusy"
+        >创建并加入</button>
+      </form>
     </div>
 
     <!-- 播放队列 -->

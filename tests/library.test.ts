@@ -142,6 +142,51 @@ describe('Library 歌单', () => {
     await lib.deletePlaylist(pl.id)
     expect(lib.snapshot().playlists).toHaveLength(0)
   })
+
+  it('空名 / 纯空格建成默认名，名字里的多余空白会被压掉', async () => {
+    const lib = new Library()
+    await lib.load()
+    const a = await lib.createPlaylist('   ')
+    expect(a.name).toBe('新建歌单')
+    const b = await lib.createPlaylist('  夜里   听的  ')
+    expect(b.name).toBe('夜里 听的')
+  })
+
+  it('改名：成功、拒绝空名、拒绝同名', async () => {
+    const lib = new Library()
+    await lib.load()
+    const a = await lib.createPlaylist('A')
+    const b = await lib.createPlaylist('B')
+
+    expect(await lib.renamePlaylist(a.id, '新名字')).toBe(true)
+    expect(lib.snapshot().playlists.find(p => p.id === a.id)!.name).toBe('新名字')
+
+    // 空名不生效，名字保持原样
+    expect(await lib.renamePlaylist(a.id, '   ')).toBe(false)
+    expect(lib.snapshot().playlists.find(p => p.id === a.id)!.name).toBe('新名字')
+
+    // 撞上另一个歌单的名字也不生效
+    expect(await lib.renamePlaylist(a.id, 'B')).toBe(false)
+    expect(lib.snapshot().playlists.find(p => p.id === a.id)!.name).toBe('新名字')
+
+    // 改成自己原来的名字算无操作，但也不是失败
+    expect(await lib.renamePlaylist(b.id, 'B')).toBe(false)
+
+    // 改完能持久化
+    const again = new Library()
+    await again.load()
+    expect(again.snapshot().playlists.find(p => p.id === a.id)!.name).toBe('新名字')
+  })
+
+  it('改名会推进 updatedAt（否则同步时远端旧名会赢）', async () => {
+    const lib = new Library()
+    await lib.load()
+    const pl = await lib.createPlaylist('旧')
+    const before = pl.updatedAt
+    await new Promise(r => setTimeout(r, 5))
+    await lib.renamePlaylist(pl.id, '新')
+    expect(lib.snapshot().playlists.find(p => p.id === pl.id)!.updatedAt).toBeGreaterThan(before)
+  })
 })
 
 describe('Library 持久化与同步', () => {

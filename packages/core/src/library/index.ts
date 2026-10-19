@@ -26,6 +26,8 @@ const LIBRARY_KEY = 'lxmn.library'
 const MAX_HISTORY = 500
 /** 收藏上限：足够大，但总得有个头，避免异常数据把存储撑爆 */
 const MAX_FAVORITES = 5000
+/** 歌单名长度上限：再长在侧边栏里也只是被截断，没有意义 */
+const MAX_PLAYLIST_NAME = 40
 
 export interface LibraryState {
   favorites: SyncFavorite[]
@@ -45,6 +47,11 @@ function trackKey(item: { source?: string; songmid?: string | number }): string 
 
 function isSameTrack(a: MusicItem, b: MusicItem): boolean {
   return a.source === b.source && String(a.songmid) === String(b.songmid)
+}
+
+/** 歌单名归一化：去首尾空白、压掉连续空白、截断到上限 */
+function cleanPlaylistName(name: string): string {
+  return String(name ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_PLAYLIST_NAME)
 }
 
 export class Library {
@@ -233,7 +240,7 @@ export class Library {
     const now = Date.now()
     const pl: SyncPlaylist = {
       id: 'pl-' + now.toString(36) + '-' + Math.floor(Math.random() * 1e6).toString(36),
-      name: name.trim() || '新建歌单',
+      name: cleanPlaylistName(name) || '新建歌单',
       createdAt: now,
       updatedAt: now,
       items: [],
@@ -242,6 +249,27 @@ export class Library {
     await this.persist()
     this.emit()
     return pl
+  }
+
+  /**
+   * 歌单改名。
+   *
+   * 空白名一律拒绝 —— 歌单靠名字在侧边栏区分，允许改成空串等于把它变成
+   * 一条看不见的幽灵记录。同名也拒绝：两个「我的歌单」在界面上无法分辨，
+   * 用户点哪个都可能是错的。
+   */
+  async renamePlaylist(playlistId: string, name: string): Promise<boolean> {
+    await this.load()
+    const pl = this.state.playlists.find(p => p.id === playlistId)
+    if (!pl) return false
+    const next = cleanPlaylistName(name)
+    if (!next || next === pl.name) return false
+    if (this.state.playlists.some(p => p.id !== playlistId && p.name === next)) return false
+    pl.name = next
+    pl.updatedAt = Date.now()
+    await this.persist()
+    this.emit()
+    return true
   }
 
   async addToPlaylist(playlistId: string, item: MusicItem): Promise<boolean> {
