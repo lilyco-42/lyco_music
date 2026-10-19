@@ -285,8 +285,9 @@ ipcMain.handle('lxmn:lyric:drag-start', async () => {
       if (!lyricWin || lyricWin.isDestroyed()) { stopLyricDrag(false); return }
       const p = screen.getCursorScreenPoint()
       if (p.x === lyricDrag.cursor.x && p.y === lyricDrag.cursor.y) {
-        // 鼠标松手事件万一丢了，光标不动就别一直跟着（1 秒内没动就收工）
-        if (++lyricDrag.still > 60) stopLyricDrag()
+        // 鼠标松手事件万一丢了，光标长时间不动就别一直跟着（5 秒）
+        // 不能太短：按住不动超过阈值的话，再拖就拖不动了
+        if (++lyricDrag.still > 300) stopLyricDrag()
         return
       }
       lyricDrag.still = 0

@@ -189,17 +189,17 @@ async function close(): Promise<void> {
           class="select-none text-center leading-[1.45] transition-all"
           :style="{
             fontSize: (i === 0 ? style.fontSize : Math.round(style.fontSize * 0.78)) + 'px',
-          color: i === 0 ? style.playedColor : style.unplayedColor,
-          fontFamily: fontStack,
-          opacity: i === 0 ? 1 : 0.65,
-          fontWeight: i === 0 ? 700 : 400,
-          ...paint,
-          marginTop: i === 0 ? 0 : Math.round(style.fontSize * 0.2) + 'px',
-        }"
-      >
-        {{ l.text || '·' }}
-      </p>
-    </template>
+            color: i === 0 ? style.playedColor : style.unplayedColor,
+            fontFamily: fontStack,
+            opacity: i === 0 ? 1 : 0.65,
+            fontWeight: i === 0 ? 700 : 400,
+            ...paint,
+            marginTop: i === 0 ? 0 : Math.round(style.fontSize * 0.2) + 'px',
+          }"
+        >
+          {{ l.text || '·' }}
+        </p>
+      </template>
     </div>
 
     <!-- 工具条：悬停且未锁定时出现（面板打开时让位，避免两层浮层叠在一起） -->

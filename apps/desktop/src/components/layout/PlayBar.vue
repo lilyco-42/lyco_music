@@ -126,6 +126,9 @@ function onSeekMove(e: MouseEvent): void {
 
 function onSeekUp(): void {
   seeking.value = false
+  // 松手时把落点气泡收掉：拖到进度条外面松手不会触发 mouseleave，
+  // 不清的话气泡和手柄会一直挂在那个位置
+  hoverRatio.value = null
   window.removeEventListener('mousemove', onSeekMove)
   window.removeEventListener('mouseup', onSeekUp)
 }
@@ -368,7 +371,7 @@ const error = computed(() => player.state.error)
 
     <!-- 「…」菜单：只放真能用的动作，不做占位项 -->
     <div
-      v-if="openPanel === 'more'"
+      v-if="openPanel === 'more' && moreItems.length"
       class="absolute bottom-[112px] right-[28px] z-50 w-[300px] overflow-hidden rounded-2xl border border-ncm-divider bg-white py-1 shadow-[0_12px_32px_rgba(0,0,0,.14)]"
     >
       <button
