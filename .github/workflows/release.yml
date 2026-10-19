@@ -424,7 +424,13 @@ jobs:
         # R2 只是边缘加速副本，主源是 lain42.top（已成功）。
         # v0.2.14 实测：镜像失败会把整个 job 判红，连带 GitHub Release 都不创建，
         # 于是一个「可选加速步骤」把正式发布也拖下水 —— 这里降级为非致命。
+        #
+        # v0.2.16 又踩一次：Worker 端不返回时，每个文件各自等 --max-time 900s，
+        # 十几个文件排下来能挂一小时以上，job 一直 in_progress，
+        # 后面的「Create release」永远轮不到（现象：GitHub Release 页面连续三个版本 404）。
+        # 所以这里三重收口：单请求 120s、整步 12min、连续两个失败就放弃。
         continue-on-error: true
+        timeout-minutes: 12
         shell: bash
         env:
           R2_UPLOAD_TOKEN: ${{ secrets.R2_UPLOAD_TOKEN }}
@@ -443,12 +449,12 @@ jobs:
           fail=0
           mirror() {
             payload=$(printf '{"key":"%s","src":"%s"}' "$1" "$2")
-            resp=$(curl -sS --max-time 900 -X POST "$EP/__mirror" \
+            resp=$(curl -sS --connect-timeout 10 --max-time 120 -X POST "$EP/__mirror" \
               -H "Authorization: Bearer $R2_UPLOAD_TOKEN" \
               -H 'Content-Type: application/json' --data "$payload" || true)
             case "$resp" in
               *'"ok":true'*) ok=$((ok+1)); echo "  OK   $1" ;;
-              *) fail=$((fail+1)); echo "  FAIL $1 -> $resp" ;;
+              *) fail=$((fail+1)); echo "  FAIL $1 -> ${resp:0:200}" ;;
             esac
           }
           for f in release-files/*; do
@@ -459,6 +465,11 @@ jobs:
               *) continue ;;
             esac
             mirror "$STAGE/$name" "$SRC_BASE/$name"
+            # 连续失败说明 Worker 挂了/令牌错了，再排下去只是浪费时间
+            if [ "$fail" -ge 2 ] && [ "$ok" -eq 0 ]; then
+              echo '连续失败，放弃镜像（不影响 GitHub Release 与 lain42.top）'
+              break
+            fi
           done
           # 下载页本身也镜像：页面/样式/manifest 都走边缘（说明条由 Worker 注入）
           mirror "downloads/index.html" "https://lain42.top/downloads/"
