@@ -419,7 +419,7 @@ jobs:
         # 这一步要 scp 约 640MB 到自建服务器，实测 20~40 分钟。
         # 但它是可选的镜像步骤，绝不能无限期挂着 —— 上面已经把
         # 「Create release」提到它前面，所以这里超时也不会影响 GitHub Release。
-        timeout-minutes: 30
+        timeout-minutes: 40
         shell: bash
         env:
           SSH_KEY: ${{ secrets.LAIN42_SSH_KEY }}
@@ -454,13 +454,36 @@ jobs:
           # 先清空再传：同一个 tag 重跑时，上一轮的文件会残留在目录里
           # （例如旧命名 app-release.apk），导致 SHA256SUMS 与下载页混入过期产物。
           ssh -i ~/.ssh/id_lain42 root@lain42.top "rm -rf /var/www/studio/downloads/$STAGE && mkdir -p /var/www/studio/downloads/$STAGE"
+
+          # 并行上传。实测单条 scp 到 lain42.top 只有 2~3 Mbps，
+          # 600MB 顺序传要一个多小时（v0.2.18 第一次发布就卡在这里）。
+          # 4 路并发 + 单文件 10 分钟上限：慢的那个文件不会拖死整步。
+          LIST=$(mktemp)
           for f in release-files/*; do
             [ -f "$f" ] || continue
             case "$f" in
-              *.exe|*.msi|*.dmg|*.apk|*.ipa|*.AppImage|*.zip|*.blockmap|*.yml)
-                scp -q -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \n                  -i ~/.ssh/id_lain42 "$f" "root@lain42.top:/var/www/studio/downloads/$STAGE/" ;;
+              *.exe|*.msi|*.dmg|*.apk|*.ipa|*.AppImage|*.zip|*.blockmap|*.yml) echo "$f" >> "$LIST" ;;
             esac
           done
+          echo "待上传 $(wc -l < "$LIST") 个文件"
+          export STAGE
+          xargs -r -P 4 -I{} bash -c '
+            if timeout 600 scp -q -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -i ~/.ssh/id_lain42 "$1" "root@lain42.top:/var/www/studio/downloads/$STAGE/"; then
+              echo "  ok   $(basename "$1")"
+            else
+              echo "  FAIL $(basename "$1")"
+            fi
+          ' _ {} < "$LIST"
+
+          # 传完核对：服务器上的文件数必须和本地一致，否则不写 SHA256SUMS、
+          # 也不登记下载页 —— 半套文件比没有更难查。
+          LOCAL_N=$(wc -l < "$LIST")
+          REMOTE_N=$(ssh -i ~/.ssh/id_lain42 root@lain42.top "ls -1 /var/www/studio/downloads/$STAGE | wc -l")
+          echo "本地 $LOCAL_N 个 / 远端 $REMOTE_N 个"
+          if [ "$LOCAL_N" != "$REMOTE_N" ]; then
+            echo "::error::lain42.top 上传不完整（$REMOTE_N/$LOCAL_N），已跳过 SHA256SUMS 与下载页登记；GitHub Release 不受影响"
+            exit 1
+          fi
           ssh -i ~/.ssh/id_lain42 root@lain42.top \
             "cd /var/www/studio/downloads/$STAGE && sha256sum * > SHA256SUMS.txt && ls -la"
 
