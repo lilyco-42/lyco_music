@@ -362,9 +362,64 @@ jobs:
           mkdir -p release-files
           find dist-all -type f -exec cp -n {} release-files/ \;
           ls -la release-files || true
+      # 同一天重复发布时 tag 相同（v0.1.0-YYYYMMDD），而 action-gh-release
+      # 在 tag 已存在时是**追加**资产而不是重建，上一轮的文件会残留
+      # （实测残留了旧命名的 app-release.apk / LX-Music-unsigned.ipa，
+      #   因为改名发生在 01:04 之后，旧的仍挂在同一个 release 上）。
+      # 这里先删掉同名 release，保证每次发布的结果只含本轮产物。
+      - name: Drop previous release with same tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG='${{ steps.tag.outputs.name }}'
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "deleting existing release $TAG (same-day rerun)"
+            gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          else
+            echo "no existing release for $TAG"
+          fi
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: Lyco Music ${{ steps.tag.outputs.name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## Lyco Music 全平台发布
+
+            网易云音乐风格 UI 重制版，桌面端与移动端共用同一套内核（@lxmn/core）。
+
+            ### 下载
+            | 平台 | 文件 | 说明 |
+            | --- | --- | --- |
+            | Windows | `Lyco.Music-*-windows-setup.exe` / `*.msi` | 安装版（NSIS 向导 / MSI 静默） |
+            | Windows 便携 | `Lyco.Music-*-windows-x64-portable.exe` | 免安装，双击即用 |
+            | macOS | `Lyco.Music-*-macos-*.dmg` | 未签名，首次打开请右键 → 打开 |
+            | Android | `Lyco.Music-*-android-*.apk` | 直接侧载安装 |
+            | iOS | `Lyco.Music-*-ios-unsigned.ipa` | 未签名，需自行签名或用 AltStore 侧载 |
+            | Linux | `Lyco.Music-*-linux-*.AppImage` | chmod +x 后直接运行 |
+
+            ### 会员与音源订阅
+            1. 打开 https://lain42.top/shop/ 用积分购买「音乐会员 · 年卡」（¥88/年）
+            2. 在「我的账户」复制订阅链接
+            3. 在客户端「会员」页粘贴链接并激活，即可一键补全全部第三方音源
+
+            > 未签名安装包会被系统提示，这是正常的。
+          files: release-files/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       # 同步到 lain42.top 的软件下载目录，并生成 SHA256SUMS
       # 未配置 LAIN42_SSH_KEY 时自动跳过，不影响 GitHub Release
       - name: Publish to lain42.top downloads
+        # 这一步要 scp 约 640MB 到自建服务器，实测 20~40 分钟。
+        # 但它是可选的镜像步骤，绝不能无限期挂着 —— 上面已经把
+        # 「Create release」提到它前面，所以这里超时也不会影响 GitHub Release。
+        timeout-minutes: 30
         shell: bash
         env:
           SSH_KEY: ${{ secrets.LAIN42_SSH_KEY }}
@@ -403,7 +458,7 @@ jobs:
             [ -f "$f" ] || continue
             case "$f" in
               *.exe|*.msi|*.dmg|*.apk|*.ipa|*.AppImage|*.zip|*.blockmap|*.yml)
-                scp -i ~/.ssh/id_lain42 "$f" "root@lain42.top:/var/www/studio/downloads/$STAGE/" ;;
+                scp -q -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \n                  -i ~/.ssh/id_lain42 "$f" "root@lain42.top:/var/www/studio/downloads/$STAGE/" ;;
             esac
           done
           ssh -i ~/.ssh/id_lain42 root@lain42.top \
@@ -480,54 +535,3 @@ jobs:
           echo "R2 镜像：成功 $ok，失败 $fail"
           echo "https://lyco-music-dl.m15178682641.workers.dev/$STAGE/"
           [ "$fail" -eq 0 ] || exit 1
-
-      # 同一天重复发布时 tag 相同（v0.1.0-YYYYMMDD），而 action-gh-release
-      # 在 tag 已存在时是**追加**资产而不是重建，上一轮的文件会残留
-      # （实测残留了旧命名的 app-release.apk / LX-Music-unsigned.ipa，
-      #   因为改名发生在 01:04 之后，旧的仍挂在同一个 release 上）。
-      # 这里先删掉同名 release，保证每次发布的结果只含本轮产物。
-      - name: Drop previous release with same tag
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG='${{ steps.tag.outputs.name }}'
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "deleting existing release $TAG (same-day rerun)"
-            gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
-          else
-            echo "no existing release for $TAG"
-          fi
-
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.name }}
-          name: Lyco Music ${{ steps.tag.outputs.name }}
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-          body: |
-            ## Lyco Music 全平台发布
-
-            网易云音乐风格 UI 重制版，桌面端与移动端共用同一套内核（@lxmn/core）。
-
-            ### 下载
-            | 平台 | 文件 | 说明 |
-            | --- | --- | --- |
-            | Windows | `Lyco.Music-*-windows-setup.exe` / `*.msi` | 安装版（NSIS 向导 / MSI 静默） |
-            | Windows 便携 | `Lyco.Music-*-windows-x64-portable.exe` | 免安装，双击即用 |
-            | macOS | `Lyco.Music-*-macos-*.dmg` | 未签名，首次打开请右键 → 打开 |
-            | Android | `Lyco.Music-*-android-*.apk` | 直接侧载安装 |
-            | iOS | `Lyco.Music-*-ios-unsigned.ipa` | 未签名，需自行签名或用 AltStore 侧载 |
-            | Linux | `Lyco.Music-*-linux-*.AppImage` | chmod +x 后直接运行 |
-
-            ### 会员与音源订阅
-            1. 打开 https://lain42.top/shop/ 用积分购买「音乐会员 · 年卡」（¥88/年）
-            2. 在「我的账户」复制订阅链接
-            3. 在客户端「会员」页粘贴链接并激活，即可一键补全全部第三方音源
-
-            > 未签名安装包会被系统提示，这是正常的。
-          files: release-files/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
