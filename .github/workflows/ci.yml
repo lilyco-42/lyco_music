@@ -97,6 +97,10 @@ jobs:
         run: pnpm -r --filter './packages/**' build
 
       # 只做类型检查：真正的 apk/aab 由 release.yml 的 Android job 产出
+      - name: Bundle mobile JS (fast fail)
+        working-directory: apps/mobile
+        run: npx react-native bundle --platform android --dev false --entry-file index.js --bundle-output /tmp/index.android.bundle --reset-cache
+
       - name: Test mobile app (jest + RTL, act)
         run: pnpm --filter @lxmn/app-mobile test -- --silent
 

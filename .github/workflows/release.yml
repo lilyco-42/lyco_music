@@ -203,6 +203,12 @@ jobs:
           echo "LXMN_VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
           echo "LXMN_VERSION_CODE=$CODE" >> "$GITHUB_ENV"
           echo "Android version $VERSION (code $CODE)"
+      # 先打一次 JS bundle：Metro 报错是一行明确信息，比 gradle 的
+      # "Process 'command node' finished with non-zero exit value 1" 好查得多
+      - name: Bundle mobile JS (fast fail)
+        working-directory: apps/mobile
+        run: npx react-native bundle --platform android --dev false --entry-file index.js --bundle-output /tmp/index.android.bundle --reset-cache
+
       - name: Build release APK
         working-directory: apps/mobile/android
         env:
