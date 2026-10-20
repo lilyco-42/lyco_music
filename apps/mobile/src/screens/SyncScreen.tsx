@@ -22,7 +22,7 @@ interface Counts {
   history: number
 }
 
-export default function SyncScreen() {
+export default function SyncScreen({ onBack }: { onBack?: () => void }) {
   const [counts, setCounts] = useState<Counts>({ favorites: 0, playlists: 0, history: 0 })
   const [configured, setConfigured] = useState(false)
   const [mask, setMask] = useState('')
@@ -147,6 +147,11 @@ export default function SyncScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: topInset }}>
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 32 }}>
+        {onBack ? (
+          <Pressable onPress={onBack} hitSlop={10} style={{ marginBottom: 12 }}>
+            <Text style={{ color: colors.muted, fontSize: 13.5 }}>‹ 返回</Text>
+          </Pressable>
+        ) : null}
         <Text style={{ color: colors.fg, fontSize: 24, fontWeight: '700', marginBottom: 6 }}>云同步</Text>
         <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 20 }}>
           收藏、歌单、播放记录在桌面端与移动端之间自动同步

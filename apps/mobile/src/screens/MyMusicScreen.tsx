@@ -21,9 +21,13 @@ interface Row {
 interface Props {
   /** 打开账户页（登录 / 头像 / 权益）。「我的」是用户找账户的自然位置。 */
   onOpenAccount?: () => void
+  /** 云同步。以前是底部一个独立标签，现在收进「我的」的入口行。 */
+  onOpenSync?: () => void
+  /** 好友 / 分享导入。同上。 */
+  onOpenFriends?: () => void
 }
 
-export default function MyMusicScreen({ onOpenAccount }: Props) {
+export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends }: Props) {
   const [tab, setTab] = useState<Tab>('fav')
   const [rows, setRows] = useState<Row[]>([])
   const [playlists, setPlaylists] = useState<{ id: string; name: string }[]>([])
@@ -111,15 +115,31 @@ export default function MyMusicScreen({ onOpenAccount }: Props) {
         </View>
       ) : null}
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 12 }}>
-        <Text style={{ color: colors.fg, fontSize: 22, fontWeight: '700', flex: 1 }}>我的音乐</Text>
-        {onOpenAccount ? (
-          <Pressable
-            onPress={onOpenAccount}
-            style={{ borderWidth: 1, borderColor: colors.divider, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7 }}
-          >
-            <Text style={{ color: colors.muted, fontSize: 12.5 }}>账户</Text>
-          </Pressable>
-        ) : null}
+        <Text style={{ color: colors.fg, fontSize: 24, fontWeight: '700', flex: 1 }}>我的音乐</Text>
+      </View>
+
+      {/* 功能入口行：账户 / 云同步 / 好友。
+          原来是三个独立标签，挤在 7 个标签的一行里；收进这里之后
+          标签栏才腾得出位置给迷你播放条和更大的字号。 */}
+      <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 20, paddingTop: 16 }}>
+        {([
+          ['账户', onOpenAccount],
+          ['云同步', onOpenSync],
+          ['好友', onOpenFriends],
+        ] as const).map(([label, fn]) =>
+          fn ? (
+            <Pressable
+              key={label}
+              onPress={fn}
+              style={{
+                flex: 1, borderRadius: 12, paddingVertical: 14,
+                backgroundColor: colors.surface, alignItems: 'center',
+              }}
+            >
+              <Text style={{ color: colors.fg, fontSize: 13.5 }}>{label}</Text>
+            </Pressable>
+          ) : null,
+        )}
       </View>
 
       {/* 标签 */}

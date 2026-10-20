@@ -31,7 +31,7 @@ interface Playlist {
 const PLAYLISTS: Playlist[] = [
   { id: 1, title: '每日推荐 · 为你而选', keyword: '热门' },
   { id: 2, title: '私人雷达 · 越听越懂你', keyword: '华语流行' },
-  { id: 3, title: '华语流行精选', keyword: '华语流行' },
+  { id: 3, title: '华语流行精选', keyword: '华语经典' },
   { id: 4, title: '深夜轻音乐', keyword: '轻音乐' },
   { id: 5, title: '电子 · 律动', keyword: '电子' },
   { id: 6, title: '民谣与故事', keyword: '民谣' },
@@ -77,6 +77,8 @@ export default function HomeScreen({ onOpenSearch }: { onOpenSearch?: (keyword?:
   const [tracks, setTracks] = useState<MusicItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  /** 歌单卡的封面：按关键词搜一首歌，用它的封面当卡片图 */
+  const [covers, setCovers] = useState<Record<number, string>>({})
   const st = usePlayerState()
   const currentId = st.queue[st.index]?.songmid
 
@@ -105,6 +107,36 @@ export default function HomeScreen({ onOpenSearch }: { onOpenSearch?: (keyword?:
           }
         }
         setTracks(merged.slice(0, 20))
+
+        // 歌单封面：每张卡搜一首，用结果的封面当卡片图。
+        // 之前七张卡用的是同一张生成的占位图，一眼就能看出是假数据。
+        //
+        // 这里必须**串行**并记下已经用过的曲目：关键词之间有重合
+        // （「热门」和「华语流行」的第一名经常是同一首），并发挑选会让
+        // 几张卡撞成同一张图，串行才能保证「下一张换一个」。
+        //
+        // 去重按「曲目」而不是按封面 URL —— 同一个封面在 CDN 上会有
+        // 不同尺寸参数的 URL（?param=300y300 / ?param=130y130），
+        // 比 URL 会漏掉这种重复。
+        const found: Record<number, string> = {}
+        const used = new Set<string>()
+        for (let i = 0; i < PLAYLISTS.length; i++) {
+          const pl = PLAYLISTS[i]!
+          for (const id of ids) {
+            const r = await getSource(id).musicSearch!(pl.keyword, 1, 10).catch(() => null)
+            const pick = (r?.list ?? []).find(x => {
+              if (typeof x.picUrl !== 'string' || !x.picUrl) return false
+              return !used.has(x.source + '::' + String(x.songmid))
+            })
+            if (pick?.picUrl) {
+              found[pl.id] = pick.picUrl
+              used.add(pick.source + '::' + String(pick.songmid))
+              break
+            }
+          }
+        }
+        if (alive) setCovers(found)
+        if (alive) setCovers(found)
       } catch (e) {
         if (alive) setError(e instanceof Error ? e.message : String(e))
       } finally {
@@ -141,7 +173,7 @@ export default function HomeScreen({ onOpenSearch }: { onOpenSearch?: (keyword?:
           contentContainerStyle={{ paddingHorizontal: 20, gap: 12 }}
           renderItem={({ item }) => (
             <Pressable style={{ width: 140 }} onPress={() => onOpenSearch?.(item.keyword)}>
-              <CoverPlaceholder size={140} radius={8} />
+              <CoverPlaceholder size={140} radius={8} uri={covers[item.id]} />
               <Text numberOfLines={2} style={{ color: colors.fg, fontSize: 13, lineHeight: 18, marginTop: 8 }}>
                 {item.title}
               </Text>

@@ -5,6 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { getSource, hasSource, listSources, type MusicItem } from '@lxmn/core'
 import { play, usePlayerState } from '../player'
 import { library } from '../sync'
@@ -17,6 +18,22 @@ const DEFAULT_COVER = require('../assets/art/cover-default.jpg') as number
 /** 音源显示名（与桌面端一致） */
 const SOURCE_LABELS: Record<string, string> = { wy: '网易云', kw: '酷我', kg: '酷狗', mg: '咪咕' }
 
+const HISTORY_KEY = 'lxmn.mobile.searchHistory'
+const HISTORY_MAX = 12
+
+/**
+ * 热门搜索。
+ *
+ * 本站没有榜单接口，所以这里是**人工挑选的关键词**，不是实时热榜 ——
+ * 标题也照实写「热门搜索」而不是「热搜榜」，不假装有排行数据。
+ * 挑的标准是覆盖面：几位传唱度高的华语歌手 + 几个常见曲风。
+ */
+const HOT_KEYWORDS = [
+  '周杰伦', '林俊杰', '陈奕迅', '薛之谦',
+  '邓紫棋', '李荣浩', '毛不易', '告五人',
+  '华语流行', '轻音乐', '说唱', '摇滚',
+]
+
 export default function SearchScreen({ initialKeyword }: { initialKeyword?: string }) {
   const [keyword, setKeyword] = useState(initialKeyword ?? '')
   const [list, setList] = useState<MusicItem[]>([])
@@ -27,6 +44,10 @@ export default function SearchScreen({ initialKeyword }: { initialKeyword?: stri
   const [favKeys, setFavKeys] = useState<Set<string>>(new Set())
   /** 当前筛选的音源，'all' 表示不筛选 */
   const [sourceFilter, setSourceFilter] = useState<string>('all')
+  /** 搜索历史（本地持久化） */
+  const [history, setHistory] = useState<string[]>([])
+  /** 是否已经搜过一次：用来区分「还没搜」和「搜了没结果」 */
+  const [searched, setSearched] = useState(false)
 
   /** 结果里真实出现过的音源（带数量），点「全部」恢复 */
   const sourceTabs = useMemo(() => {
@@ -57,6 +78,33 @@ export default function SearchScreen({ initialKeyword }: { initialKeyword?: stri
     void library.load().then(pullFavs)
   }, [pullFavs])
 
+  /* ---------------- 搜索历史 ---------------- */
+
+  useEffect(() => {
+    void AsyncStorage.getItem(HISTORY_KEY).then(raw => {
+      if (!raw) return
+      try {
+        const arr: unknown = JSON.parse(raw)
+        if (Array.isArray(arr)) setHistory(arr.filter(x => typeof x === 'string').slice(0, HISTORY_MAX))
+      } catch {
+        // 存的内容坏了就当没有，不要因此崩掉搜索页
+      }
+    })
+  }, [])
+
+  const pushHistory = useCallback((q: string) => {
+    setHistory(prev => {
+      const next = [q, ...prev.filter(x => x !== q)].slice(0, HISTORY_MAX)
+      void AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(next))
+      return next
+    })
+  }, [])
+
+  const clearHistory = useCallback(() => {
+    setHistory([])
+    void AsyncStorage.removeItem(HISTORY_KEY)
+  }, [])
+
   async function toggleFav(item: MusicItem) {
     await library.toggleFavorite(item)
     pullFavs()
@@ -71,6 +119,9 @@ export default function SearchScreen({ initialKeyword }: { initialKeyword?: stri
     setList([])
     setTotal(0)
     setSourceFilter('all')
+    setSearched(true)
+    setKeyword(q)
+    pushHistory(q)
     try {
       // 和桌面端同一策略：并发查所有能搜索的音源，去重合并。
       // 只查 wy 会把 kw/mg/kg 的免费曲库白白丢掉，而 wy 上大量 VIP 曲目
@@ -104,7 +155,7 @@ export default function SearchScreen({ initialKeyword }: { initialKeyword?: stri
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [pushHistory])
 
   const run = useCallback(() => void runWith(keyword), [keyword, runWith])
 
@@ -188,9 +239,56 @@ export default function SearchScreen({ initialKeyword }: { initialKeyword?: stri
       ) : error ? (
         <Text style={{ color: colors.accent, paddingHorizontal: 20, fontSize: 14 }}>{error}</Text>
       ) : !list.length ? (
-        <Text style={{ color: colors.fainter, paddingHorizontal: 20, fontSize: 14 }}>
-          {keyword.trim() ? '没有找到相关歌曲' : '输入关键词后回车搜索'}
-        </Text>
+        searched && keyword.trim() ? (
+          <Text style={{ color: colors.fainter, paddingHorizontal: 20, fontSize: 14 }}>
+            没有找到「{keyword.trim()}」，换个关键词试试
+          </Text>
+        ) : (
+          /* 还没搜过：给出历史与热门。原来是空着一大片黑屏加一行提示，
+             和网易云的搜索页比显得很空。 */
+          <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 24 }}>
+            {history.length ? (
+              <>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                  <Text style={{ color: colors.fg, fontSize: 15, fontWeight: '600', flex: 1 }}>搜索历史</Text>
+                  <Pressable onPress={clearHistory} hitSlop={10}>
+                    <Text style={{ color: colors.fainter, fontSize: 12.5 }}>清空</Text>
+                  </Pressable>
+                </View>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 9, marginBottom: 26 }}>
+                  {history.map(h => (
+                    <Pressable
+                      key={h}
+                      onPress={safe('历史搜索', () => runWith(h))}
+                      style={{
+                        paddingHorizontal: 13, paddingVertical: 7, borderRadius: 15,
+                        backgroundColor: colors.surface,
+                      }}
+                    >
+                      <Text style={{ color: colors.muted, fontSize: 12.5 }}>{h}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </>
+            ) : null}
+
+            <Text style={{ color: colors.fg, fontSize: 15, fontWeight: '600', marginBottom: 12 }}>热门搜索</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 9 }}>
+              {HOT_KEYWORDS.map(k => (
+                <Pressable
+                  key={k}
+                  onPress={safe('热门搜索', () => runWith(k))}
+                  style={{
+                    paddingHorizontal: 13, paddingVertical: 7, borderRadius: 15,
+                    borderWidth: 1, borderColor: colors.divider,
+                  }}
+                >
+                  <Text style={{ color: colors.fg, fontSize: 12.5 }}>{k}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </ScrollView>
+        )
       ) : (
         <FlatList
           data={filtered}

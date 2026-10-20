@@ -1,8 +1,16 @@
 /**
  * Lyco Music 移动端入口
  *
- * 四个标签页：首页 / 搜索 / 播放器 / 会员
- * 启动时装配平台适配器（纯 JS 加密，无原生加密模块），并初始化原生播放器。
+ * 结构参照网易云：**四个标签 + 常驻迷你播放条 + 全屏播放页**。
+ *
+ * 之前的做法是七个标签（首页/搜索/我的/播放器/会员/同步/好友）平铺在一行，
+ * 480px 宽的屏上每个只有 68px，文字挤成一团；播放页也只能挤在标签里，
+ * 拿不到全屏空间。
+ *
+ * 现在：
+ * - 标签只留 首页 / 搜索 / 我的 / 会员；
+ * - 播放页从「标签」变成「从迷你条上滑出来的全屏 Modal」，可以占满整屏；
+ * - 同步 / 好友 / 账户收进「我的」页的入口里（那里才是用户找它们的地方）。
  */
 import { useEffect, useState } from 'react'
 import { StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
@@ -15,10 +23,11 @@ import SyncScreen from './src/screens/SyncScreen'
 import MyMusicScreen from './src/screens/MyMusicScreen'
 import { ensurePlatform } from './src/platform'
 import { setupPlayer, useTrackPlayerEvents } from './src/player'
-import { colors, subscribeAccent, TAB_BAR_HEIGHT, topInset } from './src/theme'
+import { colors, subscribeAccent, TAB_BAR_HEIGHT } from './src/theme'
 import FriendsScreen from './src/screens/FriendsScreen'
 import AccountScreen from './src/screens/AccountScreen'
 import ErrorBoundary from './src/components/ErrorBoundary'
+import MiniPlayer from './src/components/MiniPlayer'
 import { recordError } from './src/lib/safe'
 
 /**
@@ -37,17 +46,17 @@ try {
   recordError('启动装配', e)
 }
 
-type TabKey = 'home' | 'search' | 'my' | 'player' | 'member' | 'sync' | 'friends' | 'account'
+type TabKey = 'home' | 'search' | 'my' | 'member' | 'sync' | 'friends' | 'account'
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'home', label: '首页' },
   { key: 'search', label: '搜索' },
   { key: 'my', label: '我的' },
-  { key: 'player', label: '播放器' },
   { key: 'member', label: '会员' },
-  { key: 'sync', label: '同步' },
-  { key: 'friends', label: '好友' },
 ]
+
+/** 二级页：从「我的」进，标签栏仍停在「我的」上，返回时不会跳回首页 */
+const SUB_PAGES: TabKey[] = ['sync', 'friends', 'account']
 
 export default function App() {
   const [tab, setTab] = useState<TabKey>('home')
@@ -56,6 +65,7 @@ export default function App() {
   useEffect(() => subscribeAccent(() => forceThemeRender(n => n + 1)), [])
   /** 首页点歌单/频道时带过来的搜索词 */
   const [seedKeyword, setSeedKeyword] = useState('')
+  const [playerOpen, setPlayerOpen] = useState(false)
 
   useEffect(() => {
     // 平台与音源已在模块加载期装配好（见文件顶部），这里只初始化原生播放器。
@@ -66,50 +76,67 @@ export default function App() {
   // 通知栏 / 耳机切歌时同步 JS 状态
   useTrackPlayerEvents()
 
+  /** 二级页高亮「我的」那个标签 */
+  const activeTab: TabKey = SUB_PAGES.includes(tab) ? 'my' : tab
+
   return (
     <ErrorBoundary>
-    <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.bg} translucent={false} />
+      <View style={styles.root}>
+        <StatusBar barStyle="light-content" backgroundColor={colors.bg} translucent={false} />
 
-      <View style={styles.body}>
-        {tab === 'home' ? (
-          <HomeScreen
-            onOpenSearch={kw => {
-              if (kw) setSeedKeyword(kw)
-              setTab('search')
-            }}
-          />
-        ) : tab === 'search' ? (
-          <SearchScreen initialKeyword={seedKeyword} />
-        ) : tab === 'my' ? (
-          <MyMusicScreen onOpenAccount={() => setTab('account')} />
-        ) : tab === 'player' ? (
-          <PlayerScreen />
-        ) : tab === 'member' ? (
-          <MembershipScreen />
-        ) : tab === 'friends' ? (
-          <FriendsScreen onNeedMembership={() => setTab('member')} onOpenMy={() => setTab('my')} />
-        ) : tab === 'account' ? (
-          <AccountScreen />
-        ) : (
-          <SyncScreen />
-        )}
-      </View>
+        <View style={styles.body}>
+          {tab === 'home' ? (
+            <HomeScreen
+              onOpenSearch={kw => {
+                if (kw) setSeedKeyword(kw)
+                setTab('search')
+              }}
+            />
+          ) : tab === 'search' ? (
+            <SearchScreen initialKeyword={seedKeyword} />
+          ) : tab === 'my' ? (
+            <MyMusicScreen
+              onOpenAccount={() => setTab('account')}
+              onOpenSync={() => setTab('sync')}
+              onOpenFriends={() => setTab('friends')}
+            />
+          ) : tab === 'member' ? (
+            <MembershipScreen />
+          ) : tab === 'friends' ? (
+            <FriendsScreen onNeedMembership={() => setTab('member')} onOpenMy={() => setTab('my')} />
+          ) : tab === 'account' ? (
+            <AccountScreen onBack={() => setTab('my')} />
+          ) : (
+            <SyncScreen onBack={() => setTab('my')} />
+          )}
+        </View>
 
-      <View style={styles.tabBar}>
-        {TABS.map(t => {
-          const active = t.key === tab
-          return (
-            <TouchableOpacity key={t.key} style={styles.tabItem} onPress={() => setTab(t.key)} activeOpacity={0.7}>
-              <View style={[styles.tabIndicator, { backgroundColor: active ? colors.accent : 'transparent' }]} />
-              <Text style={[styles.tabLabel, { color: active ? colors.accent : colors.muted, fontWeight: active ? '600' : '400' }]}>
-                {t.label}
-              </Text>
-            </TouchableOpacity>
-          )
-        })}
+        {/* 迷你播放条：常驻，任何页面都能看到「现在在放什么」 */}
+        <MiniPlayer onOpen={() => setPlayerOpen(true)} onOpenQueue={() => setPlayerOpen(true)} />
+
+        {/* 底部标签栏 */}
+        <View style={styles.tabBar}>
+          {TABS.map(t => {
+            const active = t.key === activeTab
+            return (
+              <TouchableOpacity
+                key={t.key}
+                style={styles.tabItem}
+                onPress={() => setTab(t.key)}
+                activeOpacity={0.6}
+              >
+                <View style={[styles.tabIndicator, { backgroundColor: active ? colors.accent : 'transparent' }]} />
+                <Text style={[styles.tabLabel, { color: active ? colors.fg : colors.fainter, fontWeight: active ? '600' : '400' }]}>
+                  {t.label}
+                </Text>
+              </TouchableOpacity>
+            )
+          })}
+        </View>
+
+        {/* 全屏播放页 */}
+        <PlayerScreen visible={playerOpen} onClose={() => setPlayerOpen(false)} />
       </View>
-    </View>
     </ErrorBoundary>
   )
 }
@@ -120,12 +147,12 @@ const styles = StyleSheet.create({
   tabBar: {
     flexDirection: 'row',
     height: TAB_BAR_HEIGHT,
-    backgroundColor: colors.bottombar,
+    backgroundColor: colors.bg,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.divider,
   },
   tabItem: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  tabIndicator: { width: 22, height: 3, borderRadius: 2, marginBottom: 6 },
-  // 6 个标签在窄屏上要挤得下，字号比原来小 1px
-  tabLabel: { fontSize: 12 },
+  tabIndicator: { width: 20, height: 3, borderRadius: 2, marginBottom: 7 },
+  // 只剩 4 个标签，字号可以放大到 13（7 个时挤成 12）
+  tabLabel: { fontSize: 13 },
 })

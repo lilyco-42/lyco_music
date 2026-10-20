@@ -15,7 +15,7 @@ import {
 import type { AccountProfile, DeviceCode } from '../account'
 import { ACCENT_PRESETS, colors, getAccent, setAccent, topInset } from '../theme'
 
-export default function AccountScreen() {
+export default function AccountScreen({ onBack }: { onBack?: () => void }) {
   const [me, setMe] = useState<AccountProfile | null>(null)
   const [accent, setAccentState] = useState(getAccent())
   const [device, setDevice] = useState<DeviceCode | null>(null)
@@ -84,6 +84,13 @@ export default function AccountScreen() {
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+      {/* 二级页要有明确的返回入口：标签栏虽然停在「我的」，
+          但用户不一定会想到「再点一次我的」就是返回 */}
+      {onBack ? (
+        <Pressable onPress={onBack} hitSlop={10} style={{ marginBottom: 14 }}>
+          <Text style={{ color: colors.muted, fontSize: 13.5 }}>‹ 返回</Text>
+        </Pressable>
+      ) : null}
       <Text style={styles.title}>我的账户</Text>
       <Text style={styles.subtitle}>使用 lain42.top 账号登录，同步识别真实购买权益。</Text>
 

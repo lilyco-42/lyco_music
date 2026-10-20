@@ -2,7 +2,7 @@
  * 纯几何图标（无第三方图标库、无品牌资产）。
  * 全部用 View 拼出，避免引入 react-native-svg 增加原生依赖。
  */
-import { View } from 'react-native'
+import { Text, View } from 'react-native'
 
 interface IconProps {
   size?: number
@@ -111,44 +111,69 @@ export function ShuffleIcon({ size = 18, color = '#9a9a9a' }: IconProps) {
 }
 
 /**
- * 爱心：filled=false 画空心（描边），true 画实心。
- * 之前只有一个实心方块，无法表达「已收藏 / 未收藏」两种状态。
+ * 爱心：用字体里的 ♥ / ♡ 字形。
+ *
+ * 之前是用一个圆角方块转 45° 拼的，看上去就是个菱形，完全不像心。
+ * 而「两个圆 + 一个方块」的经典画法在描边（空心）状态下很难对齐。
+ * U+2665/U+2661 是纯文本字形（不是 emoji），能用 color 上色、随字号缩放，
+ * 在 Android 默认字体里都有。
  */
 export function HeartIcon({ size = 20, color = '#9a9a9a', filled = true }: IconProps & { filled?: boolean }) {
-  const shape = size * 0.62
-  const inner = shape - 4
   return (
-    <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
+    <Text
+      style={{
+        color,
+        fontSize: size,
+        lineHeight: size * 1.1,
+        // 字形本身在行框里偏下，往上提一点才和旁边的图标对齐
+        marginTop: -size * 0.08,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+      }}
+    >
+      {filled ? '\u2665' : '\u2661'}
+    </Text>
+  )
+}
+
+/** 评论气泡：圆角矩形 + 左下角一个小三角尾巴 */
+export function CommentIcon({ size = 20, color = '#9a9a9a' }: IconProps) {
+  const w = size
+  const h = size * 0.76
+  return (
+    <View style={{ width: w, height: size, justifyContent: 'flex-start' }}>
+      <View style={{ width: w, height: h, borderRadius: size * 0.22, borderWidth: 1.8, borderColor: color }} />
       <View
         style={{
-          width: shape,
-          height: shape,
-          borderRadius: size * 0.16,
-          borderWidth: filled ? 0 : 2,
-          borderColor: color,
-          backgroundColor: filled ? color : 'transparent',
-          transform: [{ rotate: '45deg' }],
-          justifyContent: 'center',
-          alignItems: 'center',
+          position: 'absolute',
+          top: h - 1,
+          left: size * 0.2,
+          width: 0,
+          height: 0,
+          borderStyle: 'solid',
+          borderRightWidth: size * 0.26,
+          borderTopWidth: size * 0.2,
+          borderRightColor: 'transparent',
+          borderTopColor: color,
         }}
-      >
-        {!filled && inner > 0 ? <View style={{ width: inner, height: inner, backgroundColor: 'transparent' }} /> : null}
-      </View>
+      />
     </View>
   )
 }
 
-export function CommentIcon({ size = 20, color = '#9a9a9a' }: IconProps) {
-  return (
-    <View style={{ width: size, height: size * 0.8, borderRadius: size * 0.2, borderWidth: 2, borderColor: color }} />
-  )
-}
-
+/** 分享：三个节点 + 两条连线（Material 的 share 图形） */
 export function ShareIcon({ size = 20, color = '#9a9a9a' }: IconProps) {
+  const d = size * 0.26
+  const line = (
+    <View style={{ position: 'absolute', width: size * 0.46, height: 1.8, backgroundColor: color, borderRadius: 1 }} />
+  )
   return (
-    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-      <View style={{ width: size * 0.7, height: size * 0.5, borderWidth: 2, borderColor: color, borderRadius: 3, marginTop: size * 0.35 }} />
-      <View style={{ position: 'absolute', top: 0, width: 2, height: size * 0.5, backgroundColor: color }} />
+    <View style={{ width: size, height: size, justifyContent: 'center' }}>
+      <View style={{ position: 'absolute', top: size * 0.06, right: 0, width: d, height: d, borderRadius: d / 2, backgroundColor: color }} />
+      <View style={{ position: 'absolute', top: (size - d) / 2, left: 0, width: d, height: d, borderRadius: d / 2, backgroundColor: color }} />
+      <View style={{ position: 'absolute', bottom: size * 0.06, right: 0, width: d, height: d, borderRadius: d / 2, backgroundColor: color }} />
+      <View style={{ position: 'absolute', top: size * 0.3, left: size * 0.22, transform: [{ rotate: '-24deg' }] }}>{line}</View>
+      <View style={{ position: 'absolute', bottom: size * 0.3, left: size * 0.22, transform: [{ rotate: '24deg' }] }}>{line}</View>
     </View>
   )
 }
