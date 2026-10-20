@@ -162,6 +162,21 @@ async function ensureReady(): Promise<boolean> {
 }
 
 /**
+ * 播放地址统一升级到 https。
+ *
+ * 网易云给的直链是 `http://m701.music.126.net/...`。Android 从 targetSdk 28
+ * 起默认禁止明文流量，ExoPlayer 会直接拒绝这个地址 —— 而它的报错**不会**
+ * 冒到 JS 层（我们没监听 PlaybackError 之前），表现就是
+ * 「进度条在走、封面在转、一点声音都没有」。
+ *
+ * 这几个 CDN 实测都支持 https（同一路径换协议返回 200 且是完整音频），
+ * 所以直接升级，比在 manifest 里放开明文更干净。
+ */
+function toSecureUrl(url: string): string {
+  return String(url ?? '').replace(/^http:\/\//i, 'https://')
+}
+
+/**
  * 取流并播放。
  *
  * 走内核的 resolveWithFallback，而不是直接 getMusicUrl：
@@ -181,14 +196,15 @@ async function resolveAndPlay(item: MusicItem): Promise<void> {
     if (played.picUrl) state.picUrl = played.picUrl
     else if (!state.picUrl && item.picUrl) state.picUrl = item.picUrl
 
+    const url = toSecureUrl(info.url)
     await TrackPlayer.reset()
     await TrackPlayer.add({
-      id: played.songmid ?? played.id,
-      url: info.url,
+      id: String(played.songmid ?? played.id ?? url),
+      url,
       title: played.name,
       artist: played.singer,
       album: played.albumName ?? '',
-      artwork: played.picUrl,
+      artwork: toSecureUrl(played.picUrl ?? '') || undefined,
     })
     await TrackPlayer.play()
     state.playing = true
@@ -370,7 +386,29 @@ export function useTrackPlayerEvents(): void {
   useEffect(() => {
     const subs = [
       TrackPlayer.addEventListener(Event.PlaybackActiveTrackChanged, () => setN(x => x + 1)),
-      TrackPlayer.addEventListener(Event.PlaybackState, () => setN(x => x + 1)),
+      TrackPlayer.addEventListener(Event.PlaybackState, e => {
+        // 原生侧的真实状态要同步回 JS：暂停、被其他 App 抢焦点、
+        // 缓冲中都要反映到按钮和进度上，不能只认我们手动设的 playing。
+        const playing = e.state === State.Playing
+        if (state.playing !== playing) {
+          state.playing = playing
+          emit()
+        }
+        setN(x => x + 1)
+      }),
+      /**
+       * 播放失败必须让用户看见。
+       *
+       * 之前没监听这个事件：ExoPlayer 拒掉地址（明文 / 404 / 解码失败）后
+       * 什么都不做，JS 侧还停在 playing=true ——
+       * 界面上「正在播放」，实际一点声音都没有，用户只能猜。
+       */
+      TrackPlayer.addEventListener(Event.PlaybackError, e => {
+        state.playing = false
+        state.loading = false
+        state.error = describePlaybackError(e)
+        emit()
+      }),
       // 播完自动下一首：走 next(true)，由播放模式决定是重放还是换歌
       TrackPlayer.addEventListener(Event.PlaybackQueueEnded, () => { void next(true) }),
       // 单曲结束时 RNTP 触发的是 PlaybackActiveTrackChanged/State，不再额外处理
@@ -378,4 +416,18 @@ export function useTrackPlayerEvents(): void {
     return () => { for (const s of subs) s.remove() }
   }, [])
   useEffect(() => { if (n) emit() }, [n])
+}
+
+/** 把 ExoPlayer 的错误码翻译成能行动的中文 */
+function describePlaybackError(e: { code?: string; message?: string }): string {
+  const raw = String(e?.message ?? '')
+  const code = String(e?.code ?? '')
+  if (/cleartext|Cleartext/i.test(raw)) return '播放地址被系统拦截（明文 http），请更新到最新版本'
+  if (/SSL|Certificate|handshake/i.test(raw)) return '音频服务器证书校验失败，换一首试试'
+  if (/404|Not Found/i.test(raw)) return '音频地址已失效（这类直链有时效），重新点一次播放'
+  if (/403|Forbidden/i.test(raw)) return '音源拒绝了这个播放地址，换一首或换音源试试'
+  if (/timeout|timed out/i.test(raw)) return '连接音频服务器超时，检查网络后重试'
+  if (/Decoder|codec|Unsupported/i.test(raw)) return '这台设备解不了这个音频格式'
+  if (raw) return '播放失败：' + raw.slice(0, 120)
+  return code ? '播放失败（' + code + '）' : '播放失败，换一首试试'
 }
