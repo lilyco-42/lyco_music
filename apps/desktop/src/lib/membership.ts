@@ -19,6 +19,29 @@ const error = ref('')
 /** 上次 apply() 的结果：可用 / 未实现 / 跳过 */
 const applyResult = ref<ApplyResult>({ applied: [], unavailable: [], skipped: [] })
 
+/**
+ * 把订阅客户端里的最新状态回写到界面。
+ *
+ * 存在的理由：账号自动接通会员时（见 account-bridge），订阅是绕过本模块
+ * 直接写进 SubscriptionClient 的 —— 顶栏的 VIP 徽标来自账号权益，立刻显示
+ * 「已开通」，而会员页 / 云同步页读的是这里的 status ref，还停在 none。
+ * 同一屏里两个说法，用户看到的就是「VIP 掉了」。
+ *
+ * 启动时序也会踩到：main.ts 先 restore()，那一刻若本地还没有缓存就是 none，
+ * 随后账号才把订阅接上 —— 没有这个回写，界面会一直停在 none。
+ */
+export async function reloadMembershipStatus(): Promise<void> {
+  status.value = await client.status()
+  if (status.value.state === 'active') {
+    applyResult.value = await client.apply({
+      ok: true, schema: 1, plan: status.value.plan, sources: status.value.sources,
+    })
+    void syncScriptSources().catch(() => undefined)
+  } else {
+    applyResult.value = { applied: [], unavailable: [], skipped: [] }
+  }
+}
+
 export function useMembership() {
   const isActive = computed(() => status.value.state === 'active')
   const plan = computed(() => (status.value.state === 'active' ? status.value.plan : null))
@@ -96,5 +119,4 @@ export function useMembership() {
     status, busy, error, applyResult, isActive, plan, sources,
     restore, activate, refresh, clear, openShop,
     SHOP_URL, ANNUAL_PRICE_CNY,
-  }
-}
+  }}

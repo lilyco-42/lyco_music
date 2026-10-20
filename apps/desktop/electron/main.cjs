@@ -15,6 +15,85 @@ const devUrl = process.env.LXMN_DEV_URL
 
 let win = null
 
+/* ---------- 崩溃取证 ---------- */
+
+/**
+ * 闪退以前完全不留痕迹：主进程没有 uncaughtException / unhandledRejection
+ * 处理，Node 遇到未捕获异常会直接退出 —— Windows 事件日志里也查不到
+ * （那不是原生崩溃，只是进程自己退了），用户只能说「它闪退了」。
+ *
+ * 现在把异常、渲染进程崩溃、子进程崩溃都落到 userData/crash.log，
+ * 并且**不让异常带走进程**：音乐播放器崩掉一个请求不该整个退出。
+ * 日志超过 256KB 就轮转一次，长期运行也不会无限涨。
+ */
+const CRASH_LOG_MAX = 256 * 1024
+
+function crashLogPath() {
+  try {
+    return path.join(app.getPath('userData'), 'crash.log')
+  } catch {
+    return null
+  }
+}
+
+function logCrash(kind, detail) {
+  const file = crashLogPath()
+  const text = detail == null ? '' : String(detail)
+  try {
+    console.error(`[${kind}] ${text}`)
+  } catch { /* 没有控制台就算了 */ }
+  if (!file) return
+  try {
+    const st = require('node:fs').statSync(file, { throwIfNoEntry: false })
+    if (st && st.size > CRASH_LOG_MAX) require('node:fs').renameSync(file, file + '.1')
+  } catch { /* 轮转失败不影响写入 */ }
+  fs.appendFile(file, `[${new Date().toISOString()}] ${kind} ${text}\n`).catch(() => undefined)
+}
+
+process.on('uncaughtException', (err) => {
+  logCrash('uncaughtException', err && err.stack ? err.stack : err)
+})
+process.on('unhandledRejection', (reason) => {
+  logCrash('unhandledRejection', reason instanceof Error ? (reason.stack || reason.message) : reason)
+})
+
+/* ---------- 单实例 ---------- */
+
+/**
+ * 只允许一个实例，这是「VIP 莫名掉了」的真正原因。
+ *
+ * 用户双击两次（或者点了托盘/快捷方式但旧窗口没到前面）就会起两个进程，
+ * 它们共用同一个 userData 目录。Chromium 的 Local Storage 是 leveldb，
+ * 同一份数据只能被一个进程锁住 —— 后启动的那个**读不到任何 localStorage**：
+ *   订阅缓存（lxmn.lxmn.subscription）读出来是 null
+ *   → client.restore() 判定为 none
+ *   → 会员页显示「尚未激活会员」
+ * 而顶栏的 VIP 徽标来自 OAuth 凭证（safeStorage 加密文件，另一个进程也能读），
+ * 照常显示。同一屏两个说法，用户看到的就是「我的 VIP 掉了」。
+ *
+ * 实测过一次：两个 MAIN 进程分别在 22:59 和 00:07 启动，缓存文件里明明
+ * 有有效期到 2027 年的订阅文档，界面却写着尚未激活。
+ */
+const singleInstance = app.requestSingleInstanceLock()
+if (!singleInstance) {
+  // 立刻退出，别让 whenReady 抢在前面开出第二个窗口
+  app.exit(0)
+}
+
+app.on('second-instance', () => {
+  if (!win || win.isDestroyed()) return
+  if (win.isMinimized()) win.restore()
+  win.show()
+  /**
+   * Windows 上只 show+focus 经常拉不到前台（焦点窃取保护）：
+   * 用户双击图标后什么都没发生，就会以为「闪退了」。
+   * 闪一下置顶再取消，是可靠度最高的做法。
+   */
+  win.setAlwaysOnTop(true)
+  win.focus()
+  setTimeout(() => { if (win && !win.isDestroyed()) win.setAlwaysOnTop(false) }, 300)
+})
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1280,
@@ -61,6 +140,24 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // 没抢到锁的进程已经 app.exit(0) 了，这里再兜一层，防止 exit 尚未生效时开窗
+  if (!singleInstance) return
+
+  /**
+   * 渲染进程 / GPU 进程崩掉时主进程还活着，窗口会变成一片空白 ——
+   * 用户同样会说「闪退」。记下来，并在渲染进程崩溃时自动重载一次，
+   * 比让人对着一块白屏强。
+   */
+  app.on('render-process-gone', (_e, _wc, details) => {
+    logCrash('render-process-gone', JSON.stringify(details))
+    if (details.reason !== 'clean-exit' && win && !win.isDestroyed()) {
+      setTimeout(() => { if (win && !win.isDestroyed()) win.reload() }, 500)
+    }
+  })
+  app.on('child-process-gone', (_e, details) => {
+    logCrash('child-process-gone', JSON.stringify(details))
+  })
+
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

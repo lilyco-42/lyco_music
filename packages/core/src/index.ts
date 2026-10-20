@@ -16,7 +16,7 @@ export * from './library'
 export * from './sources'
 export * from './fallback'
 
-export const CORE_VERSION = '0.2.24'
+export const CORE_VERSION = '0.2.25'
 
 /**
  * 应用对外版本号。与根 package.json 同源 —— 发版时两处一起改，

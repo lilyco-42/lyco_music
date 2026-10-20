@@ -18,6 +18,14 @@ directories:
   output: release
   buildResources: build
 
+# 关掉原生模块重建。
+# 桌面端的 files 白名单里只有 dist / electron / package.json —— 产物里
+# 一个 node_modules 都不带（渲染层用的是内核的纯 JS 实现，没有 native addon）。
+# 但 electron-builder 默认仍会跑 @electron/rebuild，去 appDir/node_modules
+# 里逐个 stat 依赖；本仓库用 hoisted 链接，依赖都在仓库根，
+# 于是它找不到 apps/desktop/node_modules/@tailwindcss/vite 直接报 ENOENT。
+npmRebuild: false
+
 files:
   - dist/**/*
   - electron/**/*

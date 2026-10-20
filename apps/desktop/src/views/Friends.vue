@@ -10,7 +10,7 @@ import { useRouter } from 'vue-router'
 import { useFriends } from '../lib/friends'
 import { useSharing, type FeedItem } from '../lib/share'
 
-const { me, friends, pendingIn, pendingOut, busy, error, refresh, addByCode, accept, decline, remove, rename } = useFriends()
+const { me, friends, pendingIn, pendingOut, busy, error, loadError, denied, refresh, addByCode, accept, decline, remove, rename } = useFriends()
 const { feed, unread, feedBusy, pullFeed } = useSharing()
 const router = useRouter()
 
@@ -85,8 +85,8 @@ function fmtTime(t: number): string {
   <div class="mx-auto w-full max-w-[980px] px-8 py-6">
     <h1 class="text-[26px] font-bold text-ncm-fg">好友</h1>
 
-    <!-- 未开通会员：引导去会员页 -->
-    <div v-if="!me && !busy" class="mt-10 flex flex-col items-center rounded-nav bg-ncm-surface p-10">
+    <!-- 确实没有会员：引导去开通 -->
+    <div v-if="!me && !busy && denied" class="mt-10 flex flex-col items-center rounded-nav bg-ncm-surface p-10">
       <img :src="'./art/avatar-default.jpg'" alt="" class="w-[120px] rounded-full opacity-90" />
       <p class="mt-5 text-[16px] text-ncm-fg">好友功能需要音乐会员</p>
       <p class="mt-2 text-[14px] text-ncm-faint">开通后用好友码加好友，同步歌单、看在线状态</p>
@@ -96,7 +96,32 @@ function fmtTime(t: number): string {
       >去开通</RouterLink>
     </div>
 
+    <!--
+      加载失败（服务器 500 / 断网）单独一条分支。
+      以前这里和「没有会员」共用同一块，于是服务端一抖，界面就告诉用户
+      「好友功能需要音乐会员」—— 明明有 VIP 也像是掉了。
+    -->
+    <div v-else-if="!me && !busy && loadError" class="mt-10 flex flex-col items-center rounded-nav bg-ncm-surface p-10">
+      <p class="text-[16px] text-ncm-fg">好友列表加载失败</p>
+      <p class="mt-2 max-w-[460px] text-center text-[14px] text-ncm-faint">{{ loadError }}</p>
+      <button
+        type="button"
+        class="mt-5 rounded-pill border border-ncm-divider px-6 py-2.5 text-[15px] text-ncm-muted hover:bg-black/5"
+        @click="() => { void refresh(true) }"
+      >重新加载</button>
+    </div>
+
     <template v-else-if="me">
+      <!-- 身份拿到了但列表没拿到：只提示，不清空已有内容 -->
+      <div v-if="loadError" class="mt-5 flex items-center gap-3 rounded-nav bg-ncm-surface px-5 py-3">
+        <p class="min-w-0 flex-1 text-[13px] text-ncm-muted">好友列表没加载出来：{{ loadError }}</p>
+        <button
+          type="button"
+          class="shrink-0 rounded-pill border border-ncm-divider px-4 py-1.5 text-[13px] text-ncm-muted hover:bg-black/5"
+          @click="() => { void refresh(true) }"
+        >重试</button>
+      </div>
+
       <!-- 我的身份卡 -->
       <div class="mt-5 flex items-center gap-5 rounded-nav bg-ncm-surface p-5">
         <img :src="'./art/avatar-default.jpg'" alt="" class="size-[64px] rounded-full" />

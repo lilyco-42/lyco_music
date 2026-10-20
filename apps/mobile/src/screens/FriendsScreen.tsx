@@ -29,13 +29,11 @@ export default function FriendsScreen({ onNeedMembership, onOpenMy }: { onNeedMe
   })
   const [feed, setFeed] = useState<FeedItem[]>([])
   const [code, setCode] = useState('')
-  const [loaded, setLoaded] = useState(false)
 
   const pull = useCallback(async () => {
     const r = await api.refresh()
     if (r) {
       setState({ me: r.mine, friends: r.list.friends, pendingIn: r.list.pendingIn, pendingOut: r.list.pendingOut })
-      setLoaded(true)
     }
     const f = await pullFeed()
     if (f) setFeed(f.items)
@@ -59,8 +57,8 @@ export default function FriendsScreen({ onNeedMembership, onOpenMy }: { onNeedMe
     >
       <Text style={{ color: colors.fg, fontSize: 24, fontWeight: '700' }}>好友</Text>
 
-      {/* 未开通会员 */}
-      {loaded && !state.me ? (
+      {/* 确实没有会员：引导去开通 */}
+      {api.denied && !state.me ? (
         <View style={{ marginTop: 40, alignItems: 'center' }}>
           <Image source={AVATAR} style={{ width: 110, height: 110, borderRadius: 55, opacity: 0.9 }} />
           <Text style={{ marginTop: 16, color: colors.fg, fontSize: 16 }}>好友功能需要音乐会员</Text>
@@ -72,6 +70,26 @@ export default function FriendsScreen({ onNeedMembership, onOpenMy }: { onNeedMe
             style={{ marginTop: 18, backgroundColor: colors.accent, borderRadius: 999, paddingHorizontal: 26, paddingVertical: 11 }}
           >
             <Text style={{ color: '#fff', fontSize: 14 }}>去开通</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {/*
+        加载失败（服务器 500 / 断网）单独一条分支。
+        以前这里和「没有会员」共用同一块，于是服务端一抖，界面就告诉用户
+        「好友功能需要音乐会员」—— 明明有 VIP 也像是掉了。
+      */}
+      {!api.denied && !state.me && !api.busy && !!api.error ? (
+        <View style={{ marginTop: 40, alignItems: 'center' }}>
+          <Text style={{ color: colors.fg, fontSize: 16 }}>好友列表加载失败</Text>
+          <Text style={{ marginTop: 6, color: colors.muted, fontSize: 13, textAlign: 'center' }}>
+            {api.error}
+          </Text>
+          <Pressable
+            onPress={() => { void pull() }}
+            style={{ marginTop: 18, borderWidth: 1, borderColor: colors.divider, borderRadius: 999, paddingHorizontal: 26, paddingVertical: 10 }}
+          >
+            <Text style={{ color: colors.fg, fontSize: 14 }}>重新加载</Text>
           </Pressable>
         </View>
       ) : null}

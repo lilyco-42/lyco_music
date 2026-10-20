@@ -22,7 +22,7 @@ import secrets
 import time
 from datetime import datetime, timedelta, timezone
 
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, Request
 
 TZ8 = timezone(timedelta(hours=8))
 FRIEND_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"  # 去掉易混的 0/O/1/I/L
@@ -140,17 +140,35 @@ class Friends:
         ).fetchone()
 
     def _ensure_profile(self, conn, key):
+        """拿到（必要时创建）好友档案。**必须容忍并发**。
+
+        踩过的坑：客户端打开好友页时把 /api/friends/me 和 /api/friends
+        并行发出（Promise.all），两个请求会同时发现「还没有档案」，
+        然后同时 INSERT —— 后到的那个撞 UNIQUE(license_key)，
+        整个列表接口 500。线上日志里就是这个：
+            sqlite3.IntegrityError: UNIQUE constraint failed: friend_profiles.license_key
+        表现是用户第一次进好友页就白屏/报错，还以为会员掉了。
+
+        改成 INSERT OR IGNORE 后，后到的请求静默落空，回读一次就拿到
+        先到者创建的那条。循环是为了兜住另一种极小概率：两次生成的
+        friend_code 恰好相同 —— 那时 OR IGNORE 会连行都不插，
+        回读仍是 None，换个码重试即可。
+        """
         row = self._profile(conn, key)
         if row is not None:
             return row
-        code = _gen_code(conn)
-        conn.execute(
-            "INSERT INTO friend_profiles(license_key, friend_code, nickname, created_at)"
-            " VALUES (?, ?, ?, ?)",
-            (key, code, "乐友" + code[:4], _now()),
-        )
-        conn.commit()
-        return self._profile(conn, key)
+        for _ in range(5):
+            code = _gen_code(conn)
+            conn.execute(
+                "INSERT OR IGNORE INTO friend_profiles(license_key, friend_code, nickname, created_at)"
+                " VALUES (?, ?, ?, ?)",
+                (key, code, "乐友" + code[:4], _now()),
+            )
+            conn.commit()
+            row = self._profile(conn, key)
+            if row is not None:
+                return row
+        raise HTTPException(503, "好友档案创建失败，请重试")
 
     def _friend_keys(self, conn, key):
         return [
@@ -216,7 +234,7 @@ class Friends:
                 conn.close()
 
         @app.post("/api/friends/nickname")
-        async def friends_nickname(request, authorization: str | None = Header(None)):
+        async def friends_nickname(request: Request, authorization: str | None = Header(None)):
             """改昵称。空名回退到默认「乐友xxxx」。"""
             key = self._entitlement(authorization)
             body = await request.json()
@@ -280,7 +298,7 @@ class Friends:
                 conn.close()
 
         @app.post("/api/friends/requests")
-        async def friends_request(request, authorization: str | None = Header(None)):
+        async def friends_request(request: Request, authorization: str | None = Header(None)):
             """凭好友码发起请求。不能加自己/已有好友/重复请求。"""
             key = self._entitlement(authorization)
             body = await request.json()

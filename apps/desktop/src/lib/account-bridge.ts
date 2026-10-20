@@ -14,6 +14,7 @@
  */
 import type { AccountEntitlement } from './auth'
 import { subscription as client } from './subscription'
+import { reloadMembershipStatus } from './membership'
 
 /** 服务端订阅文档的固定前缀，与 app.py 的 MUSIC_SUB_BASE 保持一致 */
 const SUB_BASE = 'https://lain42.top/studio/api/music/sub/'
@@ -75,7 +76,10 @@ export async function syncMembershipFromAccount(
     // 账号没有有效会员：只回收自己接上的那份
     if (auto) {
       const current = await client.token().catch(() => '')
-      if (current === auto) await client.clear().catch(() => undefined)
+      if (current === auto) {
+        await client.clear().catch(() => undefined)
+        await reloadMembershipStatus().catch(() => undefined)
+      }
       writeAuto('')
     }
     return { bound: false, licenseKey: '', product: '' }
@@ -90,6 +94,8 @@ export async function syncMembershipFromAccount(
   }
   if (current === key) {
     writeAuto(key)
+    // 令牌一致不代表界面知道 —— 会员页的 status 是另一个 ref，必须回写
+    await reloadMembershipStatus().catch(() => undefined)
     return { bound: true, licenseKey: key, product: ent.product }
   }
 
@@ -97,6 +103,9 @@ export async function syncMembershipFromAccount(
     const doc = await client.fetch(SUB_BASE + key)
     await client.apply(doc)
     writeAuto(key)
+    // 关键一步：订阅已经接上了，把「已激活」同步到会员页 / 云同步页。
+    // 少了这一步，顶栏显示 VIP 而会员页写着「尚未激活会员」。
+    await reloadMembershipStatus().catch(() => undefined)
     return { bound: true, licenseKey: key, product: ent.product }
   } catch {
     // 服务端暂时不可达：不阻断登录，下次启动会再试
@@ -110,7 +119,10 @@ export async function unbindMembershipFromAccount(): Promise<void> {
   writeAuto('')
   if (!auto) return
   const current = await client.token().catch(() => '')
-  if (current === auto) await client.clear().catch(() => undefined)
+  if (current === auto) {
+    await client.clear().catch(() => undefined)
+    await reloadMembershipStatus().catch(() => undefined)
+  }
 }
 
 /** 订阅文档地址（给界面展示用） */
