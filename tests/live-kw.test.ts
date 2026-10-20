@@ -42,6 +42,20 @@ describe.skipIf(!live)('kw against the real Kuwo API', () => {
 
     const p = await getSource('kw').getPic(s)
     console.log('  pic:', p.url)
-    expect(p.url).toMatch(/^https?:\/\//)
+    // 端点原本给的是 http://img1.kwcdn.kuwo.cn/...，Android 9+ 禁明文，
+    // 且该主机走 https 会 514，所以必须已重建到 img1.kuwo.cn 且为 https
+    expect(p.url).toMatch(/^https:\/\/img1\.kuwo\.cn\/star\/albumcover\//)
+
+    // 搜索结果的 picUrl 必须与 getPic 一致（同一张图的两种取法）
+    expect(s.picUrl).toBeTruthy()
+    expect(s.picUrl).toMatch(/^https:\/\/img1\.kuwo\.cn\/star\/albumcover\/500\//)
+    expect(s.picUrl).toBe(p.url)
+
+    // 封面能真的下载成图片，而不只是一个像 URL 的字符串
+    const img = await desktopPlatform.http.request({ url: s.picUrl!, method: 'GET' })
+    console.log('  pic bytes:', img.statusCode, img.raw.length)
+    expect(img.statusCode).toBe(200)
+    expect(img.raw[0]).toBe(0xff)
+    expect(img.raw[1]).toBe(0xd8)
   }, 120000)
 })

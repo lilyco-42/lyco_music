@@ -163,6 +163,26 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
     pagerRef.current?.scrollTo({ x: nextPage * SCREEN_W, animated: true })
   }, [SCREEN_W])
 
+  /**
+   * 把横向偏移同步成页码。
+   *
+   * **不能只靠 `onMomentumScrollEnd`。** 慢速拖动（手慢慢拖过半屏再松手）
+   * 没有惯性，Android 上这个回调经常不触发，`page` 就永远停在 0 ——
+   * 表现为歌词页看着已经翻过去了，但当前句永远不高亮也不滚动，用户
+   * 看到的就是「播到 1 分多钟，还停在开头的作词作曲名单」。
+   * 所以用 `onScroll` 实时算，`onMomentumScrollEnd` 保留作兜底。
+   */
+  const syncPage = useCallback(
+    (x: number) => {
+      const p = Math.max(0, Math.min(1, Math.round(x / SCREEN_W)))
+      if (p !== pageRef.current) {
+        pageRef.current = p
+        setPage(p)
+      }
+    },
+    [SCREEN_W],
+  )
+
   // 关闭再打开时回到封面页，符合「重新进入播放器」的预期
   useEffect(() => {
     if (!visible) {
@@ -225,17 +245,66 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
     void Share.share({ message: item.name + ' - ' + item.singer + '（Lyco Music）' })
   }, [item])
 
-  // 歌词行高：当前行 21px 字号 + 上下 margin，估算滚动位置比 measure 稳。
-  // 居中要算上列表顶部的留白（PAD_TOP）和列表自身高度，只按行号乘行高的话
-  // 当前行会贴到屏幕顶上。
-  const LINE_H = 44
+  // 歌词居中滚动。
+  //
+  // 走过三条弯路，都记在这里，免得再踩：
+  //
+  // 1. 按 `activeIndex × 固定行高` 估算 —— 行高**不是常数**（选中行字号更大、
+  //    带翻译的行更高、长句还会折行），播到后面越漂越远。
+  // 2. 逐行 `onLayout` 拿行盒再算 offset —— **y 恒为 0**：FlatList 把每个 item
+  //    包在自己的 CellRenderer 里，item 根节点的 onLayout 是相对那个包装层的，
+  //    不是相对整个 content。于是 offset 永远是 0，列表一动不动。
+  // 3. `scrollToIndex` + `viewPosition: 0.5` —— 行还没被 VirtualizedList 实测到时，
+  //    它退化成「平均行高 × 序号」并把 viewPosition 丢掉，实测当前句会停在视口顶部。
+  //
+  // 最终做法：自己累加。**行高是可靠的**（只有 y 不可靠），按顺序把每行高度加起来，
+  // 就得到这一行在 content 里的绝对位置，再减半个视口高就是居中偏移。
+  // 没被渲染过的行（跳转/seek 之后）先用一个默认值，等它渲染出来再自动校正。
   const PAD_TOP = SCREEN_H * 0.22
-  const [lyricH, setLyricH] = useState(0)
+  const DEFAULT_LINE_H = 56
+  const activeIndexRef = useRef(activeIndex)
+  const lineCountRef = useRef(0)
+  const rowHRef = useRef<Record<number, number>>({})
+  const listHRef = useRef(0)
+  /** 用户正在手动滑歌词：这段时间不要自动抢滚动条 */
+  const lyricDraggingRef = useRef(false)
+  activeIndexRef.current = activeIndex
+  lineCountRef.current = lines.length
+
+  const offsetForIndex = useCallback(
+    (i: number) => {
+      const heights = rowHRef.current
+      // 还没渲染过的行用「已测行的平均高度」兜底，比拍一个常数准得多：
+      // 冷启动后直接拖到后段时，前半段的行都没测过，用 56 会累积出明显偏差。
+      const measured = Object.values(heights)
+      const fallback = measured.length
+        ? measured.reduce((a, b) => a + b, 0) / measured.length
+        : DEFAULT_LINE_H
+      let y = PAD_TOP
+      for (let k = 0; k < i; k++) y += heights[k] ?? fallback
+      const h = heights[i] ?? fallback
+      return Math.max(0, y + h / 2 - listHRef.current / 2)
+    },
+    [PAD_TOP],
+  )
+
+  const scrollToActive = useCallback(
+    (animated: boolean) => {
+      const i = activeIndexRef.current
+      if (i < 0 || i >= lineCountRef.current || !listHRef.current) return
+      if (lyricDraggingRef.current) return
+      listRef.current?.scrollToOffset({ offset: offsetForIndex(i), animated })
+    },
+    [offsetForIndex],
+  )
+
+  // 注意：这里**不要**加 `if (page !== 1) return` 之类的守卫。
+  // 歌词列表在封面页时也是挂载的，滚动它没有任何副作用；而一旦把
+  // 「当前在第几页」当成前置条件，翻页状态一旦没同步上（见 syncPage 的注释），
+  // 歌词就再也不会跟随播放。
   useEffect(() => {
-    if (activeIndex < 0 || page !== 1 || !lyricH) return
-    const offset = PAD_TOP + activeIndex * LINE_H + LINE_H / 2 - lyricH / 2
-    listRef.current?.scrollToOffset({ offset: Math.max(0, offset), animated: true })
-  }, [activeIndex, page, lyricH, PAD_TOP])
+    scrollToActive(true)
+  }, [activeIndex, scrollToActive])
 
   const cover = typeof st.picUrl === 'string' && st.picUrl ? { uri: st.picUrl } : DEFAULT_COVER
   // 封面主色 → 背景渐变（取不到就是纯黑，不影响播放）
@@ -280,13 +349,9 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
-          onMomentumScrollEnd={e => {
-            const p = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W)
-            if (p !== pageRef.current) {
-              pageRef.current = p
-              setPage(p)
-            }
-          }}
+          scrollEventThrottle={16}
+          onScroll={e => syncPage(e.nativeEvent.contentOffset.x)}
+          onMomentumScrollEnd={e => syncPage(e.nativeEvent.contentOffset.x)}
           style={{ flex: 1 }}
         >
             {/* ---- 第 1 页：黑胶 ---- */}
@@ -455,13 +520,27 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
                   data={lines}
                   keyExtractor={(_, i) => String(i)}
                   showsVerticalScrollIndicator={false}
-                  onLayout={e => setLyricH(e.nativeEvent.layout.height)}
+                  // 视口高度：居中偏移要减掉它的一半
+                  onLayout={e => { listHRef.current = e.nativeEvent.layout.height }}
+                  onScrollBeginDrag={() => { lyricDraggingRef.current = true }}
+                  onScrollEndDrag={() => { lyricDraggingRef.current = false }}
                   contentContainerStyle={{ paddingHorizontal: 34, paddingVertical: PAD_TOP }}
                   renderItem={({ item: line, index }) => {
                     const active = index === activeIndex
                     const distance = Math.abs(index - activeIndex)
                     return (
-                      <Pressable onPress={safe('歌词跳转', () => seek(line.time))}>
+                      <Pressable
+                        onPress={safe('歌词跳转', () => seek(line.time))}
+                        // 只记高度（y 不可靠，见上面注释）。选中行字号变大后高度会变，
+                        // 这里补一次无动画校正 —— 滚动不改变行高，不会循环触发。
+                        onLayout={e => {
+                          const h = e.nativeEvent.layout.height
+                          const prev = rowHRef.current[index]
+                          if (prev !== undefined && Math.abs(prev - h) < 0.5) return
+                          rowHRef.current[index] = h
+                          if (index === activeIndexRef.current) scrollToActive(false)
+                        }}
+                      >
                         <Text
                           numberOfLines={2}
                           style={{

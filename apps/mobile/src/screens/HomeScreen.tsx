@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react'
 import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, Text, View } from 'react-native'
 import { getSource, hasSource, listSources, type MusicItem } from '@lxmn/core'
 import { Logo } from '../components/Icons'
+import { picKey } from '../lib/picKey'
 import { play, usePlayerState } from '../player'
 import { colors, useTopInset } from '../theme'
 
@@ -112,31 +113,34 @@ export default function HomeScreen({ onOpenSearch }: { onOpenSearch?: (keyword?:
         // 歌单封面：每张卡搜一首，用结果的封面当卡片图。
         // 之前七张卡用的是同一张生成的占位图，一眼就能看出是假数据。
         //
-        // 这里必须**串行**并记下已经用过的曲目：关键词之间有重合
+        // 这里必须**串行**并记下已经用过的封面：关键词之间有重合
         // （「热门」和「华语流行」的第一名经常是同一首），并发挑选会让
         // 几张卡撞成同一张图，串行才能保证「下一张换一个」。
         //
-        // 去重按「曲目」而不是按封面 URL —— 同一个封面在 CDN 上会有
-        // 不同尺寸参数的 URL（?param=300y300 / ?param=130y130），
-        // 比 URL 会漏掉这种重复。
+        // 去重按**归一化后的封面 URL**，两个坑都要盖住：
+        // - 同一张图在 CDN 上有不同尺寸参数的 URL（wy/kg 的 ?param=300y300），
+        //   比原始 URL 会漏掉这种重复 → 去掉 query；
+        // - 同一张专辑的不同歌曲封面 URL 完全一样（kw 尤其明显：搜三个关键词，
+        //   头部结果都来自同一张专辑），只按曲目去重会让三张卡撞图 → 按图去重。
         const found: Record<number, string> = {}
-        const used = new Set<string>()
+        const usedPics = new Set<string>()
         for (let i = 0; i < PLAYLISTS.length; i++) {
           const pl = PLAYLISTS[i]!
           for (const id of ids) {
             const r = await getSource(id).musicSearch!(pl.keyword, 1, 10).catch(() => null)
-            const pick = (r?.list ?? []).find(x => {
-              if (typeof x.picUrl !== 'string' || !x.picUrl) return false
-              return !used.has(x.source + '::' + String(x.songmid))
-            })
+            const list = r?.list ?? []
+            const hasPic = (x: (typeof list)[number]) => typeof x.picUrl === 'string' && !!x.picUrl
+            // 优先挑封面没被用过的；实在没有才允许重复，避免整张卡空着
+            const pick =
+              list.find(x => hasPic(x) && !usedPics.has(picKey(x.picUrl!))) ??
+              list.find(x => hasPic(x))
             if (pick?.picUrl) {
               found[pl.id] = pick.picUrl
-              used.add(pick.source + '::' + String(pick.songmid))
+              usedPics.add(picKey(pick.picUrl))
               break
             }
           }
         }
-        if (alive) setCovers(found)
         if (alive) setCovers(found)
       } catch (e) {
         if (alive) setError(e instanceof Error ? e.message : String(e))

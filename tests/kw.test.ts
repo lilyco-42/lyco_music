@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
   setPlatform, installKwSource, resetSources, getSource, getSupportQuality, handleKwSearchItem,
+  normalizeKwPic,
   type HttpRequestOptions, type HttpResponse, type PlatformAdapter,
 } from '@lxmn/core'
 import { desktopPlatform } from '@lxmn/platform-desktop'
@@ -20,6 +21,7 @@ const REAL_ABS = {
   FORMAT: 'wma',
   MUSICRID: 'MUSIC_26445261',
   SONGNAME: '起风了 (旧版)',
+  web_albumpic_short: '120/s4s93/20/1171025426.jpg',
   MINFO: 'level:ff,bitrate:2000,format:flac,size:26.3Mb;level:p,bitrate:192,format:ogg,size:5.67Mb;level:p,bitrate:300,format:ogg,size:9.34Mb;level:h,bitrate:100,format:ogg,size:3.1Mb;level:p,bitrate:320,format:mp3,size:11.94Mb;level:s,bitrate:48,format:aac,size:1.82Mb;level:h,bitrate:128,format:mp3,size:4.78Mb',
   N_MINFO: 'level:dtsx,bitrate:25000,format:mmp4,size:8.41Mb;level:ff,bitrate:2000,format:flac,size:26.3Mb;level:p,bitrate:320,format:mp3,size:11.94Mb;level:h,bitrate:128,format:mp3,size:4.78Mb;level:s,bitrate:48,format:aac,size:1.82Mb',
 }
@@ -95,6 +97,35 @@ describe('kw 音源', () => {
     expect(item.singer).toBe('周杰伦、袁咏琳')
   })
 
+  it('搜索结果带专辑封面，且升到 500 宽', () => {
+    const item = handleKwSearchItem(REAL_ABS)!
+    // 相对路径 120/... -> https://img1.kuwo.cn/star/albumcover/500/...
+    expect(item.picUrl).toBe('https://img1.kuwo.cn/star/albumcover/500/s4s93/20/1171025426.jpg')
+  })
+
+  it('没有封面字段时不塞空串', () => {
+    const item = handleKwSearchItem({ MUSICRID: 'MUSIC_9', SONGNAME: 'x', ARTIST: 'y' })!
+    expect(item.picUrl).toBeUndefined()
+  })
+
+  it('封面归一化：http 升 https、限流主机换掉、尺寸统一 500', () => {
+    // getPic 端点真实返回（http + img1.kwcdn.kuwo.cn，该主机走 https 会 514）
+    expect(normalizeKwPic('http://img1.kwcdn.kuwo.cn/star/albumcover/500/s4s93/20/1171025426.jpg'))
+      .toBe('https://img1.kuwo.cn/star/albumcover/500/s4s93/20/1171025426.jpg')
+    // 相对路径（搜索接口的 web_albumpic_short）
+    expect(normalizeKwPic('120/s3s94/93/211513640.jpg'))
+      .toBe('https://img1.kuwo.cn/star/albumcover/500/s3s94/93/211513640.jpg')
+    // 已经是目标主机时保持不变（幂等）
+    const once = normalizeKwPic('120/s3s94/93/211513640.jpg')
+    expect(normalizeKwPic(once)).toBe(once)
+  })
+
+  it('封面归一化：垃圾输入返回空串，不拼半截地址', () => {
+    for (const bad of ['', '   ', null, undefined, 42, {}, 'not-a-path', '120/']) {
+      expect(normalizeKwPic(bad)).toBe('')
+    }
+  })
+
   it('搜索会带上酷我要求的固定参数', async () => {
     setPlatform(fakeHttp(() => ({ TOTAL: '3564', abslist: [REAL_ABS] })))
     installKwSource()
@@ -153,11 +184,13 @@ describe('kw 音源', () => {
     expect(l.lyric).toContain('[00:12.50]第二行')
   })
 
-  it('封面端点返回纯文本地址时直接采用', async () => {
+  it('封面端点返回纯文本地址时升 https 并换掉限流主机', async () => {
+    // 端点真实返回是 http://img1.kwcdn.kuwo.cn/...：Android 9+ 禁明文，
+    // 且该主机走 https 会 514 Frequency Capped，所以必须重建到 img1.kuwo.cn
     setPlatform(fakeHttp(() => 'http://img1.kwcdn.kuwo.cn/star/albumcover/500/x.jpg'))
     installKwSource()
     const p = await getSource('kw').getPic({ id: '1', name: 'x', singer: 'y', source: 'kw', songmid: '1' })
-    expect(p.url).toBe('http://img1.kwcdn.kuwo.cn/star/albumcover/500/x.jpg')
+    expect(p.url).toBe('https://img1.kuwo.cn/star/albumcover/500/x.jpg')
   })
 
   it('封面端点返回非 URL 时给空串而不是把错误内容当图片', async () => {

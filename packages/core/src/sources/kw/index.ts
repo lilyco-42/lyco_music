@@ -75,6 +75,53 @@ function parseQualitys(raw: string | undefined): Partial<Record<Quality, unknown
   return out
 }
 
+/** 专辑封面 CDN 前缀（`web_albumpic_short` 给的是相对路径） */
+const PIC_CDN = 'https://img1.kuwo.cn/star/albumcover/'
+
+/**
+ * 专辑封面地址归一化。
+ *
+ * 输入有两种形态，都要处理：
+ * 1. 搜索接口的 `web_albumpic_short`，是相对路径 `120/s3s94/93/211513640.jpg`；
+ * 2. `getPic` 端点返回的完整地址，但它给的是 **`http://img1.kwcdn.kuwo.cn/...`**。
+ *
+ * 两件事必须纠正：
+ *
+ * **尺寸**：路径首段是像素宽，同一资源换 `120`/`300`/`500`/`800` 都返回 200
+ * 且 JPEG magic 正确（5 种路径形态全过）。列表缩略图 120 就够，但播放页要铺满
+ * 唱片标签，所以统一提到 500。交叉验证：`120/s4s93/20/1171025426.jpg` 换成 500 后
+ * 与 `getPic` 端点返回的路径**逐字相同**。
+ *
+ * **协议与主机**：`getPic` 返回的是 http，Android 9+ 默认禁明文，App 里加载不出来。
+ * 而 `img1.kwcdn.kuwo.cn` 走 https 会被限流（实测 514 Frequency Capped）。
+ * 所以统一重建到 `https://img1.kuwo.cn` —— 同一路径实测 200 / image/jpeg，
+ * 与 kwcdn 的 http 返回字节数完全一致（38342）。
+ *
+ * 覆盖率实测 8 个关键词 × 10 条 = 80/80 无空值。为空或不像图片地址时返回 ''，
+ * 交给上层走占位图，不要拼出半截地址。
+ */
+export function normalizeKwPic(raw: unknown): string {
+  if (typeof raw !== 'string') return ''
+  const s = raw.trim()
+  if (!s) return ''
+
+  const abs = s.match(/^https?:\/\/[^/]+\/(.*)$/i)
+  const path = (abs ? abs[1]! : s).replace(/^\/+/, '')
+
+  const cover = path.match(/^star\/albumcover\/(.+)$/i)
+  if (cover) {
+    const rel = cover[1]!.replace(/^\d+\//, '500/')
+    return /\.(jpe?g|png|webp)$/i.test(rel) ? PIC_CDN + rel : ''
+  }
+
+  // 完整 URL 但不是专辑封面路径：原样返回，只把 http 升到 https
+  if (abs) return s.replace(/^http:\/\//i, 'https://')
+
+  // 相对路径但形状不像封面
+  const rel = path.replace(/^\d+\//, '500/')
+  return /\.(jpe?g|png|webp)$/i.test(rel) ? PIC_CDN + rel : ''
+}
+
 /** 搜索结果一条 -> MusicItem */
 export function handleKwSearchItem(raw: unknown): MusicItem | null {
   const info = raw as Record<string, unknown>
@@ -87,6 +134,7 @@ export function handleKwSearchItem(raw: unknown): MusicItem | null {
     typeof info.N_MINFO === 'string' ? info.N_MINFO : typeof info.MINFO === 'string' ? info.MINFO : undefined,
   )
   const interval = parseInt(String(info.DURATION ?? ''), 10)
+  const picUrl = normalizeKwPic(info.web_albumpic_short)
 
   return {
     id: songmid,
@@ -98,6 +146,8 @@ export function handleKwSearchItem(raw: unknown): MusicItem | null {
     songmid,
     interval: Number.isNaN(interval) ? '00:00' : formatPlayTime(interval),
     qualitys,
+    // 没封面时不要塞空串，上层靠 undefined 走占位图
+    ...(picUrl ? { picUrl } : {}),
   }
 }
 
@@ -167,9 +217,9 @@ async function getPic(songInfo: MusicItem): Promise<PicInfo> {
   const { http } = getPlatform()
   const url = `${PIC_API}?corp=kuwo&type=rid_pic&pictype=500&size=500&rid=${songInfo.songmid}`
   const res = await http.request({ url, method: 'GET' })
-  // 这个端点直接返回图片地址纯文本，不是 JSON
-  const body = res.body.trim()
-  return { url: /^https?:\/\//.test(body) ? body : '' }
+  // 这个端点直接返回图片地址纯文本，不是 JSON；且给的是 http://img1.kwcdn.kuwo.cn/...
+  // 必须过一遍归一化（升 https + 换到不限流的主机），否则 Android 9+ 加载不出来
+  return { url: normalizeKwPic(res.body) }
 }
 
 export const kwSource: MusicSource = {
