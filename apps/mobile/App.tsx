@@ -19,6 +19,23 @@ import { colors, subscribeAccent, TAB_BAR_HEIGHT, topInset } from './src/theme'
 import FriendsScreen from './src/screens/FriendsScreen'
 import AccountScreen from './src/screens/AccountScreen'
 import ErrorBoundary from './src/components/ErrorBoundary'
+import { recordError } from './src/lib/safe'
+
+/**
+ * 装配必须在模块加载期完成，不能等 useEffect。
+ *
+ * React 的 effect 是**子组件先执行、父组件后执行**：App 的 useEffect 排在
+ * HomeScreen 的 useEffect 之后，首页那边 `listSources()` 拿到的是空表，
+ * 界面直接显示「当前没有可用的音源」。
+ *
+ * 这里只做同步工作（setPlatform + registerSource），不碰原生模块，
+ * 放模块顶层是安全的；真出问题也不能让整包白屏，所以兜住并记下来。
+ */
+try {
+  ensurePlatform()
+} catch (e) {
+  recordError('启动装配', e)
+}
 
 type TabKey = 'home' | 'search' | 'my' | 'player' | 'member' | 'sync' | 'friends' | 'account'
 
@@ -41,10 +58,8 @@ export default function App() {
   const [seedKeyword, setSeedKeyword] = useState('')
 
   useEffect(() => {
-    // 装配 @lxmn/platform-mobile：注入 AsyncStorage，加密走内核纯 JS 实现
-    ensurePlatform()
-    // 初始化原生播放器（ExoPlayer / AVPlayer）。失败不阻塞 UI：
-    // 搜索和会员页不依赖它，只有真正点播放时才会再次尝试。
+    // 平台与音源已在模块加载期装配好（见文件顶部），这里只初始化原生播放器。
+    // 失败不阻塞 UI：搜索和会员页不依赖它，只有真正点播放时才会再次尝试。
     void setupPlayer().catch(() => undefined)
   }, [])
 

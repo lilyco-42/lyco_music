@@ -29,7 +29,7 @@ const SEARCH_URL = 'https://songsearch.kugou.com/song_search_v2'
 const PLAY_URL = 'https://m.kugou.com/app/i/getSongInfo.php'
 const LYRIC_SEARCH_URL = 'https://lyrics.kugou.com/search'
 const LYRIC_DOWNLOAD_URL = 'https://lyrics.kugou.com/download'
-const PIC_URL = 'http://imge.kugou.com/stdmusic'
+const PIC_URL = 'https://imge.kugou.com/stdmusic'
 
 /** 歌词接口要求的伪装头（不带会被拒） */
 const LYRIC_HEADERS = {

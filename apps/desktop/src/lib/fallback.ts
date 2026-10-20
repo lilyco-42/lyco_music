@@ -17,68 +17,18 @@
  */
 import {
   getSource, hasSource,
+  // 归一化与匹配规则在内核里，移动端用的是同一份 ——
+  // 以前桌面端自己写一份，移动端没得用，就只能「搜得到、点播放报 VIP 专享」。
+  normSinger, pickBestMatch,
   type MusicItem, type MusicUrlInfo, type Quality, type SourceId,
 } from '@lxmn/core'
 import { subscription } from './subscription'
 import { sourcePool } from './source-pool'
 import { toMusicInfo } from '@lxmn/core'
 
-/** 归一化标题：去括号补充、去标点空格、小写 */
-function normTitle(s: string): string {
-  return String(s ?? '')
-    .toLowerCase()
-    .replace(/[（(【\[].*?[）)】\]]/g, '')
-    .replace(/[\s\-_·,，.。!！?？'"“”‘’]/g, '')
-    .replace(/feat\..*$/, '')
-    .replace(/(live|remix|伴奏|翻自|cover)$/i, '')
-}
-
-/** 归一化歌手：多人合作只看第一位 */
-function normSinger(s: string): string {
-  return normTitle(String(s ?? '').split(/[\/、&,，]|feat\./i)[0] ?? '')
-}
-
-/** 标题相似度 0~1 */
-function titleScore(a: string, b: string): number {
-  if (!a || !b) return 0
-  if (a === b) return 1
-  if (a.includes(b) || b.includes(a)) return 0.7
-  let i = 0
-  while (i < a.length && i < b.length && a[i] === b[i]) i++
-  return (i / Math.max(a.length, b.length)) * 0.5
-}
-
-/**
- * 在候选里挑最像原曲的一条。
- *
- * 门槛故意高：标题要几乎一致、歌手要能对上。
- * 串错歌比放不出来更让人恼火 —— 用户点的是周杰伦，播出来一个翻唱。
- *
- * avoid：这些音源刚被证明「给的地址放不出来」，本轮不要再选。
- */
-export function pickBestMatch(
-  item: MusicItem,
-  candidates: MusicItem[],
-  avoid?: ReadonlySet<SourceId>,
-): MusicItem | null {
-  const wantTitle = normTitle(item.name)
-  const wantSinger = normSinger(item.singer)
-  let best: { item: MusicItem; score: number } | null = null
-
-  for (const c of candidates) {
-    if (c.source === item.source) continue
-    if (avoid?.has(c.source)) continue
-    const t = titleScore(wantTitle, normTitle(c.name))
-    if (t < 0.9) continue
-    const s = normSinger(c.singer)
-    const singerOk = Boolean(wantSinger && s && (s.includes(wantSinger) || wantSinger.includes(s)))
-    // 标题几乎一致且歌手对得上 -> 才认为是同一首
-    if (!(singerOk && t >= 0.7)) continue
-    const score = t + 1
-    if (!best || score > best.score) best = { item: c, score }
-  }
-  return best?.item ?? null
-}
+// 这两个纯函数对外仍从本模块导出（same-song.ts / 测试都这么引用），
+// 但实现只有内核里那一份。
+export { normTitle, normSinger, pickBestMatch } from '@lxmn/core'
 
 /**
  * 串源时按什么顺序试。

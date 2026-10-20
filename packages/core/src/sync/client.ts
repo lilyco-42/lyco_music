@@ -11,6 +11,7 @@
  * 就返回 409 带上最新文档，客户端合并后重试一次。
  */
 import { getPlatform } from '../registry'
+import { parseLooseHttpUrl } from '../util/url'
 import { emptyPayload, type SyncClientOptions, type SyncDocument, type SyncOutcome, type SyncPayload } from './types'
 import { mergePayload, payloadSize } from './merge'
 
@@ -39,13 +40,11 @@ interface CachedState {
 function normalizeBase(input: string | undefined): string {
   const raw = (input ?? DEFAULT_SYNC_BASE).trim()
   if (!raw) return DEFAULT_SYNC_BASE
-  // 允许用户只填域名
-  let url: URL
-  try {
-    url = new URL(/^https?:\/\//.test(raw) ? raw : 'https://' + raw)
-  } catch {
-    return DEFAULT_SYNC_BASE
-  }
+  // 允许用户只填域名。
+  // 用自带的 parseLooseHttpUrl 而不是 new URL()：Hermes 的 URL polyfill
+  // 没有实现 protocol getter，访问即抛错，会把整个模块带崩（见 util/url.ts）。
+  const url = parseLooseHttpUrl(raw)
+  if (!url) return DEFAULT_SYNC_BASE
   if (url.protocol !== 'https:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
     throw new Error('[lxmn/sync] 同步服务器必须使用 https')
   }

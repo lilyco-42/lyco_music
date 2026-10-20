@@ -8,6 +8,7 @@
  *   4. 到期自动失效
  */
 import { getPlatform } from '../registry'
+import { parseHttpUrl } from '../util/url'
 import type { SourceId, Quality } from '../types'
 import { registerSource, setSupportQuality, hasSource } from '../sources/registry'
 import type {
@@ -40,16 +41,18 @@ function normalizeUrl(input: string, baseUrl: string): string {
   if (/^[A-Za-z0-9_-]{8,}$/.test(raw)) {
     return `${baseUrl.replace(/\/$/, '')}/api/music/sub/${raw}`
   }
-  let url: URL
+  let url
   try {
-    url = new URL(raw)
+    // 不用 new URL()：Hermes 的 polyfill 没实现 protocol getter（见 util/url.ts）
+    url = parseHttpUrl(raw)
   } catch {
-    throw new Error('[lxmn/license] 订阅链接格式不正确')
+    url = null
   }
+  if (!url) throw new Error('[lxmn/license] 订阅链接格式不正确')
   if (url.protocol !== 'https:' && url.hostname !== 'localhost') {
     throw new Error('[lxmn/license] 订阅链接必须使用 https')
   }
-  return url.toString()
+  return url.href
 }
 
 /** 解析服务端返回的订阅文档 */

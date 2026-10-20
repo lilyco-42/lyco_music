@@ -54,6 +54,25 @@ function cleanPlaylistName(name: string): string {
   return String(name ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_PLAYLIST_NAME)
 }
 
+/**
+ * 构造同步客户端，配置非法时退回默认服务器。
+ *
+ * Library 是在模块顶层 `new Library()` 的（移动端 src/sync.ts），
+ * 构造函数一抛错，那个模块就加载失败，所有 `import { library }` 拿到
+ * undefined —— 表现为「每个页面都报 Cannot read property 'library' of undefined」。
+ * 同步地址填错是用户输入问题，不该让整个曲库不可用。
+ */
+function createSyncClient(options: { syncBaseUrl?: string; deviceName?: string }): SyncClient {
+  try {
+    return new SyncClient({
+      baseUrl: options.syncBaseUrl ?? DEFAULT_SYNC_BASE,
+      deviceName: options.deviceName,
+    })
+  } catch {
+    return new SyncClient({ deviceName: options.deviceName })
+  }
+}
+
 export class Library {
   private state: LibraryState = initialState()
   private loaded = false
@@ -61,10 +80,7 @@ export class Library {
   private readonly listeners = new Set<(s: LibraryState) => void>()
 
   constructor(options: { syncBaseUrl?: string; deviceName?: string } = {}) {
-    this.sync = new SyncClient({
-      baseUrl: options.syncBaseUrl ?? DEFAULT_SYNC_BASE,
-      deviceName: options.deviceName,
-    })
+    this.sync = createSyncClient(options)
   }
 
   /** 同步服务器地址（默认 lain42.top） */

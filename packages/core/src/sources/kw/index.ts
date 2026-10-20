@@ -18,10 +18,10 @@ import { registerSource, setSupportQuality } from '../registry'
 import { getPlatform } from '../../registry'
 import { formatSinger, formatPlayTime } from './util'
 
-const SEARCH_URL = 'http://search.kuwo.cn/r.s'
-const URL_API = 'http://antiserver.kuwo.cn/anti.s'
-const LYRIC_API = 'http://m.kuwo.cn/newh5/singles/songinfoandlrc'
-const PIC_API = 'http://artistpicserver.kuwo.cn/pic.web'
+const SEARCH_URL = 'https://search.kuwo.cn/r.s'
+const URL_API = 'https://antiserver.kuwo.cn/anti.s'
+const LYRIC_API = 'https://m.kuwo.cn/newh5/singles/songinfoandlrc'
+const PIC_API = 'https://artistpicserver.kuwo.cn/pic.web'
 
 /** 酷我搜索固定参数（取自上游，去掉会被判定为非法请求） */
 const SEARCH_PARAMS = {

@@ -22,6 +22,7 @@ import {
   getSource,
   parseLyric,
   findLineIndex,
+  resolveWithFallback,
   type LyricLine,
   type MusicItem,
   type Quality,
@@ -160,32 +161,40 @@ async function ensureReady(): Promise<boolean> {
   }
 }
 
-/** 取流并播放。内核的 getMusicUrl 已内置降档回退，这里只管交给原生播放器。 */
+/**
+ * 取流并播放。
+ *
+ * 走内核的 resolveWithFallback，而不是直接 getMusicUrl：
+ * 搜索里大量网易曲目是 VIP 专享 / 无版权，原源取不到流。
+ * 桌面端一直有跨源兜底（去酷狗酷我咪咕找正主），移动端之前漏了，
+ * 表现就是「搜得到、点播放就报 VIP 专享」。
+ */
 async function resolveAndPlay(item: MusicItem): Promise<void> {
   state.loading = true
   state.error = ''
   emit()
   try {
-    const source = getSource(item.source)
-    const info = await source.getMusicUrl(item, state.quality)
+    const { info, item: played } = await resolveWithFallback(item, state.quality)
     // 实际拿到的音质可能与请求的不同（高音质被锁时降档了），如实回填
     state.quality = info.quality
-    if (!state.picUrl && item.picUrl) state.picUrl = item.picUrl
+    // 串源时封面也跟着换：原曲封面可能取不到，串到的那个源有
+    if (played.picUrl) state.picUrl = played.picUrl
+    else if (!state.picUrl && item.picUrl) state.picUrl = item.picUrl
 
     await TrackPlayer.reset()
     await TrackPlayer.add({
-      id: item.songmid ?? item.id,
+      id: played.songmid ?? played.id,
       url: info.url,
-      title: item.name,
-      artist: item.singer,
-      album: item.albumName ?? '',
-      artwork: item.picUrl,
+      title: played.name,
+      artist: played.singer,
+      album: played.albumName ?? '',
+      artwork: played.picUrl,
     })
     await TrackPlayer.play()
     state.playing = true
     // 播放记录：只有真的出流了才记，避免把取流失败的歌也算进「最近播放」。
     // 失败不影响播放本身。
-    void library.recordPlay(item).catch(() => undefined)
+    void library.recordPlay(played).catch(() => undefined)
   } catch (e) {
     state.error = e instanceof Error ? e.message : String(e)
     state.playing = false
