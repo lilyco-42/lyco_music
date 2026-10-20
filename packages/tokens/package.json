@@ -1,6 +1,6 @@
 {
   "name": "@lxmn/tokens",
-  "version": "0.2.19",
+  "version": "0.2.20",
   "description": "网易云风格设计令牌（实测自参考截图）",
   "type": "module",
   "main": "./dist/index.js",
