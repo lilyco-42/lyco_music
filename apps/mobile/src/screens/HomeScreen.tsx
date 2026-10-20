@@ -14,7 +14,7 @@ import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, Text, View }
 import { getSource, hasSource, listSources, type MusicItem } from '@lxmn/core'
 import { Logo } from '../components/Icons'
 import { play, usePlayerState } from '../player'
-import { colors, topInset } from '../theme'
+import { colors, useTopInset } from '../theme'
 
 interface Playlist {
   id: number
@@ -74,6 +74,7 @@ function CoverPlaceholder({ size, radius = 8, uri }: { size: number; radius?: nu
 }
 
 export default function HomeScreen({ onOpenSearch }: { onOpenSearch?: (keyword?: string) => void }) {
+  const insetTop = useTopInset()
   const [tracks, setTracks] = useState<MusicItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -147,7 +148,7 @@ export default function HomeScreen({ onOpenSearch }: { onOpenSearch?: (keyword?:
   }, [])
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: topInset }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insetTop }}>
       <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
         {/* 顶栏 */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 18 }}>

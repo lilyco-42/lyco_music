@@ -9,7 +9,7 @@ import {
 } from 'react-native'
 import { useFriendsApi, type FriendsState } from '../friends'
 import { pullFeed, type FeedItem } from '../share'
-import { colors, topInset } from '../theme'
+import { colors, useTopInset } from '../theme'
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const AVATAR = require('../assets/art/avatar-default.jpg') as number
@@ -22,6 +22,7 @@ function fmtTime(t: number): string {
 }
 
 export default function FriendsScreen({ onNeedMembership, onOpenMy }: { onNeedMembership?: () => void; onOpenMy?: () => void }) {
+  const insetTop = useTopInset()
   const api = useFriendsApi()
   const [state, setState] = useState<FriendsState>({
     me: null, friends: [], pendingIn: [], pendingOut: [],
@@ -53,7 +54,7 @@ export default function FriendsScreen({ onNeedMembership, onOpenMy }: { onNeedMe
 
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg, paddingTop: topInset }}
+      style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insetTop }}
       contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
     >
       <Text style={{ color: colors.fg, fontSize: 24, fontWeight: '700' }}>好友</Text>

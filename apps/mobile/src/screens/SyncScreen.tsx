@@ -14,7 +14,7 @@ import {
   loadLibrary, restoreSync, syncNow, syncServer, syncToken,
 } from '../sync'
 import { useMembership } from '../license'
-import { colors, topInset } from '../theme'
+import { colors, useTopInset } from '../theme'
 
 interface Counts {
   favorites: number
@@ -23,6 +23,7 @@ interface Counts {
 }
 
 export default function SyncScreen({ onBack }: { onBack?: () => void }) {
+  const insetTop = useTopInset()
   const [counts, setCounts] = useState<Counts>({ favorites: 0, playlists: 0, history: 0 })
   const [configured, setConfigured] = useState(false)
   const [mask, setMask] = useState('')
@@ -145,7 +146,7 @@ export default function SyncScreen({ onBack }: { onBack?: () => void }) {
   } as const
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: topInset }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insetTop }}>
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 32 }}>
         {onBack ? (
           <Pressable onPress={onBack} hitSlop={10} style={{ marginBottom: 12 }}>

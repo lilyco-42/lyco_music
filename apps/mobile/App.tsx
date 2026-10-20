@@ -14,6 +14,7 @@
  */
 import { useEffect, useState } from 'react'
 import { StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context'
 
 import HomeScreen from './src/screens/HomeScreen'
 import SearchScreen from './src/screens/SearchScreen'
@@ -80,64 +81,66 @@ export default function App() {
   const activeTab: TabKey = SUB_PAGES.includes(tab) ? 'my' : tab
 
   return (
-    <ErrorBoundary>
-      <View style={styles.root}>
-        <StatusBar barStyle="light-content" backgroundColor={colors.bg} translucent={false} />
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+      <ErrorBoundary>
+        <View style={styles.root}>
+          <StatusBar barStyle="light-content" backgroundColor={colors.bg} translucent={false} />
 
-        <View style={styles.body}>
-          {tab === 'home' ? (
-            <HomeScreen
-              onOpenSearch={kw => {
-                if (kw) setSeedKeyword(kw)
-                setTab('search')
-              }}
-            />
-          ) : tab === 'search' ? (
-            <SearchScreen initialKeyword={seedKeyword} />
-          ) : tab === 'my' ? (
-            <MyMusicScreen
-              onOpenAccount={() => setTab('account')}
-              onOpenSync={() => setTab('sync')}
-              onOpenFriends={() => setTab('friends')}
-            />
-          ) : tab === 'member' ? (
-            <MembershipScreen />
-          ) : tab === 'friends' ? (
-            <FriendsScreen onNeedMembership={() => setTab('member')} onOpenMy={() => setTab('my')} />
-          ) : tab === 'account' ? (
-            <AccountScreen onBack={() => setTab('my')} />
-          ) : (
-            <SyncScreen onBack={() => setTab('my')} />
-          )}
+          <View style={styles.body}>
+            {tab === 'home' ? (
+              <HomeScreen
+                onOpenSearch={kw => {
+                  if (kw) setSeedKeyword(kw)
+                  setTab('search')
+                }}
+              />
+            ) : tab === 'search' ? (
+              <SearchScreen initialKeyword={seedKeyword} />
+            ) : tab === 'my' ? (
+              <MyMusicScreen
+                onOpenAccount={() => setTab('account')}
+                onOpenSync={() => setTab('sync')}
+                onOpenFriends={() => setTab('friends')}
+              />
+            ) : tab === 'member' ? (
+              <MembershipScreen />
+            ) : tab === 'friends' ? (
+              <FriendsScreen onNeedMembership={() => setTab('member')} onOpenMy={() => setTab('my')} />
+            ) : tab === 'account' ? (
+              <AccountScreen onBack={() => setTab('my')} />
+            ) : (
+              <SyncScreen onBack={() => setTab('my')} />
+            )}
+          </View>
+
+          {/* 迷你播放条：常驻，任何页面都能看到「现在在放什么」 */}
+          <MiniPlayer onOpen={() => setPlayerOpen(true)} onOpenQueue={() => setPlayerOpen(true)} />
+
+          {/* 底部标签栏 */}
+          <View style={styles.tabBar}>
+            {TABS.map(t => {
+              const active = t.key === activeTab
+              return (
+                <TouchableOpacity
+                  key={t.key}
+                  style={styles.tabItem}
+                  onPress={() => setTab(t.key)}
+                  activeOpacity={0.6}
+                >
+                  <View style={[styles.tabIndicator, { backgroundColor: active ? colors.accent : 'transparent' }]} />
+                  <Text style={[styles.tabLabel, { color: active ? colors.fg : colors.fainter, fontWeight: active ? '600' : '400' }]}>
+                    {t.label}
+                  </Text>
+                </TouchableOpacity>
+              )
+            })}
+          </View>
+
+          {/* 全屏播放页 */}
+          <PlayerScreen visible={playerOpen} onClose={() => setPlayerOpen(false)} />
         </View>
-
-        {/* 迷你播放条：常驻，任何页面都能看到「现在在放什么」 */}
-        <MiniPlayer onOpen={() => setPlayerOpen(true)} onOpenQueue={() => setPlayerOpen(true)} />
-
-        {/* 底部标签栏 */}
-        <View style={styles.tabBar}>
-          {TABS.map(t => {
-            const active = t.key === activeTab
-            return (
-              <TouchableOpacity
-                key={t.key}
-                style={styles.tabItem}
-                onPress={() => setTab(t.key)}
-                activeOpacity={0.6}
-              >
-                <View style={[styles.tabIndicator, { backgroundColor: active ? colors.accent : 'transparent' }]} />
-                <Text style={[styles.tabLabel, { color: active ? colors.fg : colors.fainter, fontWeight: active ? '600' : '400' }]}>
-                  {t.label}
-                </Text>
-              </TouchableOpacity>
-            )
-          })}
-        </View>
-
-        {/* 全屏播放页 */}
-        <PlayerScreen visible={playerOpen} onClose={() => setPlayerOpen(false)} />
-      </View>
-    </ErrorBoundary>
+      </ErrorBoundary>
+    </SafeAreaProvider>
   )
 }
 

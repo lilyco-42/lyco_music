@@ -13,9 +13,10 @@ import {
   signOut as signOutAccount, VERIFICATION_URI,
 } from '../account'
 import type { AccountProfile, DeviceCode } from '../account'
-import { ACCENT_PRESETS, colors, getAccent, setAccent, topInset } from '../theme'
+import { ACCENT_PRESETS, colors, getAccent, setAccent, useTopInset } from '../theme'
 
 export default function AccountScreen({ onBack }: { onBack?: () => void }) {
+  const insetTop = useTopInset()
   const [me, setMe] = useState<AccountProfile | null>(null)
   const [accent, setAccentState] = useState(getAccent())
   const [device, setDevice] = useState<DeviceCode | null>(null)
@@ -83,7 +84,11 @@ export default function AccountScreen({ onBack }: { onBack?: () => void }) {
   const initial = (me?.username ?? '?').slice(0, 1).toUpperCase()
 
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.root}
+      // paddingTop 在渲染期算：写进模块级 StyleSheet 等于还是加载期求值
+      contentContainerStyle={[styles.content, { paddingTop: insetTop + 12 }]}
+    >
       {/* 二级页要有明确的返回入口：标签栏虽然停在「我的」，
           但用户不一定会想到「再点一次我的」就是返回 */}
       {onBack ? (
@@ -158,7 +163,7 @@ export default function AccountScreen({ onBack }: { onBack?: () => void }) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: 20, paddingTop: topInset + 12, paddingBottom: 40 },
+  content: { padding: 20, paddingBottom: 40 },
   title: { fontSize: 26, fontWeight: '700', color: colors.fg },
   subtitle: { marginTop: 6, fontSize: 13, color: colors.fainter, lineHeight: 20 },
   card: {

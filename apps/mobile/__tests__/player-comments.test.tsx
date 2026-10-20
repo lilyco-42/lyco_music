@@ -57,21 +57,23 @@ jest.mock('@lxmn/core', () => ({
 }))
 
 describe('播放页评论与爱心', () => {
-  it('点评论图标切到评论面板并渲染评论', async () => {
+  it('点评论图标弹出评论面板并渲染评论', async () => {
     render(<PlayerScreen />)
 
-    // 初始是歌词面板
+    // 初始是歌词页
     expect(screen.getByText('第一句')).toBeTruthy()
+    // 评论是底部弹层，没打开时不该存在
+    expect(screen.queryByText('这是一条热评')).toBeNull()
 
-    fireEvent.press(screen.getByLabelText('查看评论'))
+    fireEvent.press(screen.getByLabelText('评论'))
 
     await waitFor(() => expect(screen.getByText('这是一条热评')).toBeTruthy())
     expect(screen.getByText('这是一条普通评论')).toBeTruthy()
     expect(screen.getByText('热评')).toBeTruthy()
 
-    // 再点一次回到歌词
-    fireEvent.press(screen.getByLabelText('返回歌词'))
-    await waitFor(() => expect(screen.getByText('第一句')).toBeTruthy())
+    // 「关闭」收起弹层
+    fireEvent.press(screen.getByText('关闭'))
+    await waitFor(() => expect(screen.queryByText('这是一条热评')).toBeNull())
   }, 20000)
 
   it('点爱心写入曲库', async () => {

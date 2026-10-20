@@ -47,3 +47,29 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
     getAllKeys: jest.fn(async () => []),
   },
 }))
+
+/**
+ * safe-area-context 靠原生视图（RNCSafeAreaProvider）量 WindowInsets。
+ * 在 Node 里它永远量不出结果，Provider 的子节点渲染不出来，SafeAreaView
+ * 也会退化成空壳 —— 于是整棵树都查不到元素。
+ *
+ * 这里给一份固定 inset：测试只关心「有没有渲染、点了有没有反应」，
+ * 具体像素值在真机/模拟器上验证（见 theme.ts 里 useTopInset 的说明）。
+ */
+jest.mock('react-native-safe-area-context', () => {
+  const React = require('react')
+  const { View } = require('react-native')
+  const insets = { top: 24, bottom: 0, left: 0, right: 0 }
+  const frame = { x: 0, y: 0, width: 390, height: 844 }
+  return {
+    __esModule: true,
+    SafeAreaProvider: ({ children }) => React.createElement(View, null, children),
+    // edges / mode 是 safe-area 专有属性，别透传给 View（会触发 RN 的未知属性告警）
+    SafeAreaView: ({ children, style, edges, mode, ...rest }) =>
+      React.createElement(View, { style, ...rest }, children),
+    SafeAreaInsetsContext: React.createContext(insets),
+    useSafeAreaInsets: () => insets,
+    useSafeAreaFrame: () => frame,
+    initialWindowMetrics: { insets, frame },
+  }
+})

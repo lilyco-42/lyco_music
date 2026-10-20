@@ -9,7 +9,7 @@ import type { MusicItem, SourceId } from '@lxmn/core'
 import { play, usePlayerState } from '../player'
 import { library } from '../sync'
 import { getShared } from '../share'
-import { colors, topInset } from '../theme'
+import { colors, useTopInset } from '../theme'
 
 type Tab = 'fav' | 'recent'
 
@@ -28,6 +28,7 @@ interface Props {
 }
 
 export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends }: Props) {
+  const insetTop = useTopInset()
   const [tab, setTab] = useState<Tab>('fav')
   const [rows, setRows] = useState<Row[]>([])
   const [playlists, setPlaylists] = useState<{ id: string; name: string }[]>([])
@@ -94,7 +95,7 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
 
   return (
 
-    <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: topInset }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insetTop }}>
 {importPrompt ? (
         <View style={{
           marginHorizontal: 16, marginTop: 8, padding: 12, borderRadius: 12,

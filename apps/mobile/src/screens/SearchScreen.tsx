@@ -10,7 +10,7 @@ import { getSource, hasSource, listSources, type MusicItem } from '@lxmn/core'
 import { play, usePlayerState } from '../player'
 import { library } from '../sync'
 import { safe } from '../lib/safe'
-import { colors, topInset } from '../theme'
+import { colors, useTopInset } from '../theme'
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const DEFAULT_COVER = require('../assets/art/cover-default.jpg') as number
@@ -35,6 +35,7 @@ const HOT_KEYWORDS = [
 ]
 
 export default function SearchScreen({ initialKeyword }: { initialKeyword?: string }) {
+  const insetTop = useTopInset()
   const [keyword, setKeyword] = useState(initialKeyword ?? '')
   const [list, setList] = useState<MusicItem[]>([])
   const [total, setTotal] = useState(0)
@@ -175,7 +176,7 @@ export default function SearchScreen({ initialKeyword }: { initialKeyword?: stri
   }, [initialKeyword])
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: topInset }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insetTop }}>
       {/* 搜索框 */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingVertical: 12 }}>
         <TextInput

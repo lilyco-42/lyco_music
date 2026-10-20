@@ -12,7 +12,7 @@ import { ANNUAL_PRICE_CNY, SHOP_URL } from '@lxmn/core'
 import type { MembershipStatus, ApplyResult } from '@lxmn/core'
 import { activate, status as fetchStatus, deactivate } from '../license'
 import { connectWithMembership, disconnectSync } from '../sync'
-import { colors, topInset } from '../theme'
+import { colors, useTopInset } from '../theme'
 
 const FEATURES = [
   '一键补全全部第三方音源',
@@ -29,6 +29,7 @@ function fmtDate(iso: string): string {
 }
 
 export default function MembershipScreen() {
+  const insetTop = useTopInset()
   const [link, setLink] = useState('')
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<MembershipStatus | null>(null)
@@ -103,7 +104,7 @@ export default function MembershipScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: topInset }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insetTop }}>
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 32 }}>
         <Text style={{ color: colors.fg, fontSize: 24, fontWeight: '700', marginBottom: 6 }}>音乐会员</Text>
         <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 22 }}>

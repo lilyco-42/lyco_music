@@ -15,14 +15,15 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ActivityIndicator, FlatList, Image, Modal, PanResponder, Pressable,
-  ScrollView, Share, Text, useWindowDimensions, View,
+  ActivityIndicator, FlatList, Image, Modal, NativeModules, PanResponder, Pressable,
+  Dimensions, ScrollView, Share, StatusBar, Text, useWindowDimensions, View,
 } from 'react-native'
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import {
   ChevronDownIcon, HeartIcon, CommentIcon, ShareIcon, ListIcon,
   LoopIcon, ShuffleIcon, SkipIcon, PlayIcon, PauseIcon,
 } from '../components/Icons'
-import { colors, topInset } from '../theme'
+import { colors } from '../theme'
 import { library } from '../sync'
 import { safe } from '../lib/safe'
 import Ambient, { useCoverColor } from '../components/Ambient'
@@ -245,9 +246,16 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} statusBarTranslucent>
-      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      {/*
+        播放页是 statusBarTranslucent 的全屏 Modal，会盖住状态栏，必须自己让出这段高度。
+        但**不能**用外层的 useSafeAreaInsets()：主窗口本身已经被系统让出了状态栏
+        （实测 inset.top = 0），Modal 是另一个窗口、才是真正 edge-to-edge 的那个，
+        所以要在 Modal 内部再套一个 Provider，让它量自己这个窗口。
+        Ambient 留在 SafeAreaView 外面，背景才能一直铺到状态栏后面。
+      */}
+      <SafeAreaProvider>
+        <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: colors.bg }}>
         <Ambient color={mood} />
-        <View style={{ flex: 1, paddingTop: topInset }}>
         {/* 顶栏 */}
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 10 }}>
           <Pressable hitSlop={14} onPress={onClose} accessibilityLabel="收起播放页">
@@ -650,8 +658,8 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
             </Pressable>
           </Pressable>
         </Modal>
-        </View>
-      </View>
+        </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   )
 }
