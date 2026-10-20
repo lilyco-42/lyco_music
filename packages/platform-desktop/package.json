@@ -1,6 +1,6 @@
 {
   "name": "@lxmn/platform-desktop",
-  "version": "0.2.20",
+  "version": "0.2.21",
   "description": "lxmn/core 的桌面端 (Electron/Node) 平台适配器",
   "type": "module",
   "main": "./dist/index.js",
