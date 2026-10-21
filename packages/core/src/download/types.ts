@@ -38,6 +38,30 @@ export interface DownloadTask {
 }
 
 /** 传给传输层的一次下载请求 */
+/**
+ * 下载完成后要写进文件（或写在旁边）的元数据（PARITY 5.6 / 5.7）。
+ *
+ * 为什么由**内核**定义、宿主填：这些字段来自曲目本身（歌名/歌手/专辑/歌词/封面），
+ * 内核手里全都有；宿主只负责决定「写不写、用什么编码」以及真的去写盘。
+ */
+export interface DownloadTags {
+  title?: string
+  artist?: string
+  album?: string
+  /** 原文歌词（LRC 文本） */
+  lyric?: string
+  /** 翻译歌词：写进文件时拼在原文行后面 */
+  tlyric?: string
+  /** 封面地址（http/https）。宿主负责抓取，抓不到就不写封面 */
+  coverUrl?: string
+  /** 把歌词/封面写进音频文件本身 */
+  embed?: boolean
+  /** 额外在音频旁边存一份同名 .lrc */
+  sidecar?: boolean
+  /** sidecar 的编码（5.7）：车机/老播放器要 GBK */
+  lyricEncoding?: 'utf8' | 'gbk'
+}
+
 export interface DownloadRequest {
   id: string
   url: string
@@ -53,6 +77,13 @@ export interface DownloadRequest {
    * 标签/重命名过的文件覆盖掉。传输层负责判断「存在」，内核不认识文件系统。
    */
   skipIfExists?: boolean
+  /**
+   * 落盘后要写入的元数据。
+   *
+   * 由传输层在 rename 之后执行 —— 顺序很重要：先有完整文件，再改它的标签。
+   * 反过来（边下边拼标签）会在续传时把标签写进音频中间，文件直接坏掉。
+   */
+  tags?: DownloadTags
 }
 
 /** 传输层上报的事件 */
@@ -105,6 +136,13 @@ export interface DownloadManagerOptions {
   subdirPerList?: () => boolean
   /** 同名文件跳过（默认关，关=覆盖） */
   skipExisting?: () => boolean
+  /**
+   * 落盘后要写的元数据（5.6 / 5.7）。返回 undefined 表示不写。
+   *
+   * 做成异步回调而不是普通字段：歌词要现取（音源接口），封面地址也可能
+   * 需要再查一次。放在这里而不是传输层做，是因为只有内核知道怎么取歌词。
+   */
+  prepareTags?: (task: DownloadTask) => Promise<DownloadTags | undefined>
   /** 本地持久化键，默认 lxmn.downloads */
   storageKey?: string
 }

@@ -74,6 +74,8 @@ export interface LyricStyle {
   showInTaskbar: boolean
   /** 主窗口全屏时自动隐藏（3.21） */
   hideOnFullscreen: boolean
+  /** 频谱可视化（3.20） */
+  showSpectrum: boolean
 }
 
 export const DEFAULT_LYRIC_STYLE: LyricStyle = {
@@ -95,6 +97,7 @@ export const DEFAULT_LYRIC_STYLE: LyricStyle = {
   dimOpacity: 0.45,
   showInTaskbar: false,
   hideOnFullscreen: false,
+  showSpectrum: false,
 }
 
 const HEX = /^#[0-9a-f]{6}$/i
@@ -144,6 +147,7 @@ export function normalizeLyricStyle(raw: unknown, base: LyricStyle = DEFAULT_LYR
     dimOpacity: num(src.dimOpacity, base.dimOpacity, 0.1, 1),
     showInTaskbar: bool(src.showInTaskbar, base.showInTaskbar),
     hideOnFullscreen: bool(src.hideOnFullscreen, base.hideOnFullscreen),
+    showSpectrum: bool(src.showSpectrum, base.showSpectrum),
   }
 }
 

@@ -13,6 +13,7 @@ import {
   parseTrackName,
   localTrackId,
   localMediaUrl,
+  localCoverUrl,
   pathFromMediaUrl,
   dirOf,
   dirBaseName,
@@ -269,5 +270,68 @@ describe('localSource', () => {
 
   it('没有 musicSearch —— 本地库没有搜索语义', () => {
     expect(localSource.musicSearch).toBeUndefined()
+  })
+})
+
+
+/**
+ * 内嵌标签与封面（PARITY 4.8）
+ *
+ * 标签优先、文件名兜底。这两条路径必须都成立：
+ * 网易云下载的文件名不一定规范（`01.mp3`、`未知 - xxx.mp3`），
+ * 而标签也可能是空的（用户自己转的裸文件）。
+ */
+describe('buildLocalTracks：内嵌标签', () => {
+  const BS = String.fromCharCode(92)
+
+  function file(path: string, extra: Partial<LocalFileEntry> = {}): LocalFileEntry {
+    const at = Math.max(path.lastIndexOf('/'), path.lastIndexOf(BS))
+    return { path, name: path.slice(at + 1), size: 1, mtime: 0, ...extra }
+  }
+
+  it('标签覆盖文件名解析结果', () => {
+    const t = buildLocalTracks([file('C:/m/01.mp3', { title: '晴天', artist: '周杰伦', album: '叶惠美' })])[0]!
+    expect(t.name).toBe('晴天')
+    expect(t.singer).toBe('周杰伦')
+    expect(t.albumName).toBe('叶惠美')
+  })
+
+  it('没有标签时退回文件名', () => {
+    const t = buildLocalTracks([file('C:/m/周杰伦 - 晴天.mp3')])[0]!
+    expect(t.name).toBe('晴天')
+    expect(t.singer).toBe('周杰伦')
+    expect(t.albumName).toBeUndefined()
+  })
+
+  it('标签是空白串时也退回文件名，不会产生空歌名', () => {
+    const t = buildLocalTracks([file('C:/m/周杰伦 - 晴天.mp3', { title: '   ', artist: '' })])[0]!
+    expect(t.name).toBe('晴天')
+    expect(t.singer).toBe('周杰伦')
+  })
+
+  it('Windows 反斜杠路径同样能取到文件名', () => {
+    const t = buildLocalTracks([file('C:' + BS + 'm' + BS + '周杰伦 - 晴天.mp3')])[0]!
+    expect(t.name).toBe('晴天')
+    expect(t.singer).toBe('周杰伦')
+  })
+
+  it('有封面时 picUrl 指向 lxmn-media://cover/，且不会被当成音频地址', () => {
+    const t = buildLocalTracks([file('C:/m/a b.mp3', { title: 'x', hasCover: true })])[0]!
+    expect(t.picUrl).toBe(localCoverUrl('C:/m/a b.mp3'))
+    expect(String(t.picUrl)).toContain('lxmn-media://cover/')
+    // 封面路由和音频路由不能互相误判
+    expect(pathFromMediaUrl(String(t.picUrl))).toBe('')
+    expect(t.url).toBe(localMediaUrl('C:/m/a b.mp3'))
+  })
+
+  it('没有封面时不写 picUrl（界面会走默认封面）', () => {
+    const t = buildLocalTracks([file('C:/m/a.mp3', { title: 'x' })])[0]!
+    expect(t.picUrl).toBeUndefined()
+  })
+
+  it('localCoverUrl 对空格与中文做了 URL 编码', () => {
+    const url = localCoverUrl('C:/我的音乐/晴天.mp3')
+    expect(url).not.toContain(' ')
+    expect(decodeURIComponent(url.slice('lxmn-media://cover/'.length))).toBe('C:/我的音乐/晴天.mp3')
   })
 })

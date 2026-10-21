@@ -480,6 +480,8 @@ const LYRIC_STYLE_KEYS = [
   // PARITY 3.12–3.22
   'boldLines', 'boldTranslation', 'noWrap', 'lineHeight', 'vertical',
   'scrollAt', 'dimWhenPaused', 'dimOpacity', 'showInTaskbar', 'hideOnFullscreen',
+  // PARITY 3.20
+  'showSpectrum',
 ]
 const LYRIC_FONT_STACKS = new Set([
   '',
@@ -522,6 +524,7 @@ function normalizeLyricStyle(raw) {
     dimOpacity: num(s.dimOpacity, 0.45, 0.1, 1),
     showInTaskbar: bool(s.showInTaskbar, false),
     hideOnFullscreen: bool(s.hideOnFullscreen, false),
+    showSpectrum: bool(s.showSpectrum, false),
   }
 }
 
@@ -617,6 +620,19 @@ ipcMain.handle('lxmn:lyric:is-open', async () => Boolean(lyricWin && !lyricWin.i
 ipcMain.handle('lxmn:lyric:update', async (_e, payload) => {
   pushLyric(payload)
   return true
+})
+
+/**
+ * 频谱数据（3.20）。
+ *
+ * 为什么必须从主窗口转发：AnalyserNode 挂在主窗口的音频图上，
+ * 歌词窗口是另一个渲染进程，拿不到那边的 Web Audio 上下文。
+ * 用 `send` 而不是 `invoke`：这是单向的高频数据（~20 次/秒），
+ * 每次都要等回执会让主窗口的 rAF 循环堆消息。
+ */
+ipcMain.on('lxmn:lyric:spectrum', (_e, bars) => {
+  if (!lyricWin || lyricWin.isDestroyed()) return
+  lyricWin.webContents.send('lxmn:lyric:spectrum', bars)
 })
 
 /**

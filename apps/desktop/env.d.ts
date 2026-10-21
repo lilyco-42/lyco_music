@@ -111,6 +111,8 @@ interface LxmnLyricStyle {
   showInTaskbar: boolean
   /** 3.21 主窗口全屏时隐藏 */
   hideOnFullscreen: boolean
+  /** 3.20 频谱可视化 */
+  showSpectrum: boolean
 }
 
 interface LxmnLyricApi {
@@ -130,6 +132,10 @@ interface LxmnLyricApi {
   dragEnd: () => Promise<boolean>
   seek: (time: number) => Promise<boolean>
   onSeekRequest: (cb: (time: number) => void) => () => void
+  /** 主窗口推送频谱数据（3.20） */
+  pushSpectrum: (bars: number[]) => void
+  /** 歌词窗口订阅频谱 */
+  onSpectrum: (cb: (bars: number[]) => void) => () => void
   onData: (cb: (payload: LxmnLyricPayload) => void) => () => void
 }
 

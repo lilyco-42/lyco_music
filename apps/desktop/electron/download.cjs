@@ -20,6 +20,7 @@
  */
 const { app, net, dialog, shell } = require('electron')
 const fs = require('node:fs')
+const { writeMetadata } = require('./audio-tags-write.cjs')
 const path = require('node:path')
 
 /** id → { request, response, file, part, emit, paused, resolve } */
@@ -229,7 +230,27 @@ function start(request, emit) {
             finish(id, { type: 'error', message: `保存失败：${e.message}`, fatal: true })
             return
           }
-          finish(id, { type: 'complete', total: received })
+          /**
+           * 写标签（5.6 / 5.7）放在 rename 之后：此时磁盘上已经是一份完整文件，
+           * 写标签失败最多是「没有内嵌歌词」，不会让用户白下一次。
+           *
+           * 写之前先停掉空闲计时器 —— 它看的是「多久没收到数据」，
+           * 而写标签这段时间确实没有数据，不停的话会被判成连接超时。
+           */
+          const tags = entry.request?.tags
+          if (!tags) {
+            finish(id, { type: 'complete', total: received })
+            return
+          }
+          clearInterval(entry.idleTimer)
+          void writeMetadata(target, tags)
+            .then(notes => {
+              if (notes && notes.length) {
+                console.log('[download] 元数据', target, notes.join(' '))
+              }
+            })
+            .catch(() => undefined)
+            .finally(() => finish(id, { type: 'complete', total: received }))
         })
       })
 

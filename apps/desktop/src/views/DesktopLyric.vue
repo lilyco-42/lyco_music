@@ -209,12 +209,56 @@ const bodyWriting = computed(() => (style.value.vertical ? 'vertical-rl' : undef
 /** 不换行（3.14）：超长就省略，而不是把窗口撑成两行 */
 const lineWrapClass = computed(() => (style.value.noWrap ? 'whitespace-nowrap overflow-hidden text-ellipsis' : 'whitespace-pre-wrap'))
 
+/* ---------------- 频谱（3.20） ---------------- */
+
+const SPECTRUM_BARS = 24
+const spectrumEl = ref<HTMLCanvasElement | null>(null)
+/** 最近一帧的柱高（0–255）。用普通数组而不是 ref：它每 50ms 变一次，不需要响应式 */
+const spectrumBars = new Array<number>(SPECTRUM_BARS).fill(0)
+let spectrumRaf = 0
+let offSpectrum: (() => void) | null = null
+
+function drawSpectrum(): void {
+  spectrumRaf = 0
+  const canvas = spectrumEl.value
+  if (!canvas) return
+  const w = canvas.clientWidth
+  const h = canvas.clientHeight
+  if (w <= 0 || h <= 0) return
+  const dpr = window.devicePixelRatio || 1
+  if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+    canvas.width = Math.round(w * dpr)
+    canvas.height = Math.round(h * dpr)
+  }
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ctx.clearRect(0, 0, w, h)
+  const gap = 2
+  const barW = Math.max(1, (w - gap * (SPECTRUM_BARS - 1)) / SPECTRUM_BARS)
+  ctx.fillStyle = style.value.playedColor
+  for (let i = 0; i < SPECTRUM_BARS; i++) {
+    const v = Math.max(0, Math.min(255, spectrumBars[i] ?? 0)) / 255
+    const barH = Math.max(1, v * h)
+    // 越高的柱子越实，避免一整排「实心砖」
+    ctx.globalAlpha = 0.3 + v * 0.65
+    ctx.fillRect(i * (barW + gap), h - barH, barW, barH)
+  }
+  ctx.globalAlpha = 1
+}
+
 let off: (() => void) | null = null
 
 onMounted(async () => {
   // 告诉 CSS「这是歌词窗口」：html/body 背景转透明
   document.documentElement.dataset.window = 'lyric'
   off = api?.onData(payload => { data.value = payload ?? {} }) ?? null
+  offSpectrum = api?.onSpectrum?.(bars => {
+    if (!Array.isArray(bars)) return
+    for (let i = 0; i < SPECTRUM_BARS; i++) spectrumBars[i] = Number(bars[i]) || 0
+    // 同一帧里只画一次：主窗口 20 次/秒，这里再快也没意义
+    if (!spectrumRaf) spectrumRaf = requestAnimationFrame(drawSpectrum)
+  }) ?? null
   const saved = await api?.getStyle().catch(() => null)
   if (saved) {
     style.value = normalizeLyricStyle(saved)
@@ -229,6 +273,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   off?.()
+  offSpectrum?.()
+  if (spectrumRaf) cancelAnimationFrame(spectrumRaf)
   document.removeEventListener('mousedown', onDocDown)
   window.removeEventListener('mousemove', onPressMove)
   window.removeEventListener('mouseup', onPressUp)
@@ -404,6 +450,14 @@ async function resetWindow(): Promise<void> {
         </p>
       </template>
     </div>
+
+    <!-- 频谱（3.20）：数据由主窗口推过来，这里只负责画 -->
+    <canvas
+      v-if="style.showSpectrum"
+      ref="spectrumEl"
+      class="pointer-events-none h-[30px] w-full shrink-0"
+      aria-hidden="true"
+    />
 
     <!-- 时间条：悬停时出现，点一下/按住拖都能跳转（歌词窗口自己没有播放器，靠主窗口执行） -->
     <div
@@ -589,6 +643,13 @@ async function resetWindow(): Promise<void> {
           title="竖排显示（日式字幕）"
           @click="patch({ vertical: !style.vertical })"
         >竖排</button>
+        <button
+          type="button"
+          class="rounded px-2 text-[11px]"
+          :class="style.showSpectrum ? 'bg-white/90 text-black' : 'bg-white/10 text-white/70 hover:bg-white/20'"
+          title="在歌词下方显示频谱（数据由主窗口的音频分析器推送）"
+          @click="patch({ showSpectrum: !style.showSpectrum })"
+        >频谱</button>
       </div>
 
       <!-- 行距 / 停靠位置 -->

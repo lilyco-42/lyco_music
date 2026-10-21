@@ -10,6 +10,7 @@ import { installHotkeys } from './lib/hotkeys'
 import { installShellIntegration } from './lib/shell'
 import { installIntegrations } from './lib/integrations'
 import { installLyricBridge } from './lib/lyric-window'
+import { installSpectrumBridge } from './lib/spectrum'
 import './styles/main.css'
 
 // 安装平台适配器 + 注册内核里已移植的音源（幂等）
@@ -68,3 +69,6 @@ createApp(App).use(router).mount('#app')
 
 // 桌面歌词窗口的数据桥（只在 Electron 里生效，浏览器下是 no-op）
 installLyricBridge()
+
+// 频谱数据泵（3.20）：只在歌词窗口开着且开了频谱时才跑
+installSpectrumBridge()

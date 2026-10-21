@@ -21,6 +21,7 @@ import {
   type MusicItem,
   type Quality,
   type ResolvedStream,
+  type DownloadTags,
 } from '@lxmn/core'
 import { ensureDesktopPlatform } from './platform'
 import { resolveWithFallback } from './fallback'
@@ -100,9 +101,28 @@ interface DownloadSettings {
   subdirPerList: boolean
   /** 目标文件已存在时跳过，不覆盖 */
   skipExisting: boolean
+  /** 把歌词写进音频文件（5.6）：ID3 的 USLT / FLAC 的 LYRICS */
+  embedLyric: boolean
+  /** 把封面写进音频文件（5.6） */
+  embedCover: boolean
+  /** 额外存一份同名 .lrc（5.6） */
+  saveLyric: boolean
+  /** .lrc 的编码（5.7）：车机/老播放器要 GBK */
+  lyricEncoding: 'utf8' | 'gbk'
 }
 
-const settings = ref<DownloadSettings>({ dir: '', nameFormat: 'title-artist', concurrency: 2, subdirPerList: false, skipExisting: false })
+const settings = ref<DownloadSettings>({
+  dir: '',
+  nameFormat: 'title-artist',
+  concurrency: 2,
+  subdirPerList: false,
+  skipExisting: false,
+  // 三项默认全关：下载是「把歌拿到手」，改文件内容属于用户明确要才做的事
+  embedLyric: false,
+  embedCover: false,
+  saveLyric: false,
+  lyricEncoding: 'utf8',
+})
 
 async function loadSettings(): Promise<void> {
   try {
@@ -115,6 +135,10 @@ async function loadSettings(): Promise<void> {
         concurrency: Math.min(6, Math.max(1, Number(parsed.concurrency) || 2)),
         subdirPerList: parsed.subdirPerList === true,
         skipExisting: parsed.skipExisting === true,
+        embedLyric: parsed.embedLyric === true,
+        embedCover: parsed.embedCover === true,
+        saveLyric: parsed.saveLyric === true,
+        lyricEncoding: parsed.lyricEncoding === 'gbk' ? 'gbk' : 'utf8',
       }
     }
   } catch {
@@ -155,6 +179,40 @@ const manager = new DownloadManager({
    *
    * 关掉这个开关就只试原源：有人就是要「下不到就别拿别人的版本凑数」。
    */
+  /**
+   * 落盘后要写的元数据（5.6 / 5.7）。
+   *
+   * 三项都没开就直接返回 undefined —— 不取歌词、不抓封面，
+   * 免得白白多发几个请求。
+   */
+  prepareTags: async (task): Promise<DownloadTags | undefined> => {
+    const cfg = settings.value
+    if (!cfg.embedLyric && !cfg.embedCover && !cfg.saveLyric) return undefined
+    let lyric = ''
+    let tlyric = ''
+    if (cfg.embedLyric || cfg.saveLyric) {
+      try {
+        const info = await getSource(task.item.source)?.getLyric?.(task.item)
+        lyric = info?.lyric ?? ''
+        tlyric = info?.tlyric ?? ''
+      } catch {
+        // 取不到歌词就只是不嵌歌词，下载照常
+      }
+    }
+    const coverUrl = cfg.embedCover ? String(task.item.picUrl ?? '') : ''
+    const embed = (cfg.embedLyric && Boolean(lyric)) || (cfg.embedCover && Boolean(coverUrl))
+    return {
+      title: String(task.item.name ?? ''),
+      artist: String(task.item.singer ?? ''),
+      album: String(task.item.albumName ?? ''),
+      lyric,
+      tlyric,
+      coverUrl,
+      embed,
+      sidecar: cfg.saveLyric && Boolean(lyric),
+      lyricEncoding: cfg.lyricEncoding,
+    }
+  },
   resolveStream: async (task): Promise<ResolvedStream | null> => {
     const source = getSource(task.item.source)
     if (!source?.getMusicUrl) return null

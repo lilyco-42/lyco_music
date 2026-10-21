@@ -1,22 +1,19 @@
 /**
- * 音效 / 均衡器（桌面端）
+ * 均衡器（桌面端）
  *
- * 用 Web Audio 的 10 段 peaking 滤波器串起来，接在 <audio> 后面：
+ * 10 段 peaking 滤波器，图本身由 `audio-graph.ts` 持有 —— 混响、环绕、频谱
+ * 都要接同一张图（一个 <audio> 只能 createMediaElementSource 一次）。
  *
- *   <audio> → MediaElementSource → 31Hz → 62Hz → … → 16kHz → destination
- *
- * 几个必须知道的限制：
- *
- * 1. **一个 <audio> 只能 createMediaElementSource 一次**，重复调用会抛
- *    InvalidStateError。所以图的创建集中在这里，AudioHost 只把元素递进来。
- * 2. 图一旦建立就没法「拆掉」：关闭音效不是断开连接，而是把所有增益归零。
- *    这也是为什么图要**懒创建** —— 用户没开音效时完全不碰 Web Audio。
- * 3. 跨域媒体在某些情况下会被静音。实测我们的网易云/咪咕 CDN 都能正常出声
+ * 两个必须知道的限制：
+ * 1. 图一旦建立就没法「拆掉」：关闭均衡器不是断开连接，而是把增益归零。
+ *    这也是图要**懒创建**的原因 —— 用户没开音效时完全不碰 Web Audio。
+ * 2. 跨域媒体在某些情况下会被静音。实测我们的网易云/咪咕 CDN 都能正常出声
  *    （analyser 有能量），但换源后如果突然没声音，先关掉音效排除这一项。
  */
 import { computed, ref } from 'vue'
+import { bindAudioElement, ensureGraph, graphFailure, graphReady, EQ_BANDS } from './audio-graph'
 
-export const EQ_BANDS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000] as const
+export { bindAudioElement, EQ_BANDS }
 
 /** 增益范围（dB）。±12 已经能听出明显差别，再大只会破音 */
 export const EQ_GAIN_MAX = 12
@@ -86,70 +83,27 @@ function persist(): void {
   }
 }
 
-/* ---------------- Web Audio 图 ---------------- */
-
-let ctx: AudioContext | null = null
-let nodes: BiquadFilterNode[] = []
-let boundEl: HTMLAudioElement | null = null
-let graphFailed = false
-
-/** AudioHost 挂载时把元素交进来；只有开启音效时才会真正建图 */
-export function bindAudioElement(el: HTMLAudioElement | null): void {
-  boundEl = el
-  if (el && enabled.value) ensureGraph()
-}
-
-/**
- * 建图。失败就把音效标记为不可用（例如浏览器不支持），
- * 绝不能让它把正常播放搞挂 —— 播放是主功能，音效是附加。
- */
-function ensureGraph(): boolean {
-  if (ctx) return true
-  if (graphFailed || !boundEl) return false
-  try {
-    const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-    if (!Ctor) throw new Error('当前环境不支持 Web Audio')
-    ctx = new Ctor()
-    const source = ctx.createMediaElementSource(boundEl)
-    nodes = EQ_BANDS.map((freq, i) => {
-      const f = ctx!.createBiquadFilter()
-      f.type = 'peaking'
-      f.frequency.value = freq
-      // 31Hz/62Hz 用宽一点的 Q，否则低音会「嗡嗡」的；高频收窄更精确
-      f.Q.value = i < 2 ? 0.7 : 1.0
-      f.gain.value = gains.value[i] ?? 0
-      return f
-    })
-    let chain: AudioNode = source
-    for (const f of nodes) {
-      chain.connect(f)
-      chain = f
-    }
-    chain.connect(ctx.destination)
-    void ctx.resume()
-    return true
-  } catch (e) {
-    graphFailed = true
-    console.warn('[lxmn] 音效不可用，已回退到直通播放：', e)
-    ctx = null
-    nodes = []
-    return false
-  }
-}
+/* ---------------- 增益应用 ---------------- */
 
 function applyGains(): void {
-  if (!ctx) return
-  const now = ctx.currentTime
-  nodes.forEach((f, i) => {
+  const g = ensureGraph()
+  if (!g) return
+  const now = g.ctx.currentTime
+  g.filters.forEach((f, i) => {
     // 用 setTargetAtTime 平滑过渡，直接赋值在拖滑块时会「咔哒」响
     f.gain.setTargetAtTime(gains.value[i] ?? 0, now, 0.02)
   })
 }
 
+/** 图建不起来时的原因，设置界面要如实显示 */
+export function equalizerFailure(): string {
+  return graphFailure()
+}
+
 export function useEqualizer() {
   const currentPreset = computed(() => EQ_PRESETS.find(p => p.id === presetId.value) ?? EQ_PRESETS[0]!)
   /** 建图失败时界面必须如实说「不可用」，而不是假装开了 */
-  const available = computed(() => !graphFailed)
+  const available = computed(() => !graphFailure())
 
   function setEnabled(on: boolean): void {
     enabled.value = on
@@ -160,7 +114,7 @@ export function useEqualizer() {
         return
       }
       applyGains()
-    } else if (ctx) {
+    } else if (graphReady()) {
       // 关掉 = 全段归零（图拆不掉），仍然是「原声」
       gains.value = [...ZERO]
       presetId.value = 'flat'

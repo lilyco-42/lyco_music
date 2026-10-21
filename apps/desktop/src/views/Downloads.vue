@@ -73,6 +73,24 @@ async function onSubdirChange(e: Event): Promise<void> {
 async function onSkipExistingChange(e: Event): Promise<void> {
   await saveSettings({ skipExisting: (e.target as HTMLInputElement).checked })
 }
+
+/* ---- 落盘后的元数据（5.6 / 5.7） ---- */
+
+async function onEmbedLyricChange(e: Event): Promise<void> {
+  await saveSettings({ embedLyric: (e.target as HTMLInputElement).checked })
+}
+
+async function onEmbedCoverChange(e: Event): Promise<void> {
+  await saveSettings({ embedCover: (e.target as HTMLInputElement).checked })
+}
+
+async function onSaveLyricChange(e: Event): Promise<void> {
+  await saveSettings({ saveLyric: (e.target as HTMLInputElement).checked })
+}
+
+async function onLyricEncodingChange(e: Event): Promise<void> {
+  await saveSettings({ lyricEncoding: (e.target as HTMLSelectElement).value === 'gbk' ? 'gbk' : 'utf8' })
+}
 </script>
 
 <template>
@@ -154,6 +172,48 @@ async function onSkipExistingChange(e: Event): Promise<void> {
           @change="onSkipExistingChange"
         />
         <span class="shrink-0 text-[13px] text-ncm-faint">同名跳过</span>
+      </label>
+
+      <label class="flex cursor-pointer items-center gap-2" title="把歌词写进 MP3/FLAC 文件本身，换设备也不丢">
+        <input
+          type="checkbox"
+          class="size-[14px] accent-ncm-accent"
+          :checked="settings.embedLyric"
+          @change="onEmbedLyricChange"
+        />
+        <span class="shrink-0 text-[13px] text-ncm-faint">嵌入歌词</span>
+      </label>
+
+      <label class="flex cursor-pointer items-center gap-2" title="把封面写进 MP3/FLAC 文件本身">
+        <input
+          type="checkbox"
+          class="size-[14px] accent-ncm-accent"
+          :checked="settings.embedCover"
+          @change="onEmbedCoverChange"
+        />
+        <span class="shrink-0 text-[13px] text-ncm-faint">嵌入封面</span>
+      </label>
+
+      <label class="flex cursor-pointer items-center gap-2" title="在音频旁边另存一份同名 .lrc">
+        <input
+          type="checkbox"
+          class="size-[14px] accent-ncm-accent"
+          :checked="settings.saveLyric"
+          @change="onSaveLyricChange"
+        />
+        <span class="shrink-0 text-[13px] text-ncm-faint">另存 .lrc</span>
+      </label>
+
+      <label v-if="settings.saveLyric" class="flex items-center gap-2" title="车机和老播放器通常只认 GBK">
+        <span class="shrink-0 text-[13px] text-ncm-faint">歌词编码</span>
+        <select
+          :value="settings.lyricEncoding"
+          class="rounded-[6px] border border-ncm-divider bg-white px-2 py-1 text-[13px] text-ncm-fg outline-none focus:border-ncm-accent"
+          @change="onLyricEncodingChange"
+        >
+          <option value="utf8">UTF-8</option>
+          <option value="gbk">GBK</option>
+        </select>
       </label>
 
       <label class="flex items-center gap-2">

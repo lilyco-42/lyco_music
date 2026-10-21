@@ -19,6 +19,7 @@ import { enqueueDownload } from '@/lib/downloads'
 import { findSameSong } from '@/lib/same-song'
 import { useSleepTimer } from '@/lib/sleep-timer'
 import { useEqualizer } from '@/lib/equalizer'
+import { useSoundEffect } from '@/lib/sound-effect'
 import { prefs } from '@/lib/prefs'
 import { toast } from '@/lib/toast'
 
@@ -27,6 +28,9 @@ const player = usePlayer()
 const { library, playlists, dislikes, isDisliked, dislike, undislike } = useSync()
 const sleep = useSleepTimer()
 const eq = useEqualizer()
+
+/** 混响 / 环绕 / 变调（2.4） */
+const sound = useSoundEffect()
 
 const track = computed(() => player.current.value)
 
@@ -211,7 +215,11 @@ const moreItems = computed(() => {
     { key: 'lyric', label: lyricActive.value ? '关闭桌面歌词' : '打开桌面歌词', hint: '' },
     { key: 'source', label: '歌曲换源', hint: `当前 ${t.source.toUpperCase()}` },
     { key: 'rate', label: '播放速度', hint: fmtRate(player.state.rate) },
-    { key: 'eq', label: '音效 / 均衡器', hint: eq.enabled.value ? eq.currentPreset.value.name : '关闭' },
+    {
+      key: 'eq',
+      label: '音效 / 均衡器',
+      hint: eq.enabled.value ? eq.currentPreset.value.name : (sound.active.value ? '环境音效' : '关闭'),
+    },
     sleep.active.value
       ? { key: 'sleep', label: '定时暂停', hint: `${sleep.label.value} 后暂停` }
       : { key: 'sleep', label: '定时暂停', hint: '到时自动暂停' },
@@ -699,6 +707,58 @@ const dotAlways = computed(() => prefs.progressStyle === 'dot')
           :disabled="!eq.enabled.value"
           @click="eq.reset()"
         >重置</button>
+      </div>
+
+      <!-- 环境音效：混响 / 环绕 / 变调（2.4） -->
+      <div class="mt-3 border-t border-ncm-divider pt-3">
+        <div class="flex items-center justify-between">
+          <span class="text-[13px] text-ncm-fg">环境音效</span>
+          <button
+            type="button"
+            class="rounded-full border border-ncm-divider px-2.5 py-0.5 text-[11px] text-ncm-muted hover:bg-ncm-bg"
+            @click="sound.reset()"
+          >全部关闭</button>
+        </div>
+        <p v-if="sound.failure.value" class="mt-1 text-[11px] text-red-500">{{ sound.failure.value }}</p>
+
+        <div class="mt-2 flex items-center gap-2">
+          <span class="w-[52px] shrink-0 text-[12px] text-ncm-muted">混响</span>
+          <input
+            type="range" min="0" max="100" step="1"
+            :value="Math.round(sound.reverb.value * 100)"
+            class="h-1 flex-1 accent-ncm-accent"
+            aria-label="混响强度"
+            @input="sound.setReverbAmount(Number(($event.target as HTMLInputElement).value) / 100)"
+          />
+          <span class="w-[36px] shrink-0 text-right text-[11px] tabular-nums text-ncm-fainter">{{ Math.round(sound.reverb.value * 100) }}%</span>
+        </div>
+
+        <div class="mt-2 flex items-center gap-2">
+          <span class="w-[52px] shrink-0 text-[12px] text-ncm-muted">环绕</span>
+          <input
+            type="range" min="0" max="100" step="1"
+            :value="Math.round(sound.panner.value * 100)"
+            class="h-1 flex-1 accent-ncm-accent"
+            aria-label="环绕强度"
+            @input="sound.setPannerAmount(Number(($event.target as HTMLInputElement).value) / 100)"
+          />
+          <span class="w-[36px] shrink-0 text-right text-[11px] tabular-nums text-ncm-fainter">{{ Math.round(sound.panner.value * 100) }}%</span>
+        </div>
+
+        <div class="mt-2 flex items-center gap-2">
+          <span class="w-[52px] shrink-0 text-[12px] text-ncm-muted">变调</span>
+          <select
+            :value="sound.semitones.value"
+            class="rounded-[6px] border border-ncm-divider bg-white px-2 py-1 text-[12px] text-ncm-fg outline-none focus:border-ncm-accent"
+            aria-label="升降调"
+            @change="sound.setSemitones(Number(($event.target as HTMLSelectElement).value))"
+          >
+            <option v-for="n in sound.PITCH_OPTIONS" :key="n" :value="n">
+              {{ n === 0 ? '原调' : (n > 0 ? '+' + n : String(n)) + ' 半音' }}
+            </option>
+          </select>
+          <span class="text-[11px] leading-[15px] text-ncm-fainter">变调会同时改变速度（与 lx 一致）</span>
+        </div>
       </div>
     </div>
 

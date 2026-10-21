@@ -14,6 +14,7 @@
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { setPlaybackHandler, setSeekHandler, takePendingResume, usePlayer } from '@/lib/player'
 import { bindAudioElement, useEqualizer } from '@/lib/equalizer'
+import { useSoundEffect } from '@/lib/sound-effect'
 import { prefs } from '@/lib/prefs'
 
 const player = usePlayer()
@@ -50,12 +51,31 @@ function armWatchdog(): void {
 }
 
 const eq = useEqualizer()
+const sound = useSoundEffect()
+
+/**
+ * 播放速率与变调都落在 playbackRate 上。
+ *
+ * - 变调比 = 2^(半音/12)；开了变调必须关掉 preservesPitch，否则音高不变（等于没做）；
+ * - 两个都开时速率相乘，并夹在 [0.25, 4]：再往外 Chromium 会静音或变调失真。
+ * - 换 src 会把 playbackRate 重置成 1，所以每次设 src 之后都要重灌一次。
+ */
+function applyRate(): void {
+  const a = el.value
+  if (!a) return
+  const pitch = sound.pitchRate.value
+  a.preservesPitch = pitch === 1
+  const rate = player.state.rate * pitch
+  a.playbackRate = Math.max(0.25, Math.min(4, Number.isFinite(rate) ? rate : 1))
+}
 
 onMounted(() => {
   // 音效图需要一个真实的 <audio> 元素；只有用户开过音效才会真正接上
   bindAudioElement(el.value)
   // 启动时若音效是开的，建图失败要能反映到设置界面
   if (eq.enabled.value) eq.setEnabled(true)
+  sound.restore()
+  applyRate()
 })
 
 onMounted(() => {
@@ -73,7 +93,7 @@ onMounted(() => {
     a.src = url
     a.volume = player.state.volume
     // 换 src 会把 playbackRate 重置成 1，必须每次重新灌
-    a.playbackRate = player.state.rate
+    applyRate()
     armWatchdog()
     await a.play()
   })
@@ -116,9 +136,8 @@ watch(() => player.state.volume, v => {
   if (el.value) el.value.volume = v
 })
 
-watch(() => player.state.rate, r => {
-  if (el.value) el.value.playbackRate = r
-})
+watch(() => player.state.rate, () => applyRate())
+watch(() => sound.semitones.value, () => applyRate())
 
 function onTime(): void {
   if (el.value) player.reportTime(el.value.currentTime)

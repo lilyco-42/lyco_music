@@ -371,6 +371,17 @@ export class DownloadManager {
         task.progress = 0
       }
 
+      // 元数据要在落盘之后写，所以先取好放进请求里；
+      // 取歌词失败不影响下载本身（拿不到就只是不嵌歌词）
+      let tags
+      if (this.options.prepareTags) {
+        try {
+          tags = await this.options.prepareTags(task)
+        } catch {
+          tags = undefined
+        }
+      }
+
       await this.options.transport.start(
         {
           id: task.id,
@@ -379,6 +390,7 @@ export class DownloadManager {
           fileName: task.fileName,
           offset,
           skipIfExists: this.options.skipExisting?.() ?? false,
+          ...(tags ? { tags } : {}),
         },
         event => this.onEvent(task, event),
       )

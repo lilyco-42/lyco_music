@@ -93,6 +93,14 @@ contextBridge.exposeInMainWorld('lxmnNative', {
       ipcRenderer.on('lxmn:lyric:seek-request', handler)
       return () => ipcRenderer.removeListener('lxmn:lyric:seek-request', handler)
     },
+    /** 主窗口推送频谱柱状数据（PARITY 3.20） */
+    pushSpectrum: (bars) => { ipcRenderer.send('lxmn:lyric:spectrum', bars) },
+    /** 歌词窗口订阅频谱 */
+    onSpectrum: (cb) => {
+      const handler = (_e, bars) => { try { cb(bars) } catch { /* ignore */ } }
+      ipcRenderer.on('lxmn:lyric:spectrum', handler)
+      return () => ipcRenderer.removeListener('lxmn:lyric:spectrum', handler)
+    },
     /** 歌词窗口订阅数据 */
     onData: (cb) => {
       const handler = (_e, payload) => { try { cb(payload) } catch { /* ignore */ } }
