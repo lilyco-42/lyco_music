@@ -16,6 +16,7 @@ import IconButton from '@/components/ui/IconButton.vue'
 import QualityMenu from '@/components/layout/QualityMenu.vue'
 import { saveUrl, safeFileName, audioExt } from '@/lib/download'
 import { enqueueDownload } from '@/lib/downloads'
+import { findSameSong } from '@/lib/same-song'
 import { useSleepTimer } from '@/lib/sleep-timer'
 import { useEqualizer } from '@/lib/equalizer'
 import { prefs } from '@/lib/prefs'
@@ -170,7 +171,7 @@ const seekHint = computed(() => {
 /* ---------------- 右侧「…」菜单与播放队列 ---------------- */
 
 /** 面板互斥：同时只开一个，避免两层浮层叠在一起 */
-const openPanel = ref<'none' | 'more' | 'queue' | 'addto' | 'rate' | 'sleep' | 'eq'>('none')
+const openPanel = ref<'none' | 'more' | 'queue' | 'addto' | 'rate' | 'sleep' | 'eq' | 'source'>('none')
 
 /** 0.5 → "0.5×"；1 → "1×"（不要 1.00× 那种零） */
 function fmtRate(r: number): string {
@@ -208,6 +209,7 @@ const moreItems = computed(() => {
       ? { key: 'dislike', label: '取消不喜欢', hint: '恢复推荐与播放' }
       : { key: 'dislike', label: '不喜欢这首歌', hint: '加入屏蔽规则，之后自动跳过' },
     { key: 'lyric', label: lyricActive.value ? '关闭桌面歌词' : '打开桌面歌词', hint: '' },
+    { key: 'source', label: '歌曲换源', hint: `当前 ${t.source.toUpperCase()}` },
     { key: 'rate', label: '播放速度', hint: fmtRate(player.state.rate) },
     { key: 'eq', label: '音效 / 均衡器', hint: eq.enabled.value ? eq.currentPreset.value.name : '关闭' },
     sleep.active.value
@@ -338,6 +340,10 @@ async function onMore(key: string): Promise<void> {
     }
     return
   }
+  if (key === 'source') {
+    openPanel.value = 'source'
+    return
+  }
   if (key === 'rate') {
     openPanel.value = 'rate'
     return
@@ -352,6 +358,44 @@ async function onMore(key: string): Promise<void> {
   }
   if (key === 'queue') {
     openPanel.value = 'queue'
+  }
+}
+
+/* ---- 歌曲换源（1.5） ---- */
+
+const SOURCE_LABELS: Record<string, string> = { wy: '网易云', kw: '酷我', kg: '酷狗', mg: '咪咕' }
+const switching = ref('')
+
+/**
+ * 换到指定音源。
+ *
+ * 用「同名同歌手」在目标源里搜一首（findSameSong 内部有缓存），找到就替换
+ * 队列里当前这一项并播放 —— 不新增队列条目，否则用户会看到两首一样的歌。
+ * 找不到就如实说，不静默回退：那样用户会以为换成功了。
+ */
+async function switchSource(source: string): Promise<void> {
+  const t = track.value
+  if (!t || switching.value) return
+  if (t.source === source) { openPanel.value = 'none'; return }
+  switching.value = source
+  try {
+    const found = await findSameSong(t, source as never)
+    if (!found) {
+      toast((SOURCE_LABELS[source] ?? source) + ' 里没找到这首歌')
+      return
+    }
+    const queue = [...player.state.queue]
+    const at = queue.findIndex(x => x.source === t.source && String(x.songmid) === String(t.songmid))
+    if (at >= 0) queue[at] = found
+    openPanel.value = 'none'
+    await player.play(found, queue.length ? queue : undefined)
+    toast('已换到 ' + (SOURCE_LABELS[source] ?? source))
+  } catch (e) {
+    // 换源失败不能把异常抛出去：这个回调里未捕获的拒绝会让 Vue 组件树报错，
+    // 表现是底栏整个消失（实测过），比「换源失败」本身严重得多
+    toast('换源失败：' + (e instanceof Error ? e.message : String(e)))
+  } finally {
+    switching.value = ''
   }
 }
 
@@ -656,6 +700,26 @@ const dotAlways = computed(() => prefs.progressStyle === 'dot')
           @click="eq.reset()"
         >重置</button>
       </div>
+    </div>
+
+    <!-- 歌曲换源 -->
+    <div
+      v-if="openPanel === 'source' && track"
+      class="absolute bottom-[112px] right-[28px] z-50 w-[200px] overflow-hidden rounded-2xl border border-ncm-divider bg-white py-1 shadow-[0_12px_32px_rgba(0,0,0,.14)]"
+    >
+      <div class="px-4 py-1.5 text-[12px] text-ncm-fainter">换到哪个音源</div>
+      <button
+        v-for="s in ['wy', 'kw', 'kg', 'mg']"
+        :key="s"
+        type="button"
+        class="flex w-full items-center justify-between px-4 py-1.5 text-left text-[13px] transition-colors hover:bg-black/5 disabled:opacity-40"
+        :class="track.source === s ? 'text-ncm-accent' : 'text-ncm-fg'"
+        :disabled="track.source === s || switching !== ''"
+        @click="switchSource(s)"
+      >
+        <span>{{ SOURCE_LABELS[s] }}</span>
+        <span class="text-[11px] text-ncm-fainter">{{ track.source === s ? '当前' : (switching === s ? '查找中…' : '') }}</span>
+      </button>
     </div>
 
     <!-- 定时暂停 -->
