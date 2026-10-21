@@ -8,7 +8,8 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Check, ListMusic, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward } from 'lucide-vue-next'
-import { parseLyric, findLineIndex } from '@lxmn/core'
+import { findLineIndex } from '@lxmn/core'
+import { viewLyric } from '@/lib/lyric-view'
 import { usePlayer } from '@/lib/player'
 import { useSync } from '@/lib/sync'
 import IconButton from '@/components/ui/IconButton.vue'
@@ -87,7 +88,7 @@ onMounted(async () => {
   lyricWindowOpen.value = await nativeLyric.isOpen().catch(() => false)
 })
 
-const lyricLines = computed(() => parseLyric(player.state.lyric, player.state.tlyric, player.state.romalrc).lines)
+const lyricLines = computed(() => viewLyric(player.state.lyric, player.state.tlyric, player.state.romalrc).lines)
 const lyricIndex = computed(() => findLineIndex(lyricLines.value, player.state.currentTime))
 const lyricWindow = computed(() => {
   const lines = lyricLines.value

@@ -62,6 +62,24 @@ interface LxmnLyricStyle {
   fontFamily: string
   stroke: number
   lines: 1 | 2
+  /** 3.12 加粗 */
+  boldLines: boolean
+  boldTranslation: boolean
+  /** 3.14 不换行 */
+  noWrap: boolean
+  /** 3.15 行距倍数 */
+  lineHeight: number
+  /** 3.16 竖排 */
+  vertical: boolean
+  /** 3.17 当前行位置 */
+  scrollAt: 'top' | 'center'
+  /** 3.18 暂停时调淡 */
+  dimWhenPaused: boolean
+  dimOpacity: number
+  /** 3.22 任务栏显示 */
+  showInTaskbar: boolean
+  /** 3.21 主窗口全屏时隐藏 */
+  hideOnFullscreen: boolean
 }
 
 interface LxmnLyricApi {
@@ -74,6 +92,7 @@ interface LxmnLyricApi {
   setLock: (locked: boolean) => Promise<boolean>
   getStyle: () => Promise<LxmnLyricStyle & { locked: boolean }>
   setStyle: (patch: Partial<LxmnLyricStyle>) => Promise<LxmnLyricStyle>
+  resetWindow: () => Promise<boolean>
   reserve: (extra: number) => Promise<boolean>
   release: () => Promise<boolean>
   dragStart: () => Promise<{ x: number; y: number; width: number; height: number } | null>

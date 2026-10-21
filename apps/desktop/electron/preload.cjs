@@ -75,6 +75,8 @@ contextBridge.exposeInMainWorld('lxmnNative', {
     setLock: (locked) => ipcRenderer.invoke('lxmn:lyric:set-lock', locked),
     getStyle: () => ipcRenderer.invoke('lxmn:lyric:get-style'),
     setStyle: (patch) => ipcRenderer.invoke('lxmn:lyric:set-style', patch),
+    /** 窗口被拖到屏幕外/换显示器后找不回来时的救援（PARITY 3.23） */
+    resetWindow: () => ipcRenderer.invoke('lxmn:lyric:reset-window'),
     /** 右键面板展开时给窗口腾地方（透明窗口里画不下就往外长） */
     reserve: (extra) => ipcRenderer.invoke('lxmn:lyric:reserve', extra),
     release: () => ipcRenderer.invoke('lxmn:lyric:release'),

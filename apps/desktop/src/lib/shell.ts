@@ -74,7 +74,7 @@ export function installShellIntegration(): void {
       player.state.playing,
       player.state.index,
       player.state.queue.length,
-      library.favorites.length,
+      favorites.value.length,
     ],
     pushTrayState,
     { immediate: true },

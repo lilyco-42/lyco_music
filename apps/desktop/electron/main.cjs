@@ -190,6 +190,23 @@ function createWindow() {
     }
   })
 
+  /**
+   * 主窗口全屏时自动隐藏桌面歌词（3.21）。
+   *
+   * 注意这是**主窗口**的全屏，不是「任何应用全屏」—— 监听别的进程
+   * 是否全屏要读窗口句柄，跨平台不可靠。用户看视频/打游戏时歌词仍会留着，
+   * 这是已知的局限，界面上写清楚。
+   */
+  win.on('enter-full-screen', () => {
+    if (!lyricWin || lyricWin.isDestroyed()) return
+    void readLyricState().then(s => {
+      if (normalizeLyricStyle(s).hideOnFullscreen && lyricWin && !lyricWin.isDestroyed()) lyricWin.hide()
+    })
+  })
+  win.on('leave-full-screen', () => {
+    if (lyricWin && !lyricWin.isDestroyed()) lyricWin.showInactive()
+  })
+
   win.on('closed', () => { win = null })
 }
 
@@ -435,7 +452,12 @@ const lyricStatePath = () => path.join(app.getPath('userData'), 'lyric-window.js
  * 渲染层一旦传进 NaN / 非法颜色，写进 style 的表现是「歌词凭空消失」，
  * 而界面上看不出任何异常，排查成本极高。所以宁可在这里再夹一次。
  */
-const LYRIC_STYLE_KEYS = ['fontSize', 'playedColor', 'unplayedColor', 'fontFamily', 'stroke', 'lines']
+const LYRIC_STYLE_KEYS = [
+  'fontSize', 'playedColor', 'unplayedColor', 'fontFamily', 'stroke', 'lines',
+  // PARITY 3.12–3.22
+  'boldLines', 'boldTranslation', 'noWrap', 'lineHeight', 'vertical',
+  'scrollAt', 'dimWhenPaused', 'dimOpacity', 'showInTaskbar', 'hideOnFullscreen',
+]
 const LYRIC_FONT_STACKS = new Set([
   '',
   '"Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif',
@@ -454,6 +476,12 @@ function clampInt(v, min, max, fallback) {
 function normalizeLyricStyle(raw) {
   const s = raw || {}
   const color = (v, fb) => (typeof v === 'string' && HEX.test(v) ? v.toLowerCase() : fb)
+  const bool = (v, fb) => (typeof v === 'boolean' ? v : fb)
+  const num = (v, fb, min, max) => {
+    const n = Number(v)
+    if (!Number.isFinite(n)) return fb
+    return Math.min(max, Math.max(min, Math.round(n * 100) / 100))
+  }
   return {
     fontSize: clampInt(s.fontSize, 18, 72, 34),
     playedColor: color(s.playedColor ?? s.color, '#4ade80'),
@@ -461,6 +489,16 @@ function normalizeLyricStyle(raw) {
     fontFamily: LYRIC_FONT_STACKS.has(s.fontFamily) ? s.fontFamily : '',
     stroke: clampInt(s.stroke, 0, 3, 1),
     lines: Number(s.lines) === 1 ? 1 : 2,
+    boldLines: bool(s.boldLines, true),
+    boldTranslation: bool(s.boldTranslation, false),
+    noWrap: bool(s.noWrap, false),
+    lineHeight: num(s.lineHeight, 1.35, 1, 2.4),
+    vertical: bool(s.vertical, false),
+    scrollAt: s.scrollAt === 'top' ? 'top' : 'center',
+    dimWhenPaused: bool(s.dimWhenPaused, false),
+    dimOpacity: num(s.dimOpacity, 0.45, 0.1, 1),
+    showInTaskbar: bool(s.showInTaskbar, false),
+    hideOnFullscreen: bool(s.hideOnFullscreen, false),
   }
 }
 
@@ -505,6 +543,13 @@ async function createLyricWindow() {
   // 永远压在最上层（含全屏应用之上）
   lyricWin.setAlwaysOnTop(true, 'screen-saver')
   lyricWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+
+  // 任务栏可见性来自用户设置（3.22）：录屏软件抓不到这个窗口时，
+  // 让它在任务栏里出现，用户至少能用录屏的「捕获窗口」选到它
+  try {
+    const st = normalizeLyricStyle(await readLyricState())
+    lyricWin.setSkipTaskbar(!st.showInTaskbar)
+  } catch { /* 平台不支持就算了 */ }
 
   if (isDev && devUrl) lyricWin.loadURL(devUrl + '#/lyric-window')
   else lyricWin.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { hash: '/lyric-window' })
@@ -698,7 +743,33 @@ ipcMain.handle('lxmn:lyric:set-style', async (_e, patch) => {
   // 渲染层传个 NaN 进来会让歌词直接看不见，而界面上「看起来正常」
   const next = normalizeLyricStyle({ ...cur, ...rest }, cur)
   await saveLyricState(next)
+  // 任务栏可见性属于窗口属性，不能只写进样式
+  if (lyricWin && !lyricWin.isDestroyed()) {
+    try { lyricWin.setSkipTaskbar(!next.showInTaskbar) } catch { /* 平台不支持 */ }
+  }
   return next
+})
+
+/**
+ * 重置歌词窗口位置与尺寸（3.23）。
+ *
+ * 「拖到屏幕外找不回来」是这类无边框窗口的经典事故：用户换了显示器、
+ * 拔了外接屏，保存的 x/y 就落在不存在的区域里 —— 界面上表现为
+ * 「歌词窗口消失了」，而且没有任何入口能救回来。
+ */
+ipcMain.handle('lxmn:lyric:reset-window', async () => {
+  try { await fs.rm(lyricStatePath(), { force: true }) } catch { /* 没有就算了 */ }
+  if (!lyricWin || lyricWin.isDestroyed()) return true
+  const area = screen.getPrimaryDisplay().workArea
+  const width = Math.min(900, Math.round(area.width * 0.7))
+  const height = 170
+  lyricWin.setBounds({
+    x: area.x + Math.round((area.width - width) / 2),
+    y: area.y + Math.round(area.height * 0.78),
+    width,
+    height,
+  })
+  return true
 })
 
 /* ---------- 渲染层需要的原生能力 ---------- */

@@ -52,7 +52,7 @@ export interface DesktopPrefs {
   /* ---- 歌词 ---- */
   /** 繁体转简体（3.4） */
   lyricS2T: boolean
-  /** 全局歌词偏移，秒（3.5）。正数 = 歌词提前 */
+  /** 全局歌词偏移，秒（3.5）。正数 = 歌词整体延后 */
   lyricOffset: number
   /** 播放详情页歌词字号（3.6） */
   playLyricFontSize: number
