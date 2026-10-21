@@ -1,6 +1,6 @@
 {
   "name": "@lxmn/core",
-  "version": "0.2.27",
+  "version": "0.2.28",
   "description": "平台无关的音乐源适配内核 — 桌面端与移动端共享",
   "type": "module",
   "main": "./dist/index.js",

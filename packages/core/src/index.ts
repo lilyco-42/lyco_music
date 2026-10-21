@@ -22,7 +22,7 @@ export * from './download/naming'
 export * from './track'
 export * from './trial'
 
-export const CORE_VERSION = '0.2.27'
+export const CORE_VERSION = '0.2.28'
 
 /**
  * 应用对外版本号。与根 package.json 同源 —— 发版时两处一起改，
