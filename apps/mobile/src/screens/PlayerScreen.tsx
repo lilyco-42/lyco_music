@@ -20,7 +20,7 @@ import {
 } from 'react-native'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import {
-  ChevronDownIcon, HeartIcon, CommentIcon, ShareIcon, ListIcon,
+  ChevronDownIcon, HeartIcon, CommentIcon, ShareIcon, ListIcon, BlockIcon,
   LoopIcon, ShuffleIcon, SkipIcon, PlayIcon, PauseIcon,
 } from '../components/Icons'
 import { colors } from '../theme'
@@ -199,6 +199,20 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
     if (!item) return
     await library.toggleFavorite(item)
     setFav(isFav(item))
+  }, [item])
+
+  /* ---------------- 不喜欢 ---------------- */
+  const [blocked, setBlocked] = useState(false)
+  useEffect(() => {
+    setBlocked(item ? library.isDisliked({ name: item.name, singer: item.singer }) : false)
+  }, [item?.songmid, item?.source, item?.name, item?.singer])
+
+  const onToggleBlock = useCallback(async () => {
+    if (!item) return
+    const target = { name: item.name, singer: item.singer }
+    if (library.isDisliked(target)) await library.removeDislike(target)
+    else await library.addDislikes([target])
+    setBlocked(library.isDisliked(target))
   }, [item])
 
   /* ---------------- 歌词 / 评论 ---------------- */
@@ -632,6 +646,9 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
         >
           <Pressable hitSlop={10} onPress={safe('收藏', onToggleFav)} accessibilityLabel={fav ? '取消收藏' : '收藏'}>
             <HeartIcon size={22} filled={fav} color={fav ? colors.accent : colors.muted} />
+          </Pressable>
+          <Pressable hitSlop={10} onPress={safe('不喜欢', onToggleBlock)} accessibilityLabel={blocked ? '取消不喜欢' : '不喜欢'}>
+            <BlockIcon size={22} color={blocked ? colors.accent : colors.muted} active={blocked} />
           </Pressable>
           <Pressable hitSlop={10} onPress={safe('查看评论', () => setCommentOpen(true))} accessibilityLabel="评论">
             <CommentIcon size={22} color={colors.muted} />

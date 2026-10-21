@@ -136,6 +136,37 @@ export function HeartIcon({ size = 20, color = '#9a9a9a', filled = true }: IconP
   )
 }
 
+/**
+ * 不喜欢：一个被斜线划掉的圆。
+ *
+ * 不用拇指朝下的字形：Android 默认字体里没有 U+1F44D 的描边变体，
+ * 落到 emoji 后是彩色且无法跟随主题色。圆 + 斜线两个 View 就能画，
+ * 在任何字号下都清晰，也和这套图标的线条粗细一致。
+ */
+export function BlockIcon({ size = 20, color = '#9a9a9a', active = false }: IconProps & { active?: boolean }) {
+  return (
+    <View
+      style={{
+        width: size, height: size, borderRadius: size / 2,
+        borderWidth: 1.8, borderColor: color,
+        alignItems: 'center', justifyContent: 'center',
+        backgroundColor: active ? color : 'transparent',
+      }}
+    >
+      <View
+        style={{
+          position: 'absolute',
+          width: size * 0.72,
+          height: 1.8,
+          borderRadius: 1,
+          backgroundColor: active ? '#101010' : color,
+          transform: [{ rotate: '-45deg' }],
+        }}
+      />
+    </View>
+  )
+}
+
 /** 评论气泡：圆角矩形 + 左下角一个小三角尾巴 */
 export function CommentIcon({ size = 20, color = '#9a9a9a' }: IconProps) {
   const w = size

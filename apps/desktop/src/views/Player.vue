@@ -25,7 +25,7 @@ import { usePlayer } from '@/lib/player'
 import WindowControls from '@/components/layout/WindowControls.vue'
 import QualityMenu from '@/components/layout/QualityMenu.vue'
 import IconButton from '@/components/ui/IconButton.vue'
-import { ListMusic, Maximize2, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward } from 'lucide-vue-next'
+import { ListMusic, Maximize2, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, ThumbsDown } from 'lucide-vue-next'
 
 const router = useRouter()
 const player = usePlayer()
@@ -183,10 +183,16 @@ function readLayers(): { original: boolean; romaji: boolean; translation: boolea
 
 const layers = ref(readLayers())
 
+/**
+ * 三个可切换的字幕层。
+ *
+ * 播放器右侧只有约 600px 宽，用「原文 / 罗马音 / 翻译」会把整行挤到换行
+ * （实测每个字竖着排）。单字标签 + title 说明，既省地方也一眼能认。
+ */
 const LAYER_OPTIONS = [
-  { key: 'original' as const, label: '原文' },
-  { key: 'romaji' as const, label: '罗马音' },
-  { key: 'translation' as const, label: '翻译' },
+  { key: 'original' as const, label: '原', name: '原文' },
+  { key: 'romaji' as const, label: '罗', name: '罗马音' },
+  { key: 'translation' as const, label: '译', name: '翻译' },
 ]
 
 function toggleLayer(key: 'original' | 'romaji' | 'translation'): void {
@@ -304,7 +310,32 @@ const album = computed(() => current.value?.albumName ?? '')
 /* ---------------- 评论 ---------------- */
 
 
-const { library, favorites } = useSync()
+const { library, favorites, dislikes, isDisliked, dislike, undislike } = useSync()
+
+/**
+ * 当前这首是否已被标记「不喜欢」。
+ *
+ * 依赖 dislikes 是为了让按钮在规则变化后重算 —— isDisliked 读的是
+ * 内核里的索引，Vue 追踪不到它。
+ */
+const disliked = computed(() => {
+  void dislikes.value
+  const item = state.playingItem ?? current.value
+  return item ? isDisliked({ name: item.name, singer: item.singer }) : false
+})
+
+async function toggleDislike(): Promise<void> {
+  const item = state.playingItem ?? current.value
+  if (!item) return
+  const target = { name: item.name, singer: item.singer }
+  if (disliked.value) {
+    await undislike(target)
+    toast('已取消不喜欢')
+  } else {
+    await dislike(target)
+    toast('已加入不喜欢，之后不再推荐这首')
+  }
+}
 
 /** 评论只对实现了 getComments 的音源有效（当前是网易云） */
 const commentSource = computed(() => commentTarget.value?.source ?? '')
@@ -599,6 +630,21 @@ const vinylStyle = computed(() => ({
               </svg>
             </template>
           </IconButton>
+          <IconButton
+            :label="disliked ? '取消不喜欢' : '不喜欢这首'"
+            tone="dark"
+            size="lg"
+            @click="toggleDislike"
+          >
+            <template #default="{ size }">
+              <ThumbsDown
+                :size="size"
+                :stroke-width="1.8"
+                :class="disliked ? 'fill-ncmd-accent/25 text-ncmd-accent' : 'text-ncmd-muted'"
+                aria-hidden="true"
+              />
+            </template>
+          </IconButton>
         </div>
 
         <!-- 副标题：18px，距歌名 15px -->
@@ -612,22 +658,23 @@ const vinylStyle = computed(() => ({
         <!-- 页签切换器（shadcn-vue Tabs）：222x42，圆角 21px，位于 (1005,265) -->
         <Tabs v-model="activeTab" class="mt-[28px] flex min-h-0 flex-1 flex-col">
           <div class="flex items-center justify-between gap-3">
-            <TabsList>
+            <TabsList class="shrink-0">
               <TabsTrigger v-for="t in tabs" :key="t.key" :value="t.key">
                 {{ t.label }}
               </TabsTrigger>
             </TabsList>
+          </div>
 
-            <!-- 滚动方式：只在歌词页签出现，切到评论就收起来 -->
-            <div v-if="activeTab === 'lyric'" class="flex items-center gap-1 text-[12px] text-ncmd-dim">
+          <!-- 歌词控件：单独一行。挤在页签右边会超出 600px 的列宽，被窗口裁掉 -->
+          <div v-if="activeTab === 'lyric'" class="mt-2 flex flex-wrap items-center gap-1 text-[12px] text-ncmd-dim">
               <!-- 字幕层级：原文 / 罗马音 / 翻译 各自可关 -->
               <button
                 v-for="o in LAYER_OPTIONS"
                 :key="o.key"
                 type="button"
-                class="rounded-full px-2 py-[2px] transition-colors"
+                class="shrink-0 rounded-full px-2 py-[2px] transition-colors"
                 :class="layers[o.key] ? 'bg-white/15 text-ncmd-fg' : 'hover:bg-white/10 hover:text-ncmd-muted'"
-                :title="layers[o.key] ? `隐藏${o.label}` : `显示${o.label}`"
+                :title="layers[o.key] ? `隐藏${o.name}` : `显示${o.name}`"
                 @click="toggleLayer(o.key)"
               >
                 {{ o.label }}
@@ -638,7 +685,7 @@ const vinylStyle = computed(() => ({
                 v-for="m in SCROLL_MODES"
                 :key="m.id"
                 type="button"
-                class="rounded-full px-2 py-[2px] transition-colors"
+                class="shrink-0 rounded-full px-2 py-[2px] transition-colors"
                 :class="scrollMode === m.id ? 'bg-white/15 text-ncmd-fg' : 'hover:bg-white/10 hover:text-ncmd-muted'"
                 :title="m.id === 'center' ? '当前行始终停在可视区中间' : '当前行钉在顶部，一行一行往下推'"
                 @click="setScrollMode(m.id)"
@@ -648,14 +695,13 @@ const vinylStyle = computed(() => ({
               <!-- 导出歌词：把当前这首（含翻译/罗马音）存成 .lrc -->
               <button
                 type="button"
-                class="ml-2 rounded-full px-2 py-[2px] transition-colors hover:bg-white/10 hover:text-ncmd-muted disabled:opacity-40"
+                class="ml-2 shrink-0 rounded-full px-2 py-[2px] transition-colors hover:bg-white/10 hover:text-ncmd-muted disabled:opacity-40"
                 :disabled="!lyrics.length || exporting"
                 title="把当前歌词导出为 .lrc 文件"
                 @click="exportLyric"
               >
                 {{ exporting ? '导出中…' : '导出歌词' }}
               </button>
-            </div>
           </div>
 
           <!-- 歌词区：与页签间留约 260px 空白，起始 y=573 -->

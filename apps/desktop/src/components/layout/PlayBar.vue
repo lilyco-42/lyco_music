@@ -19,7 +19,7 @@ import { toast } from '@/lib/toast'
 
 const router = useRouter()
 const player = usePlayer()
-const { library, playlists } = useSync()
+const { library, playlists, dislikes, isDisliked, dislike, undislike } = useSync()
 
 const track = computed(() => player.current.value)
 
@@ -170,6 +170,13 @@ function togglePanel(name: 'more' | 'queue'): void {
   openPanel.value = openPanel.value === name ? 'none' : name
 }
 
+/** 当前曲目是否被标记不喜欢（依赖 dislikes 才能随规则变化重算） */
+const disliked = computed(() => {
+  void dislikes.value
+  const t = playingItem.value
+  return t ? isDisliked({ name: t.name, singer: t.singer }) : false
+})
+
 const moreItems = computed(() => {
   const t = track.value
   if (!t) return []
@@ -180,6 +187,9 @@ const moreItems = computed(() => {
     { key: 'download', label: '下载歌曲', hint: downloading.value ? '正在下载…' : '另存为音频文件' },
     { key: 'enqueue', label: '下载到音乐库', hint: '进下载管理，可暂停 / 续传' },
     { key: 'copy', label: '复制歌名 - 歌手', hint: '粘贴到别处分享' },
+    disliked.value
+      ? { key: 'dislike', label: '取消不喜欢', hint: '恢复推荐与播放' }
+      : { key: 'dislike', label: '不喜欢这首歌', hint: '加入屏蔽规则，之后自动跳过' },
     { key: 'lyric', label: lyricActive.value ? '关闭桌面歌词' : '打开桌面歌词', hint: '' },
     { key: 'queue', label: `播放队列（${player.state.queue.length}）`, hint: '' },
   ]
@@ -293,6 +303,17 @@ async function onMore(key: string): Promise<void> {
     openPanel.value = 'none'
     const n = await enqueueDownload([t], player.state.quality)
     toast(n ? '已加入下载队列' : '这首已经在下载列表里了')
+    return
+  }
+  if (key === 'dislike') {
+    const target = { name: t.name, singer: t.singer }
+    if (disliked.value) {
+      await undislike(target)
+      toast('已取消不喜欢')
+    } else {
+      await dislike(target)
+      toast('已加入不喜欢，之后自动跳过')
+    }
     return
   }
   if (key === 'queue') {

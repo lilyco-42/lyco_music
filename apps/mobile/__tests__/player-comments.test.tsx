@@ -9,6 +9,10 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react-nativ
 import PlayerScreen from '../src/screens/PlayerScreen'
 
 const mockToggleFavorite = jest.fn(async () => undefined)
+const mockAddDislikes = jest.fn(async () => undefined)
+const mockRemoveDislike = jest.fn(async () => undefined)
+/** 内核里「是否已屏蔽」的索引，测试里手动翻（jest.mock 工厂只允许引用 mock* 变量） */
+let mockDisliked = false
 
 jest.mock('../src/player', () => {
   const item = { songmid: '9', name: '测试歌曲', singer: '测试歌手', source: 'wy', albumName: '专辑', interval: '03:00' }
@@ -32,6 +36,10 @@ jest.mock('../src/sync', () => ({
     load: jest.fn(async () => undefined),
     snapshot: () => ({ favorites: [] }),
     toggleFavorite: (...a: unknown[]) => mockToggleFavorite(...a),
+    // 播放页渲染时会读 isDisliked 决定图标亮不亮；缺了它组件会直接抛异常
+    isDisliked: () => mockDisliked,
+    addDislikes: (...a: unknown[]) => mockAddDislikes(...a),
+    removeDislike: (...a: unknown[]) => mockRemoveDislike(...a),
   },
 }))
 
@@ -80,5 +88,26 @@ describe('播放页评论与爱心', () => {
     render(<PlayerScreen />)
     fireEvent.press(screen.getByLabelText('收藏'))
     await waitFor(() => expect(mockToggleFavorite).toHaveBeenCalled())
+  }, 20000)
+
+  it('点「不喜欢」写入屏蔽规则（歌名 + 歌手）', async () => {
+    mockDisliked = false
+    mockAddDislikes.mockClear()
+    render(<PlayerScreen />)
+    fireEvent.press(screen.getByLabelText('不喜欢'))
+    await waitFor(() =>
+      expect(mockAddDislikes).toHaveBeenCalledWith([{ name: '测试歌曲', singer: '测试歌手' }]),
+    )
+  }, 20000)
+
+  it('已屏蔽时按钮变成「取消不喜欢」，点击是移除规则', async () => {
+    mockDisliked = true
+    mockRemoveDislike.mockClear()
+    render(<PlayerScreen />)
+    fireEvent.press(screen.getByLabelText('取消不喜欢'))
+    await waitFor(() =>
+      expect(mockRemoveDislike).toHaveBeenCalledWith({ name: '测试歌曲', singer: '测试歌手' }),
+    )
+    mockDisliked = false
   }, 20000)
 })

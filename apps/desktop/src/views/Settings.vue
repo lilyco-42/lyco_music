@@ -7,13 +7,47 @@
  * 有人喜欢干净、有人屏幕是 1080p 带缩放（纹理在高 DPI 下会糊），
  * 所以每一档都必须能关掉。
  */
-import { computed } from 'vue'
-import { Check, Layers, Palette, Sparkles } from 'lucide-vue-next'
+import { computed, ref, watch } from 'vue'
+import { Check, Layers, Palette, Sparkles, ThumbsDown } from 'lucide-vue-next'
 import { useTexture, type TextureId } from '@/lib/texture'
 import { useTheme, SKINS, type SkinId } from '@/lib/theme'
+import { useSync } from '@/lib/sync'
+import { toast } from '@/lib/toast'
 
 const tex = useTexture()
 const theme = useTheme()
+
+/* ---------------- 不喜欢（屏蔽规则） ---------------- */
+
+const { dislikes, setDislikeRules, clearDislikes } = useSync()
+
+/**
+ * 文本框的草稿。
+ *
+ * 内核里存的就是规则行数组，这里只做「文本 ↔ 数组」的转换。
+ * dirty 是为了避免：用户正在输入时，别的入口（播放页的「不喜欢」按钮）
+ * 改了规则，watch 把用户没保存的草稿覆盖掉。
+ */
+const dislikeDraft = ref(dislikes.value.join('\n'))
+const dislikeDirty = ref(false)
+
+watch(dislikes, v => {
+  if (!dislikeDirty.value) dislikeDraft.value = v.join('\n')
+})
+
+async function saveDislikes(): Promise<void> {
+  await setDislikeRules(dislikeDraft.value)
+  dislikeDirty.value = false
+  dislikeDraft.value = dislikes.value.join('\n')
+  toast(`已保存 ${dislikes.value.length} 条屏蔽规则`)
+}
+
+async function wipeDislikes(): Promise<void> {
+  await clearDislikes()
+  dislikeDirty.value = false
+  dislikeDraft.value = ''
+  toast('已清空屏蔽规则')
+}
 
 const activeTexture = computed(() => tex.textures.find(t => t.id === tex.textureId.value) ?? tex.textures[0]!)
 
@@ -159,6 +193,49 @@ const SKIN_DESC: Record<SkinId, string> = {
           <Check v-if="theme.currentId.value === p.id" :size="13" class="text-ncm-accent" />
         </button>
       </div>
+    </div>
+
+    <!-- ============ 不喜欢的歌曲 ============ -->
+    <div class="mt-5 rounded-2xl border border-ncm-divider bg-white p-7">
+      <div class="flex items-center gap-2">
+        <ThumbsDown :size="19" class="text-ncm-accent" aria-hidden="true" />
+        <h2 class="text-lg font-semibold text-ncm-fg">不喜欢的歌曲</h2>
+        <span class="ml-1 text-[12px] text-ncm-faint">{{ dislikes.length }} 条规则</span>
+      </div>
+      <p class="mt-2 text-sm text-ncm-faint">
+        命中的歌在随机/顺序播放时会被自动跳过，也不参与推荐。规则与 lx-music 完全兼容，可以从它那儿直接粘过来。
+      </p>
+      <ul class="mt-3 space-y-1 text-[12px] text-ncm-muted">
+        <li><code class="rounded bg-ncm-bg px-1.5 py-0.5">歌名@艺术家</code> 只屏蔽这一首；歌名里本来有 @ 就写 #</li>
+        <li><code class="rounded bg-ncm-bg px-1.5 py-0.5">歌名</code> 屏蔽所有同名的歌（翻唱也会中）</li>
+        <li><code class="rounded bg-ncm-bg px-1.5 py-0.5">@艺术家</code> 屏蔽这个人的全部作品（合唱不匹配，见下方说明）</li>
+      </ul>
+      <textarea
+        v-model="dislikeDraft"
+        rows="6"
+        spellcheck="false"
+        placeholder="例如：&#10;晴天@周杰伦&#10;@某位不想再听到的歌手"
+        class="mt-4 w-full resize-y rounded-xl border border-ncm-divider bg-ncm-bg px-3 py-2.5 font-mono text-[13px] leading-[21px] text-ncm-fg outline-none focus:border-ncm-accent"
+        @input="dislikeDirty = true"
+      />
+      <div class="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          class="rounded-full bg-ncm-accent px-4 py-1.5 text-[13px] text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+          :disabled="!dislikeDirty"
+          @click="saveDislikes"
+        >保存规则</button>
+        <button
+          type="button"
+          class="rounded-full border border-ncm-divider px-4 py-1.5 text-[13px] text-ncm-muted hover:bg-ncm-bg disabled:opacity-40"
+          :disabled="!dislikes.length && !dislikeDraft.trim()"
+          @click="wipeDislikes"
+        >清空</button>
+        <span v-if="dislikeDirty" class="text-[12px] text-ncm-faint">有未保存的修改</span>
+      </div>
+      <p class="mt-3 text-[12px] leading-[18px] text-ncm-faint">
+        整串比对，不做分词：singer 是「周杰伦/费玉清」时，规则写「千里之外@周杰伦」不会命中，要写「千里之外」或「@费玉清」。
+      </p>
     </div>
 
     <p class="mt-6 text-center text-[12px] text-ncm-faint">

@@ -8,13 +8,21 @@
  * 也允许手动填自建地址：那时用独立的同步令牌。
  */
 import { computed, ref } from 'vue'
-import { Library, DEFAULT_SYNC_BASE, type SyncOutcome } from '@lxmn/core'
+import { Library, DEFAULT_SYNC_BASE, type SyncOutcome, type DislikeTarget } from '@lxmn/core'
 import { subscription } from './subscription'
 
 const library = new Library()
 const favorites = ref<Awaited<ReturnType<Library['snapshot']>>['favorites']>([])
 const playlists = ref<Awaited<ReturnType<Library['snapshot']>>['playlists']>([])
 const history = ref<Awaited<ReturnType<Library['snapshot']>>['history']>([])
+/**
+ * 「不喜欢」规则。
+ *
+ * 内核的 isDisliked 是同步的（随机播放每切一首都要判断），但它读的是
+ * 内核内部的索引，Vue 感知不到变化。所以这里额外维护一份规则数组：
+ * 它变了，用到 isDisliked 的模板才会重新渲染。
+ */
+const dislikes = ref<string[]>([])
 
 const configured = ref(false)
 const tokenMask = ref('')
@@ -31,6 +39,7 @@ function pull(): void {
   favorites.value = s.favorites
   playlists.value = s.playlists
   history.value = s.history
+  dislikes.value = [...s.dislikes]
 }
 
 export function useSync() {
@@ -144,10 +153,26 @@ export function useSync() {
     }
   }
 
+  /** 标记不喜欢。传整首（歌名+歌手）最精确，只传一项就是「屏蔽这首歌/这个人」 */
+  async function dislike(target: DislikeTarget): Promise<void> {
+    await library.addDislikes([target])
+    pull()
+  }
+
+  /** 取消不喜欢（规则里能精确匹配到的那条才会被删掉） */
+  async function undislike(target: DislikeTarget): Promise<void> {
+    await library.removeDislike(target)
+    pull()
+  }
+
   return {
-    library, favorites, playlists, history,
+    library, favorites, playlists, history, dislikes,
     configured, tokenMask, baseUrl, busy, error, lastSyncedAt, lastMessage, server,
     restore, connect, connectWithMembership, disconnect, syncNow, pull,
+    dislike, undislike,
+    isDisliked: (t: DislikeTarget | null | undefined): boolean => library.isDisliked(t),
+    setDislikeRules: async (text: string) => { await library.setDislikeRules(text); pull() },
+    clearDislikes: async () => { await library.clearDislikes(); pull() },
     DEFAULT_SYNC_BASE,
   }
 }
