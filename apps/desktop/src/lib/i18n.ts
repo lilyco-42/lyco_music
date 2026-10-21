@@ -52,6 +52,19 @@ const ZH_CN: Dict = {
   'nav.import': '导入本地音乐',
   'nav.more': '更多',
 
+  'search.title': '搜索「{q}」',
+  'search.total': '共 {n} 首',
+  'search.playAll': '播放全部',
+  'search.loading': '搜索中…',
+  'search.empty': '没有找到相关歌曲',
+  'search.all': '全部',
+  'my.title': '我的音乐',
+  'my.new': '新建歌单',
+  'my.trial': '试听列表',
+  'my.fav': '我喜欢的音乐',
+  'my.recent': '最近播放',
+  'my.playlists': '我的歌单',
+
   'sidebar.group.discover': '发现音乐',
   'sidebar.group.service': '账户与服务',
   'sidebar.group.mine': '我的音乐',
@@ -99,6 +112,19 @@ const EN_US: Dict = {
   'nav.import': 'Import Local Music',
   'nav.more': 'More',
 
+  'search.title': 'Search "{q}"',
+  'search.total': '{n} tracks',
+  'search.playAll': 'Play All',
+  'search.loading': 'Searching…',
+  'search.empty': 'No matching songs',
+  'search.all': 'All',
+  'my.title': 'My Music',
+  'my.new': 'New Playlist',
+  'my.trial': 'Play Queue',
+  'my.fav': 'Liked Songs',
+  'my.recent': 'Recently Played',
+  'my.playlists': 'My Playlists',
+
   'sidebar.group.discover': 'Discover',
   'sidebar.group.service': 'Account & Services',
   'sidebar.group.mine': 'My Music',
@@ -145,6 +171,19 @@ const KO_KR: Dict = {
   'nav.download': '다운로드 관리',
   'nav.import': '로컬 음악 가져오기',
   'nav.more': '더보기',
+
+  'search.title': '"{q}" 검색',
+  'search.total': '총 {n}곡',
+  'search.playAll': '전체 재생',
+  'search.loading': '검색 중…',
+  'search.empty': '검색 결과가 없습니다',
+  'search.all': '전체',
+  'my.title': '내 음악',
+  'my.new': '새 플레이리스트',
+  'my.trial': '재생 목록',
+  'my.fav': '좋아하는 음악',
+  'my.recent': '최근 재생',
+  'my.playlists': '내 플레이리스트',
 
   'sidebar.group.discover': '음악 발견',
   'sidebar.group.service': '계정 및 서비스',
@@ -214,10 +253,24 @@ export function t(key: string, fallback?: string, loc?: Locale): string {
   return fallback ?? key
 }
 
+/**
+ * 带占位符的取词：`tf('search.title', { q: '晴天' })`。
+ *
+ * 单独抽出来是因为不同语言的语序不一样（英文 "Search \"x\""、"x" 검색），
+ * 用字符串拼接在中文里通顺、换个语言就散了。保持模板 + 占位符，
+ * 每条文案怎么写由各语言自己决定。
+ */
+export function tf(key: string, params?: Record<string, string | number>, fallback?: string): string {
+  let out = t(key, fallback)
+  if (!params) return out
+  for (const [k, v] of Object.entries(params)) out = out.split('{' + k + '}').join(String(v))
+  return out
+}
+
 /** 源语言里定义的全部 key —— 用例据此检查各语言有没有漏译 */
 export const TRANSLATION_KEYS: readonly string[] = Object.keys(ZH_CN)
 
 /** 组件里用：`const { t, locale } = useI18n()` */
 export function useI18n() {
-  return { t, locale, locales: LOCALES }
+  return { t, tf, locale, locales: LOCALES }
 }

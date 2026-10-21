@@ -11,7 +11,9 @@ import { Play } from 'lucide-vue-next'
 import { getSource, hasSource, type MusicItem } from '@lxmn/core'
 import { usePlayer } from '@/lib/player'
 import { useSync } from '@/lib/sync'
+import { useI18n } from '@/lib/i18n'
 
+const { t, tf } = useI18n()
 const route = useRoute()
 const player = usePlayer()
 const { library, favorites } = useSync()
@@ -46,7 +48,7 @@ const sourceTabs = computed(() => {
   const counts = new Map<string, number>()
   for (const item of list.value) counts.set(item.source, (counts.get(item.source) ?? 0) + 1)
   return [
-    { id: 'all' as const, label: '全部', count: list.value.length },
+    { id: 'all' as const, label: t('search.all', '全部'), count: list.value.length },
     ...[...counts.entries()]
       .sort((a, b) => b[1] - a[1])
       .map(([id, count]) => ({ id, label: SOURCE_LABELS[id] ?? id, count })),
@@ -131,8 +133,8 @@ function fmtDuration(v: unknown): string {
 <template>
   <div class="pt-2">
     <div class="mb-4 flex items-baseline gap-3">
-      <h1 class="text-[26px] font-bold text-ncm-fg">搜索「{{ keyword }}」</h1>
-      <span v-if="total" class="text-[14px] text-ncm-faint">共 {{ total }} 首</span>
+      <h1 class="text-[26px] font-bold text-ncm-fg">{{ tf('search.title', { q: keyword }, '搜索「' + keyword + '」') }}</h1>
+      <span v-if="total" class="text-[14px] text-ncm-faint">{{ tf('search.total', { n: total }, '共 ' + total + ' 首') }}</span>
       <!--
         「播放全部」不是装饰：点单曲会把队列切成试听列表（lx 的心智模型），
         想连着听当前这批搜索结果就必须从这里进。
@@ -144,7 +146,7 @@ function fmtDuration(v: unknown): string {
         @click="playAll"
       >
         <Play :size="14" :stroke-width="2.4" aria-hidden="true" />
-        <span>播放全部</span>
+        <span>{{ t('search.playAll', '播放全部') }}</span>
       </button>
     </div>
 
@@ -166,12 +168,12 @@ function fmtDuration(v: unknown): string {
       </button>
     </div>
 
-    <p v-if="loading" class="text-[15px] text-ncm-faint">搜索中…</p>
+    <p v-if="loading" class="text-[15px] text-ncm-faint">{{ t('search.loading', '搜索中…') }}</p>
     <p v-else-if="error" class="text-[15px] text-ncm-accent">{{ error }}</p>
     <p v-else-if="!keyword" class="text-[15px] text-ncm-faint">在上方输入关键词后回车</p>
     <div v-else-if="!list.length" class="flex flex-col items-center">
       <img :src="'./art/empty-search.jpg'" alt="" class="w-[180px] rounded-cover opacity-90" loading="lazy" />
-      <p class="mt-4 text-[15px] text-ncm-faint">没有找到相关歌曲</p>
+      <p class="mt-4 text-[15px] text-ncm-faint">{{ t('search.empty', '没有找到相关歌曲') }}</p>
     </div>
 
     <ul v-else class="flex flex-col">

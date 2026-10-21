@@ -17,8 +17,10 @@ import { usePlayer } from '@/lib/player'
 import { useSync } from '@/lib/sync'
 import { useSharing } from '@/lib/share'
 import { importWyPlaylist } from '@/lib/playlist-import'
+import { useI18n } from '@/lib/i18n'
 import { trackKey, type MusicItem, type SourceId } from '@lxmn/core'
 
+const { t } = useI18n()
 const { library, favorites, history, playlists, trial } = useSync()
 const player = usePlayer()
 const { getShared } = useSharing()
@@ -402,7 +404,7 @@ watch(playlists, () => {
 <template>
   <div class="pt-2">
     <div class="flex items-start justify-between gap-4">
-      <h1 class="text-[30px] font-bold leading-10 text-ncm-fg">我的音乐</h1>
+      <h1 class="text-[30px] font-bold leading-10 text-ncm-fg">{{ t('my.title', '我的音乐') }}</h1>
       <div class="mt-1 flex shrink-0 items-center gap-2">
         <button
           type="button"
@@ -418,7 +420,7 @@ watch(playlists, () => {
           @click="startCreate()"
         >
           <Plus :size="17" :stroke-width="2.4" aria-hidden="true" />
-          <span>新建歌单</span>
+          <span>{{ t('my.new', '新建歌单') }}</span>
         </button>
       </div>
     </div>
@@ -458,25 +460,25 @@ watch(playlists, () => {
         class="rounded-pill px-5 py-2 text-[15px] transition-colors"
         :class="tab === 'trial' ? 'bg-ncm-accent text-white' : 'bg-white text-ncm-muted hover:bg-black/5'"
         @click="setTab('trial')"
-      >试听列表 {{ trial.length }}</button>
+      >{{ t('my.trial', '试听列表') }} {{ trial.length }}</button>
       <button
         type="button"
         class="rounded-pill px-5 py-2 text-[15px] transition-colors"
         :class="tab === 'fav' ? 'bg-ncm-accent text-white' : 'bg-white text-ncm-muted hover:bg-black/5'"
         @click="setTab('fav')"
-      >我喜欢的音乐 {{ favorites.length }}</button>
+      >{{ t('my.fav', '我喜欢的音乐') }} {{ favorites.length }}</button>
       <button
         type="button"
         class="rounded-pill px-5 py-2 text-[15px] transition-colors"
         :class="tab === 'recent' ? 'bg-ncm-accent text-white' : 'bg-white text-ncm-muted hover:bg-black/5'"
         @click="setTab('recent')"
-      >最近播放 {{ history.length }}</button>
+      >{{ t('my.recent', '最近播放') }} {{ history.length }}</button>
       <button
         type="button"
         class="rounded-pill px-5 py-2 text-[15px] transition-colors"
         :class="tab === 'playlist' ? 'bg-ncm-accent text-white' : 'bg-white text-ncm-muted hover:bg-black/5'"
         @click="setTab('playlist')"
-      >我的歌单 {{ playlists.length }}</button>
+      >{{ t('my.playlists', '我的歌单') }} {{ playlists.length }}</button>
     </div>
 
     <!-- 新建歌单输入条 -->
