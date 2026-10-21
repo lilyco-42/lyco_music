@@ -64,6 +64,9 @@ jest.mock('@lxmn/core', () => ({
   }),
   hasSource: () => true,
   listSources: () => ['wy'],
+  // 评论正文解析（9.1）：组件会把正文切成 文字/图片/表情 段再渲染，
+  // 这个 mock 缺了会在渲染期抛 "not a function"，整页都出不来
+  parseCommentContent: (text: string) => [{ type: 'text' as const, text: String(text ?? '') }],
   parseLyric: () => ({ lines: [{ time: 1, text: '第一句' }], hasTranslation: false }),
   findLineIndex: () => 0,
 }))
