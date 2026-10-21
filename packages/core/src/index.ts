@@ -19,6 +19,8 @@ export * from './dislike'
 export * from './download'
 export * from './download/types'
 export * from './download/naming'
+export * from './track'
+export * from './trial'
 
 export const CORE_VERSION = '0.2.27'
 

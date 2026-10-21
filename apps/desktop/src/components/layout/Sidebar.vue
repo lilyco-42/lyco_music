@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   Disc3, Music2, Sparkles, Podcast, Compass, UsersRound,
   Heart, History, Download, Ellipsis, Crown, Cloud, UserRound,
-  ListMusic, Plus, Settings2,
+  ListMusic, ListOrdered, Plus, Settings2,
 } from 'lucide-vue-next'
 import { useSync } from '@/lib/sync'
 
@@ -28,6 +28,8 @@ const navServices = [
   { key: 'account', label: '我的账户', icon: UserRound, route: '/account' },
 ]
 const navMine = [
+  // 试听列表放在第一位：lx 用户点歌之后第一件事就是去这里看队列
+  { key: 'trial', label: '试听列表', icon: ListOrdered, route: '/my', tab: 'trial' },
   { key: 'like', label: '我喜欢的音乐', icon: Heart, route: '/my', tab: 'fav' },
   { key: 'recent', label: '最近播放', icon: History, route: '/my', tab: 'recent' },
   { key: 'download', label: '下载管理', icon: Download, route: '/downloads', tab: '' },

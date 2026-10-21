@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { getSource, hasSource, listSources, type MusicItem } from '@lxmn/core'
-import { play, usePlayerState } from '../player'
+import { playSong, usePlayerState } from '../player'
 import { library } from '../sync'
 import { safe } from '../lib/safe'
 import { colors, useTopInset } from '../theme'
@@ -303,7 +303,7 @@ export default function SearchScreen({ initialKeyword }: { initialKeyword?: stri
             const active = item.songmid === currentId
             return (
               <Pressable
-                onPress={safe('播放', () => play(item, list))}
+                onPress={safe('播放', () => playSong(item))}
                 style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 10, gap: 12 }}
               >
                 <Text style={{ color: colors.fainter, fontSize: 13, width: 20 }}>{index + 1}</Text>

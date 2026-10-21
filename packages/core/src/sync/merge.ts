@@ -7,10 +7,15 @@
  *     合并成 6 次会虚高；取 max 更接近「至少听过这么多」）
  *   - 歌单：按 id 合并，updatedAt 新的一方整体胜出（歌单是有序的，
  *     逐条并集会把顺序搅乱），但两边都有、且另一边更新的条目仍会被并进来
+ *   - 试听列表：与歌单同理，trialUpdatedAt 新的一方定顺序，另一方的
+ *     独有曲目追加到末尾
  *   - 设置：整体取更新的那一边（字段少且互相耦合，逐字段合并没意义）
  *
  * 这里没有任何网络/存储调用，纯函数 —— 所以能被测试穷举验证。
  */
+import type { MusicItem } from '../types'
+import { trackKey } from '../track'
+import { TRIAL_MAX } from '../trial'
 import type {
   SyncFavorite,
   SyncHistoryEntry,
@@ -19,10 +24,7 @@ import type {
   SyncSettings,
 } from './types'
 
-/** 判定「同一首歌」的键。跨音源的同一首歌算两条 —— 它们的 songmid 不通用。 */
-export function trackKey(item: { source?: string; songmid?: string | number }): string {
-  return String(item.source ?? '') + '::' + String(item.songmid ?? '')
-}
+export { trackKey }
 
 /** 收藏合并：去重取并集，重复时保留较新的字段 */
 export function mergeFavorites(a: SyncFavorite[], b: SyncFavorite[]): SyncFavorite[] {
@@ -66,6 +68,32 @@ export function mergeHistory(a: SyncHistoryEntry[], b: SyncHistoryEntry[]): Sync
     })
   }
   return [...map.values()].sort((x, y) => y.playedAt - x.playedAt)
+}
+
+/**
+ * 试听列表合并。
+ *
+ * 顺序是用户手排的，所以**不能**按时间戳重排（收藏那套规则在这里是错的）：
+ * 用户刚把某首拖到第一位，同步一次就跳回去，会觉得同步坏了。
+ *
+ * 规则与 mergePlaylists 一致：trialUpdatedAt 更新的一方整体定顺序，
+ * 另一方的独有曲目追加到末尾 —— 这样「在手机上点过一首歌」也能同步过来，
+ * 而不会打乱电脑上排好的顺序。
+ *
+ * 时间戳相同时偏向 a（调用方约定 a 是本地），保证结果确定。
+ */
+export function mergeTrial(a: MusicItem[], b: MusicItem[], aAt = 0, bAt = 0): MusicItem[] {
+  const newer = bAt > aAt ? b : a
+  const older = bAt > aAt ? a : b
+  const seen = new Set<string>()
+  const out: MusicItem[] = []
+  for (const item of [...newer, ...older]) {
+    const key = trackKey(item)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    out.push(item)
+  }
+  return out.length > TRIAL_MAX ? out.slice(0, TRIAL_MAX) : out
 }
 
 /** 歌单合并：同名同 id 按 updatedAt 取新，条目做并集且保持原有相对顺序 */
@@ -131,6 +159,8 @@ export function mergeSettings(a: SyncSettings, b: SyncSettings, aAt = 0, bAt = 0
 export function mergePayload(local: SyncPayload, remote: SyncPayload): SyncPayload {
   const localAt = Number(local.settingsUpdatedAt) || 0
   const remoteAt = Number(remote.settingsUpdatedAt) || 0
+  const localTrialAt = Number(local.trialUpdatedAt) || 0
+  const remoteTrialAt = Number(remote.trialUpdatedAt) || 0
   return {
     settings: mergeSettings(local.settings ?? {}, remote.settings ?? {}, localAt, remoteAt),
     settingsUpdatedAt: Math.max(localAt, remoteAt),
@@ -138,6 +168,8 @@ export function mergePayload(local: SyncPayload, remote: SyncPayload): SyncPaylo
     playlists: mergePlaylists(local.playlists ?? [], remote.playlists ?? []),
     history: mergeHistory(local.history ?? [], remote.history ?? []),
     dislikes: mergeDislikes(local.dislikes ?? [], remote.dislikes ?? []),
+    trial: mergeTrial(local.trial ?? [], remote.trial ?? [], localTrialAt, remoteTrialAt),
+    trialUpdatedAt: Math.max(localTrialAt, remoteTrialAt),
   }
 }
 
@@ -166,6 +198,7 @@ export function isEmptyPayload(p: SyncPayload): boolean {
     !p.playlists?.length &&
     !p.history?.length &&
     !p.dislikes?.length &&
+    !p.trial?.length &&
     !Object.keys(p.settings ?? {}).length
   )
 }

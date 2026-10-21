@@ -46,6 +46,8 @@ export interface SyncSettings {
   lyricFontSize?: number
   showTranslation?: boolean
   theme?: string
+  /** 加入试听列表时放头部还是尾部（对应 lx 的 list.addMusicLocationType） */
+  addMusicLocationType?: 'top' | 'bottom'
 }
 
 /**
@@ -69,6 +71,15 @@ export interface SyncPayload {
   favorites: SyncFavorite[]
   playlists: SyncPlaylist[]
   history: SyncHistoryEntry[]
+  /**
+   * 试听列表（对应 lx 的 default 列表），**有序**。
+   *
+   * 顺序就是用户排的顺序，所以合并时不能像收藏那样按时间重排 ——
+   * 见 merge.ts 的 mergeTrial。
+   */
+  trial?: MusicItem[]
+  /** 试听列表最后修改时间，毫秒时间戳；合并时以此判定哪边的顺序更新 */
+  trialUpdatedAt?: number
   /**
    * 「不喜欢的歌曲」规则，一行一条（`歌名@艺术家` / `歌名` / `@艺术家`）。
    *
@@ -112,5 +123,14 @@ export interface SyncClientOptions {
 
 /** 空的同步载荷，用于首次同步 */
 export function emptyPayload(): SyncPayload {
-  return { settings: {}, settingsUpdatedAt: 0, favorites: [], playlists: [], history: [], dislikes: [] }
+  return {
+    settings: {},
+    settingsUpdatedAt: 0,
+    favorites: [],
+    playlists: [],
+    history: [],
+    dislikes: [],
+    trial: [],
+    trialUpdatedAt: 0,
+  }
 }

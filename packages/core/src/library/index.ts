@@ -9,6 +9,19 @@
  */
 import { getPlatform } from '../registry'
 import type { MusicItem } from '../types'
+import { dedupeTracks, isSameTrack, trackKey } from '../track'
+import {
+  trialAdd,
+  trialIndexOf,
+  trialHas,
+  trialRemove,
+  trialRemoveKeys,
+  trialMoveTo,
+  trialShift,
+  trialTakeOut,
+  TRIAL_MAX,
+  type AddLocation,
+} from '../trial'
 import { SyncClient, DEFAULT_SYNC_BASE } from '../sync/client'
 import { mergePayload } from '../sync/merge'
 import {
@@ -43,6 +56,10 @@ export interface LibraryState {
   favorites: SyncFavorite[]
   playlists: SyncPlaylist[]
   history: SyncHistoryEntry[]
+  /** 试听列表（对应 lx 的 default 列表），有序 */
+  trial: MusicItem[]
+  /** 试听列表最后修改时间，合并时判定顺序归属 */
+  trialUpdatedAt: number
   /** 「不喜欢的歌曲」规则，一行一条。格式与 lx-music 兼容 */
   dislikes: string[]
   settings: SyncSettings
@@ -50,15 +67,16 @@ export interface LibraryState {
 }
 
 function initialState(): LibraryState {
-  return { favorites: [], playlists: [], history: [], dislikes: [], settings: {}, settingsUpdatedAt: 0 }
-}
-
-function trackKey(item: { source?: string; songmid?: string | number }): string {
-  return String(item.source ?? '') + '::' + String(item.songmid ?? '')
-}
-
-function isSameTrack(a: MusicItem, b: MusicItem): boolean {
-  return a.source === b.source && String(a.songmid) === String(b.songmid)
+  return {
+    favorites: [],
+    playlists: [],
+    history: [],
+    trial: [],
+    trialUpdatedAt: 0,
+    dislikes: [],
+    settings: {},
+    settingsUpdatedAt: 0,
+  }
 }
 
 /** 歌单名归一化：去首尾空白、压掉连续空白、截断到上限 */
@@ -128,6 +146,8 @@ export class Library {
       favorites: [...this.state.favorites],
       playlists: this.state.playlists.map(p => ({ ...p, items: [...p.items] })),
       history: [...this.state.history],
+      trial: [...this.state.trial],
+      trialUpdatedAt: this.state.trialUpdatedAt,
       dislikes: [...this.state.dislikes],
       settings: { ...this.state.settings },
       settingsUpdatedAt: this.state.settingsUpdatedAt,
@@ -149,6 +169,11 @@ export class Library {
           favorites: Array.isArray(parsed.favorites) ? parsed.favorites : [],
           playlists: Array.isArray(parsed.playlists) ? parsed.playlists : [],
           history: Array.isArray(parsed.history) ? parsed.history : [],
+          // 老库里没有 trial 字段，缺省成空数组即可；
+          // 顺便去一次重 —— 早期版本没有试听列表，数据只能来自同步，
+          // 而同步合并的历史上有过重复写入的可能
+          trial: Array.isArray(parsed.trial) ? dedupeTracks(parsed.trial).slice(0, TRIAL_MAX) : [],
+          trialUpdatedAt: Number(parsed.trialUpdatedAt) || 0,
           // 老版本的库里没有 dislikes 字段，缺省成空数组即可，不需要迁移
           dislikes: Array.isArray(parsed.dislikes) ? parsed.dislikes.map(String) : [],
           settings: parsed.settings && typeof parsed.settings === 'object' ? parsed.settings : {},
@@ -193,6 +218,8 @@ export class Library {
       playlists: this.state.playlists.map(p => ({ ...p, items: [...p.items] })),
       history: [...this.state.history],
       dislikes: [...this.state.dislikes],
+      trial: [...this.state.trial],
+      trialUpdatedAt: this.state.trialUpdatedAt,
     }
   }
 
@@ -203,6 +230,8 @@ export class Library {
       favorites: merged.favorites.slice(0, MAX_FAVORITES),
       playlists: merged.playlists,
       history: merged.history.slice(0, MAX_HISTORY),
+      trial: dedupeTracks(merged.trial ?? []).slice(0, TRIAL_MAX),
+      trialUpdatedAt: Number(merged.trialUpdatedAt) || 0,
       dislikes: linesToRules(merged.dislikes ?? []).split('\n').filter(Boolean),
       settings: merged.settings,
       settingsUpdatedAt: Number(merged.settingsUpdatedAt) || 0,
@@ -346,6 +375,129 @@ export class Library {
     const at = this.state.playlists.findIndex(p => p.id === playlistId)
     if (at < 0) return
     this.state.playlists.splice(at, 1)
+    await this.persist()
+    this.emit()
+  }
+
+  // ------------------------------------------------------------ 试听列表
+
+  /** 试听列表快照（有序） */
+  get trial(): MusicItem[] {
+    return [...this.state.trial]
+  }
+
+  /**
+   * 是否已在试听列表里。
+   *
+   * 与 isDisliked 一样做成**同步**：搜索页每渲染一行都要问一次，
+   * 做成 async 会让列表出现「先没有标记、再闪出一个点」的跳动。
+   */
+  isInTrial(item: MusicItem): boolean {
+    return trialHas(this.state.trial, item)
+  }
+
+  /** 在试听列表里的位置，没有返回 -1 */
+  trialIndexOf(item: MusicItem): number {
+    return trialIndexOf(this.state.trial, item)
+  }
+
+  /**
+   * 加入试听列表。
+   *
+   * 返回「是否真的有新增」—— 播放链路用它决定要不要重建队列：
+   * 重复点同一首歌时列表没变，重建队列会让正在播的那首被打断。
+   */
+  async addToTrial(items: readonly MusicItem[] | MusicItem, location?: AddLocation): Promise<boolean> {
+    await this.load()
+    const list = Array.isArray(items) ? items : [items]
+    if (!list.some(it => !trialHas(this.state.trial, it))) return false
+    const at = location ?? this.state.settings.addMusicLocationType ?? 'top'
+    this.state.trial = trialAdd(this.state.trial, list, at)
+    await this.touchTrial()
+    return true
+  }
+
+  async removeFromTrial(items: readonly MusicItem[] | MusicItem): Promise<void> {
+    await this.load()
+    const list = Array.isArray(items) ? items : [items]
+    const next = trialRemove(this.state.trial, list)
+    if (next.length === this.state.trial.length) return
+    this.state.trial = next
+    await this.touchTrial()
+  }
+
+  /** 按键删除（界面里拿到的是 `source::songmid`） */
+  async removeTrialKeys(keys: readonly string[]): Promise<void> {
+    await this.load()
+    const next = trialRemoveKeys(this.state.trial, keys)
+    if (next.length === this.state.trial.length) return
+    this.state.trial = next
+    await this.touchTrial()
+  }
+
+  async clearTrial(): Promise<void> {
+    await this.load()
+    if (!this.state.trial.length) return
+    this.state.trial = []
+    await this.touchTrial()
+  }
+
+  /** 把选中的曲目移到 position（拖拽排序），keys 的顺序即目标顺序 */
+  async moveInTrial(position: number, keys: readonly string[]): Promise<void> {
+    await this.load()
+    if (!keys.length) return
+    const next = trialMoveTo(this.state.trial, position, keys)
+    if (next.length === this.state.trial.length && next.every((x, i) => trackKey(x) === trackKey(this.state.trial[i]!))) {
+      return
+    }
+    this.state.trial = next
+    await this.touchTrial()
+  }
+
+  /** 上移 / 下移一首，delta 为 -1 / +1 */
+  async shiftInTrial(key: string, delta: number): Promise<void> {
+    await this.load()
+    const next = trialShift(this.state.trial, key, delta)
+    if (next.every((x, i) => trackKey(x) === trackKey(this.state.trial[i]!))) return
+    this.state.trial = next
+    await this.touchTrial()
+  }
+
+  /**
+   * 把试听列表里的若干首转存到自建歌单（对应 lx 的跨列表移动）。
+   *
+   * 顺序跟着试听列表走 —— 用户是「把这几首整体存进去」，
+   * 不是「随便塞进去」，顺序反了等于没存对。
+   * 返回真正加进歌单的条数（已在歌单里的会被跳过）。
+   */
+  async moveTrialToPlaylist(keys: readonly string[], playlistId: string): Promise<number> {
+    await this.load()
+    const pl = this.state.playlists.find(p => p.id === playlistId)
+    if (!pl || !keys.length) return 0
+    const { moved, rest } = trialTakeOut(this.state.trial, keys)
+    if (!moved.length) return 0
+    const have = new Set(pl.items.map(trackKey))
+    let added = 0
+    for (const item of moved) {
+      const key = trackKey(item)
+      if (have.has(key)) continue
+      have.add(key)
+      pl.items.push(item)
+      added++
+    }
+    if (added) pl.updatedAt = Date.now()
+    if (rest.length !== this.state.trial.length) {
+      this.state.trial = rest
+      this.state.trialUpdatedAt = Date.now()
+    }
+    await this.persist()
+    this.emit()
+    return added
+  }
+
+  /** 落盘 + 广播，并推进 trialUpdatedAt（同步时用来判定顺序归属） */
+  private async touchTrial(): Promise<void> {
+    this.state.trialUpdatedAt = Date.now()
     await this.persist()
     this.emit()
   }

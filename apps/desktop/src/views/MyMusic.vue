@@ -11,21 +11,21 @@
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ChevronLeft, Download, ListMusic, Pencil, Play, Plus } from 'lucide-vue-next'
+import { ArrowDown, ArrowUp, ChevronLeft, Download, ListMusic, Pencil, Play, Plus, X } from 'lucide-vue-next'
 import { enqueueDownload } from '@/lib/downloads'
 import { usePlayer } from '@/lib/player'
 import { useSync } from '@/lib/sync'
 import { useSharing } from '@/lib/share'
-import type { MusicItem, SourceId } from '@lxmn/core'
+import { trackKey, type MusicItem, type SourceId } from '@lxmn/core'
 
-const { library, favorites, history, playlists } = useSync()
+const { library, favorites, history, playlists, trial } = useSync()
 const player = usePlayer()
 const { getShared } = useSharing()
 const route = useRoute()
 const router = useRouter()
 
-type Tab = 'fav' | 'recent' | 'playlist'
-const tab = ref<Tab>('fav')
+type Tab = 'trial' | 'fav' | 'recent' | 'playlist'
+const tab = ref<Tab>('trial')
 
 /** 当前打开的歌单 id；null = 停在歌单列表 */
 const openId = ref<string | null>(null)
@@ -74,6 +74,9 @@ interface Row {
 }
 
 const list = computed<Row[]>(() => {
+  if (tab.value === 'trial') {
+    return trial.value.map(item => ({ item, playedAt: 0 }))
+  }
   if (tab.value === 'fav') {
     return favorites.value.map(item => ({ item, playedAt: 0 }))
   }
@@ -96,7 +99,27 @@ async function unfav(item: MusicItem): Promise<void> {
 }
 
 async function addTo(playlistId: string, item: MusicItem): Promise<void> {
+  // 试听列表里这个下拉是「转存」而不是「加入」：转存完就不该继续占着试听列表，
+  // 否则用户整理一次之后，试听列表还堆着同一批歌，等于没整理。
+  if (tab.value === 'trial') {
+    await library.moveTrialToPlaylist([trackKey(item)], playlistId)
+    return
+  }
   await library.addToPlaylist(playlistId, item)
+}
+
+/* ------------------------------------------------ 试听列表 */
+
+function shiftTrial(item: MusicItem, delta: number): void {
+  void library.shiftInTrial(trackKey(item), delta)
+}
+
+function removeFromTrial(item: MusicItem): void {
+  void library.removeFromTrial(item)
+}
+
+async function clearTrial(): Promise<void> {
+  await library.clearTrial()
 }
 
 /**
@@ -327,7 +350,7 @@ function applyRoute(): void {
     return
   }
   const t = route.query.tab
-  if (t === 'fav' || t === 'recent' || t === 'playlist') {
+  if (t === 'trial' || t === 'fav' || t === 'recent' || t === 'playlist') {
     tab.value = t
     if (t !== 'playlist') openId.value = null
   }
@@ -357,6 +380,12 @@ watch(playlists, () => {
 
     <!-- 切换 -->
     <div class="mt-5 flex flex-wrap gap-2">
+      <button
+        type="button"
+        class="rounded-pill px-5 py-2 text-[15px] transition-colors"
+        :class="tab === 'trial' ? 'bg-ncm-accent text-white' : 'bg-white text-ncm-muted hover:bg-black/5'"
+        @click="setTab('trial')"
+      >试听列表 {{ trial.length }}</button>
       <button
         type="button"
         class="rounded-pill px-5 py-2 text-[15px] transition-colors"
@@ -586,8 +615,20 @@ watch(playlists, () => {
       </ul>
     </div>
 
-    <!-- ============ 我喜欢的音乐 / 最近播放 ============ -->
+    <!-- ============ 我喜欢的音乐 / 最近播放 / 试听列表 ============ -->
     <template v-if="tab !== 'playlist'">
+      <!-- 试听列表的工具条：它是用户要维护的队列，所以给清空与说明 -->
+      <div v-if="tab === 'trial' && trial.length" class="mt-4 flex items-center gap-3">
+        <p class="flex-1 text-[13px] text-ncm-fainter">
+          在搜索页点一首歌就会进这里，播放队列也是它。可以调顺序、转存到歌单。
+        </p>
+        <button
+          type="button"
+          class="shrink-0 rounded-pill border border-ncm-divider px-3.5 py-1.5 text-[13px] text-ncm-muted transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-600"
+          @click="clearTrial"
+        >清空试听列表</button>
+      </div>
+
       <div v-if="!list.length" class="mt-10 flex flex-col items-center">
         <img
           :src="tab === 'fav' ? './art/empty-favorites.jpg' : './art/empty-history.jpg'"
@@ -596,7 +637,9 @@ watch(playlists, () => {
           loading="lazy"
         />
         <p class="mt-4 text-[15px] text-ncm-faint">
-          {{ tab === 'fav' ? '还没有收藏。在搜索页点右侧的心形即可收藏。' : '还没有播放记录。' }}
+          <template v-if="tab === 'trial'">试听列表是空的。在搜索页点一首歌，它就会进来。</template>
+          <template v-else-if="tab === 'fav'">还没有收藏。在搜索页点右侧的心形即可收藏。</template>
+          <template v-else>还没有播放记录。</template>
         </p>
       </div>
 
@@ -634,13 +677,37 @@ watch(playlists, () => {
             <div class="truncate text-[13px] text-ncm-faint">{{ row.item.singer }}</div>
           </div>
 
+          <!-- 试听列表：顺序是用户排的，所以要能调；按钮悬停才出现，避免干扰 -->
+          <div v-if="tab === 'trial'" class="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            <button
+              type="button"
+              class="rounded-full p-1.5 text-ncm-muted transition-colors hover:bg-black/5 disabled:opacity-30"
+              aria-label="上移"
+              title="上移"
+              :disabled="i === 0"
+              @click.stop="shiftTrial(row.item, -1)"
+            >
+              <ArrowUp :size="16" :stroke-width="2.2" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              class="rounded-full p-1.5 text-ncm-muted transition-colors hover:bg-black/5 disabled:opacity-30"
+              aria-label="下移"
+              title="下移"
+              :disabled="i === list.length - 1"
+              @click.stop="shiftTrial(row.item, 1)"
+            >
+              <ArrowDown :size="16" :stroke-width="2.2" aria-hidden="true" />
+            </button>
+          </div>
+
           <!-- 加进歌单：永远可见，没有歌单时也能从这里新建 -->
           <select
             class="shrink-0 rounded-[6px] border border-ncm-divider bg-white px-2 py-1.5 text-[13px] text-ncm-muted outline-none"
             @click.stop
             @change="onPick(row.item, $event)"
           >
-            <option value="">加入歌单…</option>
+            <option value="">{{ tab === 'trial' ? '转存到歌单…' : '加入歌单…' }}</option>
             <option v-for="pl in playlists" :key="pl.id" :value="pl.id">{{ pl.name }}</option>
             <option value="__new__">＋ 新建歌单</option>
           </select>
@@ -660,6 +727,17 @@ watch(playlists, () => {
             <svg viewBox="0 0 24 24" class="size-[18px] fill-ncm-accent">
               <path d="M12 21s-7.5-4.9-9.3-9.2C1.2 8.3 3.3 5 6.7 5c2 0 3.6 1.1 4.4 2.7l.9 1.7.9-1.7C13.7 6.1 15.3 5 17.3 5c3.4 0 5.5 3.3 4 6.8C19.5 16.1 12 21 12 21z" />
             </svg>
+          </button>
+
+          <button
+            v-if="tab === 'trial'"
+            type="button"
+            class="shrink-0 rounded-full p-2 text-ncm-fainter transition-colors hover:bg-black/5 hover:text-red-600"
+            aria-label="移出试听列表"
+            title="移出试听列表"
+            @click.stop="removeFromTrial(row.item)"
+          >
+            <X :size="17" :stroke-width="2.2" aria-hidden="true" />
           </button>
         </li>
       </ul>

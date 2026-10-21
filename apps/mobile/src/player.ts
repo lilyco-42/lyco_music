@@ -257,6 +257,21 @@ export async function play(item: MusicItem, queue?: MusicItem[]): Promise<void> 
 }
 
 /**
+ * 单曲点播：先加入试听列表，再以**试听列表**作为播放队列（与桌面端、lx 一致）。
+ *
+ * 带队列的 play()（歌单、专辑）不走这里：那些场景队列就是用户点进来的列表。
+ */
+export async function playSong(item: MusicItem): Promise<void> {
+  await library.addToTrial(item)
+  const list = library.trial
+  if (!list.length) {
+    await play(item)
+    return
+  }
+  await play(item, list)
+}
+
+/**
  * 下一首。
  *
  * auto=true 表示「一首放完了自动进下一首」，这时要遵守播放模式：

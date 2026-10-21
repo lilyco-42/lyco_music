@@ -427,6 +427,26 @@ export function usePlayer() {
   }
 
   /**
+   * 单曲点播：先加入试听列表，再以**试听列表**作为播放队列。
+   *
+   * 这是 lx-music 的心智模型，也是它和「播放历史」最容易混淆的地方：
+   * 在搜索页点一首歌，队列不是搜索结果，而是你的试听列表 ——
+   * 所以点完之后「下一首」是你之前点过的歌，不是搜索结果的下一行。
+   *
+   * 带队列的 play()（专辑、歌单、每日推荐）不走这里：
+   * 那些场景下队列就是用户点进来的那个列表，塞进试听列表反而会污染它。
+   */
+  async function playSong(item: MusicItem): Promise<void> {
+    await library.addToTrial(item)
+    const list = library.trial
+    if (!list.length) {
+      await play(item)
+      return
+    }
+    await play(item, list)
+  }
+
+  /**
    * 从 start 出发按 step 找下一首「没被标记不喜欢」的歌。
    *
    * 整队列都被屏蔽时返回 -1 —— 调用方必须停下，不能退回去放第一首：
@@ -586,7 +606,7 @@ export function usePlayer() {
     current,
     availableSources,
     qualityOrder,
-    search, play, next, prev, toggle, seek, setQuality,
+    search, play, playSong, next, prev, toggle, seek, setQuality,
     cycleMode, modeLabel, MODE_LABEL,
     toggleLyric, toggleMute,
     /** 流地址失效/加载超时后的自愈（AudioHost 调用，用户无感） */

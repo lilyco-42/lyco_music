@@ -11,7 +11,7 @@ import { library } from '../sync'
 import { getShared } from '../share'
 import { colors, useTopInset } from '../theme'
 
-type Tab = 'fav' | 'recent'
+type Tab = 'trial' | 'fav' | 'recent'
 
 interface Row {
   item: MusicItem
@@ -29,7 +29,7 @@ interface Props {
 
 export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends }: Props) {
   const insetTop = useTopInset()
-  const [tab, setTab] = useState<Tab>('fav')
+  const [tab, setTab] = useState<Tab>('trial')
   const [rows, setRows] = useState<Row[]>([])
   const [playlists, setPlaylists] = useState<{ id: string; name: string }[]>([])
   const st = usePlayerState()
@@ -38,11 +38,19 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
     const s = library.snapshot()
     setPlaylists(s.playlists.map(p => ({ id: p.id, name: p.name })))
     setRows(
-      tab === 'fav'
-        ? s.favorites.map(item => ({ item, playedAt: 0 }))
-        : s.history.map(h => ({ item: h, playedAt: h.playedAt })),
+      tab === 'trial'
+        ? s.trial.map(item => ({ item, playedAt: 0 }))
+        : tab === 'fav'
+          ? s.favorites.map(item => ({ item, playedAt: 0 }))
+          : s.history.map(h => ({ item: h, playedAt: h.playedAt })),
     )
   }, [tab])
+
+  /** 从试听列表移出一首（移动端没有悬停，用行尾的 ✕） */
+  const dropTrial = useCallback(
+    (item: MusicItem) => library.removeFromTrial(item).then(pull),
+    [pull],
+  )
 
   useEffect(() => {
     void library.load().then(pull)
@@ -145,7 +153,7 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
 
       {/* 标签 */}
       <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 20, paddingVertical: 14 }}>
-        {([['fav', '我喜欢的'], ['recent', '最近播放']] as const).map(([k, label]) => (
+        {([['trial', '试听列表'], ['fav', '我喜欢的'], ['recent', '最近播放']] as const).map(([k, label]) => (
           <Pressable
             key={k}
             onPress={() => setTab(k)}
@@ -157,11 +165,24 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
             <Text style={{ color: tab === k ? '#fff' : colors.muted, fontSize: 13.5 }}>{label}</Text>
           </Pressable>
         ))}
+        {tab === 'trial' && rows.length ? (
+          <Pressable
+            onPress={() => void library.clearTrial().then(pull)}
+            hitSlop={10}
+            style={{ marginLeft: 'auto', paddingHorizontal: 10, paddingVertical: 8 }}
+          >
+            <Text style={{ color: colors.fainter, fontSize: 12.5 }}>清空</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       {!rows.length ? (
         <Text style={{ color: colors.fainter, paddingHorizontal: 20, fontSize: 14 }}>
-          {tab === 'fav' ? '还没有收藏。在搜索页点右侧的心形即可收藏。' : '还没有播放记录。'}
+          {tab === 'trial'
+            ? '试听列表是空的。在搜索页点一首歌，它就会进来。'
+            : tab === 'fav'
+              ? '还没有收藏。在搜索页点右侧的心形即可收藏。'
+              : '还没有播放记录。'}
         </Text>
       ) : (
         <FlatList
@@ -199,6 +220,12 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
                 {tab === 'fav' ? (
                   <Pressable onPress={() => void unfav(row.item)} hitSlop={12} style={{ paddingHorizontal: 4 }}>
                     <Text style={{ color: colors.accent, fontSize: 17 }}>♥</Text>
+                  </Pressable>
+                ) : null}
+
+                {tab === 'trial' ? (
+                  <Pressable onPress={() => void dropTrial(row.item)} hitSlop={12} style={{ paddingHorizontal: 4 }}>
+                    <Text style={{ color: colors.fainter, fontSize: 16 }}>✕</Text>
                   </Pressable>
                 ) : null}
               </Pressable>

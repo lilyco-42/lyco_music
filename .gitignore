@@ -15,3 +15,6 @@ __pycache__/
 # 下载探针的产物（scripts/probe-download.cjs 生成）
 apps/desktop/scripts/out-*/
 apps/desktop/scripts/probe-download-result.json
+
+# 截图脚本的产物（scripts/shot.cjs 生成）
+apps/desktop/scripts/shot.png*

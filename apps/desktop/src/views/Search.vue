@@ -7,6 +7,7 @@
  */
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { Play } from 'lucide-vue-next'
 import { getSource, hasSource, type MusicItem } from '@lxmn/core'
 import { usePlayer } from '@/lib/player'
 import { useSync } from '@/lib/sync'
@@ -104,8 +105,22 @@ async function run(): Promise<void> {
 
 watch(keyword, run, { immediate: true })
 
+/**
+ * 搜索结果里点一首歌 → 走单曲点播（先进试听列表，再从试听列表播）。
+ *
+ * 与 lx 一致：点歌之后「下一首」是你之前点过的歌，而不是搜索结果的下一行。
+ * 想看搜索结果连着听，用上方的「播放全部」。
+ */
 async function play(item: MusicItem): Promise<void> {
-  await player.play(item, list.value)
+  await player.playSong(item)
+}
+
+/** 连着听当前这批搜索结果：队列 = 结果列表，不经过试听列表 */
+async function playAll(): Promise<void> {
+  const items = filtered.value
+  const first = items[0]
+  if (!first) return
+  await player.play(first, items)
 }
 
 function fmtDuration(v: unknown): string {
@@ -118,6 +133,19 @@ function fmtDuration(v: unknown): string {
     <div class="mb-4 flex items-baseline gap-3">
       <h1 class="text-[26px] font-bold text-ncm-fg">搜索「{{ keyword }}」</h1>
       <span v-if="total" class="text-[14px] text-ncm-faint">共 {{ total }} 首</span>
+      <!--
+        「播放全部」不是装饰：点单曲会把队列切成试听列表（lx 的心智模型），
+        想连着听当前这批搜索结果就必须从这里进。
+      -->
+      <button
+        v-if="filtered.length"
+        type="button"
+        class="ml-auto flex items-center gap-1.5 rounded-pill bg-ncm-accent px-3.5 py-1.5 text-[13px] text-white transition-opacity hover:opacity-90"
+        @click="playAll"
+      >
+        <Play :size="14" :stroke-width="2.4" aria-hidden="true" />
+        <span>播放全部</span>
+      </button>
     </div>
 
     <!-- 音源筛选：一条结果里混着四个源，按源过滤（与 lx-music 一致） -->

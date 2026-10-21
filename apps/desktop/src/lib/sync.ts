@@ -15,6 +15,8 @@ const library = new Library()
 const favorites = ref<Awaited<ReturnType<Library['snapshot']>>['favorites']>([])
 const playlists = ref<Awaited<ReturnType<Library['snapshot']>>['playlists']>([])
 const history = ref<Awaited<ReturnType<Library['snapshot']>>['history']>([])
+/** 试听列表：有序，用户能看见也能改顺序 */
+const trial = ref<Awaited<ReturnType<Library['snapshot']>>['trial']>([])
 /**
  * 「不喜欢」规则。
  *
@@ -39,6 +41,7 @@ function pull(): void {
   favorites.value = s.favorites
   playlists.value = s.playlists
   history.value = s.history
+  trial.value = s.trial
   dislikes.value = [...s.dislikes]
 }
 
@@ -66,12 +69,6 @@ export function useSync() {
     pull()
     const t = await library.syncToken()
     tokenMask.value = mask(t)
-    if (r.configured) {
-      const s = library.snapshot()
-      favorites.value = s.favorites
-      playlists.value = s.playlists
-      history.value = s.history
-    }
   }
 
   /** 用订阅令牌（或自建令牌）开启同步 */
@@ -166,7 +163,7 @@ export function useSync() {
   }
 
   return {
-    library, favorites, playlists, history, dislikes,
+    library, favorites, playlists, history, trial, dislikes,
     configured, tokenMask, baseUrl, busy, error, lastSyncedAt, lastMessage, server,
     restore, connect, connectWithMembership, disconnect, syncNow, pull,
     dislike, undislike,
