@@ -8,7 +8,7 @@
  * （移动端 tsconfig 里 types: []，连 DOM lib 都没有），
  * 所以这里只维护数据，真正的播放元素由组件持有并回灌进度。
  */
-import { computed, reactive, readonly } from 'vue'
+import { computed, reactive, readonly, watch } from 'vue'
 import {
   getSource,
   hasSource,
@@ -16,6 +16,7 @@ import {
   qualityOrder,
   intervalSeconds,
   isTrialClip,
+  trackKey,
   type MusicItem,
   type Quality,
   type SourceId,
@@ -24,6 +25,7 @@ import { library } from './sync'
 import { resolveWithFallback } from './fallback'
 import { findSameSong } from './same-song'
 import { describePlayError, isRetriablePlayError } from './play-error'
+import { prefs } from './prefs'
 
 /** 播放模式：顺序 / 列表循环 / 单曲循环 / 随机 */
 export type PlayMode = 'order' | 'loop' | 'single' | 'shuffle'
@@ -103,8 +105,160 @@ const state = reactive<PlayerState>({
   rate: readRate(),
 })
 
+/* ---------------- 队列与播放进度持久化（2.8 / 2.12） ---------------- */
+
+const QUEUE_KEY = 'lxmn.playback.queue'
+const POS_KEY = 'lxmn.playback.positions'
+/** 进度最多记这么多首，超出按「最早写入」淘汰 —— 不设上限会一直涨 */
+const POS_MAX = 500
+
+interface SavedQueue {
+  items: MusicItem[]
+  index: number
+}
+
+function readPositions(): Record<string, number> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(POS_KEY) || '{}') as Record<string, unknown>
+    if (!raw || typeof raw !== 'object') return {}
+    const out: Record<string, number> = {}
+    for (const [k, v] of Object.entries(raw)) {
+      const n = Number(v)
+      if (Number.isFinite(n) && n > 0) out[k] = n
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+const positions = readPositions()
+let posTimer: ReturnType<typeof setTimeout> | null = null
+
+function flushPositions(): void {
+  if (posTimer) { clearTimeout(posTimer); posTimer = null }
+  try { localStorage.setItem(POS_KEY, JSON.stringify(positions)) } catch { /* 配额满 */ }
+}
+
+function rememberPosition(item: MusicItem | null, t: number): void {
+  if (!item || !prefs.rememberProgress) return
+  const key = trackKey(item)
+  const sec = Math.floor(t)
+  // 开头几秒和结尾几秒没有记忆价值：一个等于没听，一个是「听完了」
+  if (sec < 5) {
+    if (key in positions) { delete positions[key]; if (!posTimer) posTimer = setTimeout(flushPositions, 3000) }
+    return
+  }
+  positions[key] = sec
+  const keys = Object.keys(positions)
+  if (keys.length > POS_MAX) for (const k of keys.slice(0, keys.length - POS_MAX)) delete positions[k]
+  if (!posTimer) posTimer = setTimeout(flushPositions, 3000)
+}
+
+/** 这首该从第几秒接着播（0 = 从头） */
+function resumeAt(item: MusicItem): number {
+  if (!prefs.rememberProgress) return 0
+  const t = positions[trackKey(item)] ?? 0
+  if (t < 5) return 0
+  // 快到结尾就从头播：一进来就跳下一首的体验比「没记住」更糟
+  const total = intervalSeconds(item.interval)
+  if (total > 0 && t > total - 5) return 0
+  return t
+}
+
+/**
+ * 等 <audio> 拿到元数据后再 seek。
+ *
+ * readyState 还是 HAVE_NOTHING 时设 currentTime，各版本 Chromium 的处理
+ * 不完全一致；交给 AudioHost 在 loadedmetadata 里执行一次是确定的。
+ */
+let pendingResume: number | null = null
+
+export function takePendingResume(): number | null {
+  const t = pendingResume
+  pendingResume = null
+  return t
+}
+
+/** 上次的播放队列（2.12 启动自动播放靠它） */
+function readQueue(): SavedQueue | null {
+  try {
+    const raw = JSON.parse(localStorage.getItem(QUEUE_KEY) || 'null') as SavedQueue | null
+    if (!raw || !Array.isArray(raw.items) || !raw.items.length) return null
+    const items = raw.items.filter(it => it && typeof it === 'object' && it.songmid && it.source)
+    if (!items.length) return null
+    const index = Math.min(Math.max(0, Number(raw.index) || 0), items.length - 1)
+    return { items, index }
+  } catch {
+    return null
+  }
+}
+
+let queueTimer: ReturnType<typeof setTimeout> | null = null
+
+function persistQueue(): void {
+  if (queueTimer) clearTimeout(queueTimer)
+  queueTimer = setTimeout(() => {
+    queueTimer = null
+    try {
+      if (!state.queue.length) { localStorage.removeItem(QUEUE_KEY); return }
+      // 整份存：本地歌的 url/lyric 就在 item 上，剥掉字段等于恢复后放不出来
+      localStorage.setItem(QUEUE_KEY, JSON.stringify({ items: state.queue, index: state.index }))
+    } catch { /* 配额满了就放弃，不影响播放 */ }
+  }, 600)
+}
+
+watch(() => [state.queue.length, state.index], persistQueue)
+
+/**
+ * 恢复上次的队列（不自动播）。
+ * 返回是否恢复成功 —— 「启动自动播放」靠它判断有没有东西可播。
+ */
+export function restoreQueue(): boolean {
+  const saved = readQueue()
+  if (!saved) return false
+  state.queue = saved.items
+  state.index = saved.index
+  return true
+}
+
+/** 清掉所有「接着听」的进度（4.9 列表数据清理时一起清） */
+export function clearResumePositions(): void {
+  for (const k of Object.keys(positions)) delete positions[k]
+  flushPositions()
+  try { localStorage.removeItem(QUEUE_KEY) } catch { /* ignore */ }
+}
+
+/**
+ * 列表内随机乱序（4.6）。
+ *
+ * 和「随机播放」模式不是一回事：那个是每次下一首时抽一首，队列本身不变；
+ * 这个是**真的把队列顺序打乱**，之后按打乱后的顺序播 —— 用户想
+ * 「把这张歌单听一遍、但别按原顺序」时用这个。
+ * 当前这首保持在它打乱后的位置上，画面不会跳。
+ */
+export function shuffleQueue(): number {
+  const n = state.queue.length
+  if (n < 2) return 0
+  const cur = state.queue[state.index]
+  const arr = [...state.queue]
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const tmp = arr[i]!
+    arr[i] = arr[j]!
+    arr[j] = tmp
+  }
+  state.queue = arr
+  if (cur) {
+    const at = arr.findIndex(x => trackKey(x) === trackKey(cur))
+    state.index = at >= 0 ? at : 0
+  }
+  return arr.length
+}
+
 /** 播放地址的获取方式由组件注入（内核不认识 <audio>） */
 let playUrl: ((url: string) => Promise<void>) | null = null
+
 export function setPlaybackHandler(fn: ((url: string) => Promise<void>) | null): void {
   playUrl = fn
 }
@@ -423,6 +577,9 @@ export function usePlayer() {
     state.trialRetried = false
     streamAttempt = 0
     badSources.clear()
+    // 上次听到哪就从哪接着播（2.8）。放在 resolveAndPlay 之前，
+    // 由 AudioHost 在 loadedmetadata 时消费 —— 那时 seek 才是确定的。
+    pendingResume = resumeAt(item)
     await Promise.all([resolveAndPlay(item), loadLyric(item), loadPic(item)])
   }
 
@@ -608,6 +765,7 @@ export function usePlayer() {
     qualityOrder,
     search, play, playSong, next, prev, toggle, seek, setQuality,
     cycleMode, modeLabel, MODE_LABEL,
+    shuffleQueue, clearResumePositions,
     toggleLyric, toggleMute,
     /** 流地址失效/加载超时后的自愈（AudioHost 调用，用户无感） */
     recoverStreamError,
@@ -622,7 +780,10 @@ export function usePlayer() {
       await resolveAndPlay(item, 0)
     },
     /** 组件回灌：<audio> 的进度/时长 */
-    reportTime: (t: number) => { state.currentTime = t },
+    reportTime: (t: number) => {
+      state.currentTime = t
+      rememberPosition(state.queue[state.index] ?? null, t)
+    },
     reportDuration: (d: number) => {
       state.duration = d
       // 拿到真实时长后才可能发现「只给了试听片段」

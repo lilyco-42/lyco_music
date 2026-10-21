@@ -17,6 +17,7 @@ import { saveUrl, safeFileName, audioExt } from '@/lib/download'
 import { enqueueDownload } from '@/lib/downloads'
 import { useSleepTimer } from '@/lib/sleep-timer'
 import { useEqualizer } from '@/lib/equalizer'
+import { prefs } from '@/lib/prefs'
 import { toast } from '@/lib/toast'
 
 const router = useRouter()
@@ -384,6 +385,22 @@ function cycleMode(): void { player.cycleMode() }
 
 /** 播放失败时把原因显示出来（版权/VIP 等），而不是静默什么都不发生 */
 const error = computed(() => player.state.error)
+
+/**
+ * 进度条样式（7.6）。
+ *
+ * 三档都是同一个 DOM，只换高度与手柄可见性：
+ *   line  —— 细线，默认，最不打扰
+ *   thick —— 粗条，鼠标更容易命中（触控板用户偏好这档）
+ *   dot   —— 细线 + 常驻圆点，位置一眼可见
+ * 类名写成字面量而不是拼字符串，否则 Tailwind 扫不到这些类。
+ */
+const barClass = computed(() => {
+  if (prefs.progressStyle === 'thick') return ['h-[8px]', 'group-hover/seek:h-[10px]']
+  if (prefs.progressStyle === 'dot') return ['h-[2px]', 'group-hover/seek:h-[3px]']
+  return ['h-[4px]', 'group-hover/seek:h-[6px]']
+})
+const dotAlways = computed(() => prefs.progressStyle === 'dot')
 </script>
 
 <template>
@@ -402,11 +419,11 @@ const error = computed(() => player.state.error)
       @mousemove="onSeekMove"
       @mouseleave="hoverRatio = null"
     >
-      <div class="absolute inset-x-0 top-0 h-[4px] bg-ncm-divider transition-[height] duration-150 group-hover/seek:h-[6px]">
+      <div class="absolute inset-x-0 top-0 bg-ncm-divider transition-[height] duration-150" :class="barClass">
         <div class="h-full bg-ncm-progress" :style="{ width: progress + '%' }" />
-        <!-- 拖动手柄：悬停/拖动时才出现，平时不打扰 -->
+        <!-- 拖动手柄：悬停/拖动时才出现，平时不打扰（「圆点」样式下常驻） -->
         <div
-          v-if="track && (hoverRatio !== null || seeking)"
+          v-if="track && (dotAlways || hoverRatio !== null || seeking)"
           class="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-ncm-accent-play shadow"
           :style="{ left: (hoverRatio !== null ? hoverRatio * 100 : progress) + '%' }"
         />

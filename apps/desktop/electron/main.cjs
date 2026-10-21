@@ -4,7 +4,10 @@
  * 只做外壳：加载 Vite 构建产物，保留 lx-music 上游的自定义音源能力
  * （渲染层可通过 preload 暴露的 API 读写本地文件 / 发起无 CORS 请求）。
  */
-const { app, BrowserWindow, shell, ipcMain, net, safeStorage, screen, dialog } = require('electron')
+const {
+  app, BrowserWindow, shell, ipcMain, net, safeStorage, screen, dialog,
+  Tray, Menu, nativeImage, powerSaveBlocker,
+} = require('electron')
 const path = require('node:path')
 const fs = require('node:fs/promises')
 const { startLoginFlow } = require('./oauth.cjs')
@@ -96,6 +99,15 @@ app.on('second-instance', () => {
   setTimeout(() => { if (win && !win.isDestroyed()) win.setAlwaysOnTop(false) }, 300)
 })
 
+/**
+ * 启动参数（6.7）。
+ *
+ * lx 的 `-hidden` 语义是「开机自启时不弹窗，直接蹲在托盘里」——
+ * 它和「关闭窗口最小化到托盘」是一对：没有前者，开机自启每次都会
+ * 抢走焦点，用户开电脑第一件事就是关掉它。
+ */
+const START_HIDDEN = process.argv.some(a => a === '-hidden' || a === '--hidden' || a === '--start-hidden')
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1280,
@@ -111,6 +123,7 @@ function createWindow() {
     // macOS 上仍保留红绿灯的位置语义；Windows/Linux 完全由页面控制
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' } : {}),
     autoHideMenuBar: true,
+    show: !START_HIDDEN,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -125,6 +138,17 @@ function createWindow() {
     win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   }
 
+  /**
+   * 音频输出设备选择（2.5）需要两件事：
+   *   1. `enumerateDevices()` 要能拿到设备**名字**，否则下拉框里全是
+   *      「扬声器 (1)」这种占位符，用户根本分不清；
+   *   2. `setSinkId()` 本身在 Chromium 里也走 speaker-selection 权限。
+   * 其余权限一律拒绝 —— 这个应用不需要摄像头、麦克风、通知。
+   */
+  win.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === 'speaker-selection' || permission === 'media')
+  })
+
   // 外链走系统浏览器，不在应用内打开
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) shell.openExternal(url)
@@ -138,8 +162,214 @@ function createWindow() {
   win.on('maximize', pushMaximized)
   win.on('unmaximize', pushMaximized)
 
+  /**
+   * 关闭 → 最小化到托盘（6.4）。
+   *
+   * 三个必须做对的细节：
+   *   1. 只有用户开了这个开关才拦截，默认关 —— 否则「点 × 不退出」
+   *      在用户眼里就是「关不掉」。
+   *   2. 真的退出时（托盘菜单「退出」/ app.quit()）不能再拦，
+   *      否则进程永远退不掉，任务管理器里会留一堆。
+   *   3. 第一次拦截时给一次提示：用户不知道「去托盘里找」，
+   *      会以为程序卡死了。
+   */
+  win.on('close', (e) => {
+    if (!closeToTray || quitting) return
+    e.preventDefault()
+    win.hide()
+    if (!closeHintShown) {
+      closeHintShown = true
+      if (tray) {
+        try {
+          tray.displayBalloon?.({
+            title: 'Lyco Music 还在后台运行',
+            content: '点托盘图标可以重新打开；要完全退出请用托盘菜单里的「退出」。',
+          })
+        } catch { /* Linux 不支持气泡提示 */ }
+      }
+    }
+  })
+
   win.on('closed', () => { win = null })
 }
+
+/* ---------- 托盘（6.3 / 6.4） ---------- */
+
+let tray = null
+/** 关闭窗口时是否隐藏到托盘，由渲染层按用户设置同步过来 */
+let closeToTray = false
+/** 用户真的要退出（托盘菜单 / app.quit）：此时不能再拦 close */
+let quitting = false
+/** 只提示一次「还在后台运行」 */
+let closeHintShown = false
+/** 渲染层推来的播放状态，用来画托盘菜单与提示文字 */
+let trayState = { playing: false, name: '', singer: '', favorite: false }
+
+app.on('before-quit', () => { quitting = true })
+
+/**
+ * 托盘图标路径。
+ *
+ * 打包后 appPath 是 asar 根，`build/icon.png` 靠 electron-builder.yml 的
+ * files 白名单带进去 —— 少写这一行，打包版托盘会是一个空白方块，
+ * 而 dev 里一切正常。
+ */
+function trayIcon() {
+  const file = path.join(app.getAppPath(), 'build', 'icon.png')
+  const img = nativeImage.createFromPath(file)
+  if (img.isEmpty()) return nativeImage.createEmpty()
+  // Windows 托盘是 16×16，直接给 512 会被系统缩得很脏
+  return img.resize({ width: 16, height: 16 })
+}
+
+function showMainWindow() {
+  if (!win || win.isDestroyed()) {
+    createWindow()
+    return
+  }
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+}
+
+function sendToRenderer(channel, payload) {
+  if (win && !win.isDestroyed()) win.webContents.send(channel, payload)
+}
+
+/** 托盘菜单：每换一首歌都要重画（菜单里显示当前曲目） */
+function refreshTrayMenu() {
+  if (!tray) return
+  const { playing, name, singer, favorite } = trayState
+  const title = name ? `${name}${singer ? ' - ' + singer : ''}` : '还没有播放'
+  tray.setToolTip(name ? `Lyco Music · ${title}` : 'Lyco Music')
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: title.length > 40 ? title.slice(0, 40) + '…' : title, enabled: false },
+    { type: 'separator' },
+    { label: playing ? '暂停' : '播放', click: () => sendToRenderer('lxmn:tray:command', 'toggle') },
+    { label: '上一首', click: () => sendToRenderer('lxmn:tray:command', 'prev') },
+    { label: '下一首', click: () => sendToRenderer('lxmn:tray:command', 'next') },
+    {
+      label: favorite ? '取消收藏' : '收藏',
+      enabled: Boolean(name),
+      click: () => sendToRenderer('lxmn:tray:command', 'favorite'),
+    },
+    { type: 'separator' },
+    { label: '显示主界面', click: showMainWindow },
+    {
+      label: '桌面歌词',
+      click: () => {
+        showMainWindow()
+        sendToRenderer('lxmn:tray:command', 'lyric')
+      },
+    },
+    { type: 'separator' },
+    {
+      label: '退出 Lyco Music',
+      click: () => { quitting = true; app.quit() },
+    },
+  ]))
+}
+
+function createTray() {
+  if (tray) return
+  const icon = trayIcon()
+  // 空图标在部分 Linux 桌面上会让 Tray 构造抛错，兜一层免得整个应用起不来
+  try {
+    tray = new Tray(icon)
+  } catch (e) {
+    logCrash('tray-create', e && e.message ? e.message : String(e))
+    return
+  }
+  tray.on('click', () => {
+    // Windows/Linux：单击切换显示。macOS 单击习惯是弹菜单，这里保持一致交给系统
+    if (process.platform === 'darwin') { tray.popUpContextMenu(); return }
+    if (win && !win.isDestroyed() && win.isVisible() && !win.isMinimized()) win.hide()
+    else showMainWindow()
+  })
+  tray.on('double-click', showMainWindow)
+  refreshTrayMenu()
+}
+
+/* ---------- 任务栏进度（2.11） ---------- */
+
+let lastTaskbarProgress = -1
+
+ipcMain.handle('lxmn:taskbar:progress', (_e, value) => {
+  if (!win || win.isDestroyed()) return false
+  const v = Number(value)
+  // -1 = 清掉进度条；0..1 = 正常进度；2 = 不确定态（缓冲中）
+  const next = !Number.isFinite(v) ? -1 : v > 1 ? (v === 2 ? 2 : 1) : v < 0 ? -1 : v
+  if (next === lastTaskbarProgress) return true
+  lastTaskbarProgress = next
+  try { win.setProgressBar(next) } catch { /* 平台不支持 */ }
+  return true
+})
+
+/* ---------- 播放时阻止休眠（2.10） ---------- */
+
+let sleepBlockerId = -1
+
+ipcMain.handle('lxmn:power:keep-awake', (_e, on) => {
+  const want = Boolean(on)
+  if (want) {
+    if (sleepBlockerId >= 0 && powerSaveBlocker.isStarted(sleepBlockerId)) return true
+    // prevent-app-suspension：允许屏幕熄灭，但别让系统把进程挂起 ——
+    // 音乐播放器要的就是这个，prevent-display-sleep 反而会阻止息屏。
+    sleepBlockerId = powerSaveBlocker.start('prevent-app-suspension')
+    return true
+  }
+  if (sleepBlockerId >= 0) {
+    try { powerSaveBlocker.stop(sleepBlockerId) } catch { /* 已经停了 */ }
+    sleepBlockerId = -1
+  }
+  return true
+})
+
+/* ---------- 窗口尺寸预设（7.5） ---------- */
+
+ipcMain.handle('lxmn:win:set-size', (_e, size) => {
+  if (!win || win.isDestroyed()) return null
+  const area = screen.getDisplayMatching(win.getBounds()).workArea
+  const reqW = Number(size && size.width)
+  const reqH = Number(size && size.height)
+  // width/height 传 0 表示「适配屏幕」：占工作区的 85%，留出任务栏和边距
+  const wantW = reqW > 0 ? reqW : Math.round(area.width * 0.85)
+  const wantH = reqH > 0 ? reqH : Math.round(area.height * 0.85)
+  // 夹在「窗口最小尺寸」与「工作区」之间：全高清预设在小屏上会超出屏幕
+  const width = Math.min(area.width, Math.max(1000, wantW))
+  const height = Math.min(area.height, Math.max(670, wantH))
+  if (win.isMaximized()) win.unmaximize()
+  win.setBounds({
+    x: area.x + Math.round((area.width - width) / 2),
+    y: area.y + Math.round((area.height - height) / 2),
+    width,
+    height,
+  })
+  return win.getBounds()
+})
+
+/* ---------- 托盘 / 系统集成的 IPC ---------- */
+
+ipcMain.handle('lxmn:tray:set-close-to-tray', (_e, on) => {
+  closeToTray = Boolean(on)
+  return closeToTray
+})
+
+ipcMain.handle('lxmn:tray:set-state', (_e, s) => {
+  trayState = {
+    playing: Boolean(s && s.playing),
+    name: String((s && s.name) || ''),
+    singer: String((s && s.singer) || ''),
+    favorite: Boolean(s && s.favorite),
+  }
+  refreshTrayMenu()
+  return true
+})
+
+ipcMain.handle('lxmn:tray:show', () => { showMainWindow(); return true })
+
+/** 隐藏窗口（渲染层「最小化到托盘」按钮用） */
+ipcMain.handle('lxmn:win:hide', () => { win?.hide(); return true })
 
 // 自定义协议的特权必须在 app ready 之前声明，之后改无效 —— Electron 的硬性顺序。
 // 本地音乐靠 lxmn-media:// 播放，见 local.cjs 里的说明。
@@ -167,6 +397,7 @@ app.whenReady().then(() => {
   local.installProtocol()
 
   createWindow()
+  createTray()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

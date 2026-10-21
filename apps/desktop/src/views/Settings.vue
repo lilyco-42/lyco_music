@@ -15,6 +15,7 @@ import { useSync } from '@/lib/sync'
 import { toast } from '@/lib/toast'
 import { useUserSources } from '@/lib/user-sources'
 import { sourcePool, syncScriptSources } from '@/lib/source-pool'
+import PrefsSettings from '@/components/settings/PrefsSettings.vue'
 
 const tex = useTexture()
 const theme = useTheme()
@@ -398,6 +399,9 @@ const SKIN_DESC: Record<SkinId, string> = {
         还没有导入音源。lx-music 的脚本可以直接粘链接或用文件导入。
       </p>
     </div>
+
+    <!-- ============ 播放 / 列表 / 界面 / 系统 ============ -->
+    <PrefsSettings />
 
     <p class="mt-6 text-center text-[12px] text-ncm-faint">
       桌面歌词的字号/颜色/显示层在歌词窗口里右键调整；显示层也可以直接在悬停工具条上点「原 / 罗 / 译」。

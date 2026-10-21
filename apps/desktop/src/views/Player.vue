@@ -25,7 +25,7 @@ import { usePlayer } from '@/lib/player'
 import WindowControls from '@/components/layout/WindowControls.vue'
 import QualityMenu from '@/components/layout/QualityMenu.vue'
 import IconButton from '@/components/ui/IconButton.vue'
-import { ListMusic, Maximize2, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, ThumbsDown } from 'lucide-vue-next'
+import { Download, ListMusic, Maximize2, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, ThumbsDown } from 'lucide-vue-next'
 
 const router = useRouter()
 const player = usePlayer()
@@ -119,7 +119,49 @@ function wordSung(w: { time: number }): boolean {
 const isPlainLyric = computed(() => parsed.value.plain === true)
 
 /** 当前唱到第几行：由 <audio> 回灌的 currentTime 驱动 */
-const currentLine = computed(() => (isPlainLyric.value ? -1 : findLineIndex(lyrics.value, state.currentTime)))
+/* ---------------- 歌词偏移 ---------------- */
+
+/**
+ * 歌词偏移（秒）。
+ *
+ * 不同来源的歌词时间轴经常差半秒到两秒：有的源从「第一句开口」开始计时，
+ * 有的从「前奏第一拍」开始。偏移是**整体平移**，不是只影响当前行 ——
+ * 一旦出现「人声到了歌词还没到」，调这个最快。
+ *
+ * 约定：offset > 0 表示歌词**晚**出现（播放位置减去 offset 再去查行）。
+ */
+const OFFSET_KEY = 'lxmn.lyric.offset'
+const OFFSET_MAX = 5
+const OFFSET_STEP = 0.5
+
+function readOffset(): number {
+  try {
+    const v = Number(localStorage.getItem(OFFSET_KEY))
+    if (!Number.isFinite(v)) return 0
+    return Math.max(-OFFSET_MAX, Math.min(OFFSET_MAX, Math.round(v * 2) / 2))
+  } catch {
+    return 0
+  }
+}
+
+const lyricOffset = ref(readOffset())
+
+function setOffset(v: number): void {
+  const next = Math.max(-OFFSET_MAX, Math.min(OFFSET_MAX, Math.round(v * 2) / 2))
+  lyricOffset.value = next
+  try {
+    localStorage.setItem(OFFSET_KEY, String(next))
+  } catch {
+    // 隐私模式下写不进去，只影响下次启动的默认值
+  }
+  void nextTick().then(() => centerActiveLine())
+}
+
+const offsetLabel = computed(() => (lyricOffset.value > 0 ? '+' : '') + lyricOffset.value.toFixed(1) + 's')
+
+const currentLine = computed(() =>
+  isPlainLyric.value ? -1 : findLineIndex(lyrics.value, state.currentTime - lyricOffset.value),
+)
 
 /** 把正在唱的那行滚到可视区中间 */
 const lyricBox = ref<HTMLElement | null>(null)
@@ -315,7 +357,8 @@ watch([lyrics, () => state.lyric], async () => {
 function seekTo(time: number): void {
   // 纯文本歌词的时间是造出来的，跳过去只会乱，直接忽略
   if (isPlainLyric.value) return
-  player.seek(time)
+  // 歌词行的时间是「屏幕上的时间」，加回偏移才是音频里的位置
+  player.seek(time + lyricOffset.value)
 }
 
 const QUALITY_LABEL: Record<string, string> = {
@@ -720,7 +763,6 @@ const vinylStyle = computed(() => ({
                 {{ o.label }}
               </button>
               <span class="mx-1 text-ncmd-darker">|</span>
-              <span>滚动</span>
               <button
                 v-for="m in SCROLL_MODES"
                 :key="m.id"
@@ -733,7 +775,26 @@ const vinylStyle = computed(() => ({
                 {{ m.label }}
               </button>
               <span class="mx-1 text-ncmd-darker">|</span>
-              <span>对齐</span>
+              <button
+                type="button"
+                class="shrink-0 rounded-full px-1.5 py-[2px] tabular-nums transition-colors hover:bg-white/10"
+                :class="lyricOffset === 0 ? 'text-ncmd-darker' : 'text-ncmd-fg'"
+                :title="lyricOffset === 0 ? '歌词已经对齐，点一下恢复默认' : '恢复默认（歌词不偏移）'"
+                @click="setOffset(0)"
+              >{{ offsetLabel }}</button>
+              <button
+                type="button"
+                class="shrink-0 rounded-full px-1.5 py-[2px] transition-colors hover:bg-white/10"
+                title="歌词提前 0.5 秒"
+                @click="setOffset(lyricOffset - 0.5)"
+              >−</button>
+              <button
+                type="button"
+                class="shrink-0 rounded-full px-1.5 py-[2px] transition-colors hover:bg-white/10"
+                title="歌词延后 0.5 秒"
+                @click="setOffset(lyricOffset + 0.5)"
+              >+</button>
+              <span class="mx-1 text-ncmd-darker">|</span>
               <button
                 v-for="a in ALIGNS"
                 :key="a.id"
@@ -748,12 +809,13 @@ const vinylStyle = computed(() => ({
               <!-- 导出歌词：把当前这首（含翻译/罗马音）存成 .lrc -->
               <button
                 type="button"
-                class="ml-2 shrink-0 rounded-full px-2 py-[2px] transition-colors hover:bg-white/10 hover:text-ncmd-muted disabled:opacity-40"
+                class="ml-1 shrink-0 rounded-full p-1 transition-colors hover:bg-white/10 hover:text-ncmd-muted disabled:opacity-40"
                 :disabled="!lyrics.length || exporting"
-                title="把当前歌词导出为 .lrc 文件"
+                title="导出歌词为 .lrc"
+                aria-label="导出歌词"
                 @click="exportLyric"
               >
-                {{ exporting ? '导出中…' : '导出歌词' }}
+                <Download :size="13" :stroke-width="1.8" aria-hidden="true" />
               </button>
           </div>
 

@@ -29,6 +29,9 @@ npmRebuild: false
 files:
   - dist/**/*
   - electron/**/*
+  # 托盘图标必须进包：main.cjs 用 app.getAppPath()/build/icon.png 去读，
+  # 少这一行 dev 正常、打包版托盘是个空白方块。
+  - build/icon.png
   - package.json
 
 # 不签名：Windows/macOS 安装包为未签名版本

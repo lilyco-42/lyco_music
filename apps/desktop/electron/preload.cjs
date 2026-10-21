@@ -21,12 +21,35 @@ contextBridge.exposeInMainWorld('lxmnNative', {
     toggleMaximize: () => ipcRenderer.invoke('lxmn:win:toggle-maximize'),
     close: () => ipcRenderer.invoke('lxmn:win:close'),
     isMaximized: () => ipcRenderer.invoke('lxmn:win:is-maximized'),
+    /** 窗口尺寸预设（PARITY 7.5）：{width,height} 传 0 表示适配屏幕 */
+    setSize: (size) => ipcRenderer.invoke('lxmn:win:set-size', size),
+    /** 隐藏到托盘 */
+    hide: () => ipcRenderer.invoke('lxmn:win:hide'),
     /** 最大化状态变化（双击标题栏等）时同步图标 */
     onMaximizeChange: (cb) => {
       const handler = (_e, value) => { try { cb(Boolean(value)) } catch { /* ignore */ } }
       ipcRenderer.on('lxmn:win:maximized', handler)
       return () => ipcRenderer.removeListener('lxmn:win:maximized', handler)
     },
+  },
+  /** 托盘：关闭行为 + 菜单状态 + 菜单命令回传 */
+  tray: {
+    setCloseToTray: (on) => ipcRenderer.invoke('lxmn:tray:set-close-to-tray', on),
+    setState: (s) => ipcRenderer.invoke('lxmn:tray:set-state', s),
+    show: () => ipcRenderer.invoke('lxmn:tray:show'),
+    onCommand: (cb) => {
+      const handler = (_e, cmd) => { try { cb(String(cmd)) } catch { /* ignore */ } }
+      ipcRenderer.on('lxmn:tray:command', handler)
+      return () => ipcRenderer.removeListener('lxmn:tray:command', handler)
+    },
+  },
+  /** 任务栏进度（PARITY 2.11）：0..1，-1 清除，2 表示不确定态 */
+  taskbar: {
+    setProgress: (v) => ipcRenderer.invoke('lxmn:taskbar:progress', v),
+  },
+  /** 播放时阻止系统休眠（PARITY 2.10） */
+  power: {
+    keepAwake: (on) => ipcRenderer.invoke('lxmn:power:keep-awake', on),
   },
   auth: {
     save: (token) => ipcRenderer.invoke('lxmn:auth:save', token),

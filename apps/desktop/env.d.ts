@@ -12,7 +12,36 @@ interface LxmnWindowControls {
   toggleMaximize: () => Promise<boolean>
   close: () => Promise<boolean>
   isMaximized: () => Promise<boolean>
+  /** 窗口尺寸预设（7.5）：传 0 表示适配屏幕 */
+  setSize: (size: { width: number; height: number }) => Promise<{
+    x: number; y: number; width: number; height: number
+  } | null>
+  hide: () => Promise<boolean>
   onMaximizeChange: (cb: (maximized: boolean) => void) => () => void
+}
+
+interface LxmnTrayState {
+  playing: boolean
+  name: string
+  singer: string
+  favorite: boolean
+}
+
+interface LxmnTrayApi {
+  setCloseToTray: (on: boolean) => Promise<boolean>
+  setState: (state: LxmnTrayState) => Promise<boolean>
+  show: () => Promise<boolean>
+  /** 托盘菜单命令：toggle / prev / next / favorite / lyric */
+  onCommand: (cb: (cmd: string) => void) => () => void
+}
+
+interface LxmnTaskbarApi {
+  /** 0..1 正常进度；-1 清除；2 不确定态 */
+  setProgress: (value: number) => Promise<boolean>
+}
+
+interface LxmnPowerApi {
+  keepAwake: (on: boolean) => Promise<boolean>
 }
 
 interface LxmnLyricPayload {
@@ -58,6 +87,9 @@ interface Window {
   lxmnNative?: {
     lyric?: LxmnLyricApi
     win?: LxmnWindowControls
+    tray?: LxmnTrayApi
+    taskbar?: LxmnTaskbarApi
+    power?: LxmnPowerApi
     openExternal?: (url: string) => Promise<boolean>
     [key: string]: unknown
   }

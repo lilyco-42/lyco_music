@@ -12,8 +12,9 @@
  *      否则界面会永远卡在加载态，用户只能自己去切歌。
  */
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
-import { setPlaybackHandler, setSeekHandler, usePlayer } from '@/lib/player'
+import { setPlaybackHandler, setSeekHandler, takePendingResume, usePlayer } from '@/lib/player'
 import { bindAudioElement, useEqualizer } from '@/lib/equalizer'
+import { prefs } from '@/lib/prefs'
 
 const player = usePlayer()
 const el = ref<HTMLAudioElement | null>(null)
@@ -123,8 +124,42 @@ function onTime(): void {
   if (el.value) player.reportTime(el.value.currentTime)
 }
 function onMeta(): void {
-  if (el.value && Number.isFinite(el.value.duration)) player.reportDuration(el.value.duration)
+  const a = el.value
+  if (!a) return
+  if (Number.isFinite(a.duration)) player.reportDuration(a.duration)
+  /**
+   * 接着上次听（2.8）。
+   *
+   * 只在 loadedmetadata 之后设 currentTime —— 更早设置各版本行为不一致，
+   * 有的当成「起播位置」、有的直接忽略。消费一次就清空，切歌重试时
+   * 不会反复往回跳。
+   */
+  const resume = takePendingResume()
+  if (resume && Number.isFinite(a.duration) && resume < a.duration - 1) {
+    try { a.currentTime = resume } catch { /* 极少数格式不支持 seek */ }
+  }
 }
+
+/**
+ * 音频输出设备（2.5）。
+ *
+ * setSinkId 在 Chromium 里是 <audio> 上的标准方法，但设备 id 会随
+ * 「默认设备变更/拔出耳机」失效 —— 失败时静默回落到系统默认，
+ * 不要让用户看到一条红色报错却仍然听得到声音。
+ */
+async function applySink(): Promise<void> {
+  const a = el.value
+  if (!a || typeof a.setSinkId !== 'function') return
+  const id = prefs.outputDevice
+  try {
+    await a.setSinkId(id || '')
+  } catch {
+    prefs.outputDevice = ''
+  }
+}
+
+onMounted(() => { void applySink() })
+watch(() => prefs.outputDevice, () => { void applySink() })
 function onReady(): void {
   clearWatchdog()
 }

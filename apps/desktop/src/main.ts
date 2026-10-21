@@ -7,6 +7,7 @@ import { library } from './lib/sync'
 import { initTheme } from './lib/theme'
 import { initTexture } from './lib/texture'
 import { installHotkeys } from './lib/hotkeys'
+import { installShellIntegration } from './lib/shell'
 import { installLyricBridge } from './lib/lyric-window'
 import './styles/main.css'
 
@@ -55,6 +56,9 @@ if (IS_LYRIC_WINDOW) document.documentElement.dataset.window = 'lyric'
 
 // 全局快捷键（空格播放、←/→ 快进、Ctrl+←/→ 切歌、M 静音、L 歌词、Ctrl+K 搜索）
 installHotkeys()
+
+// 系统集成：托盘、任务栏进度、播放时防休眠、界面缩放、启动自动播放
+installShellIntegration()
 
 createApp(App).use(router).mount('#app')
 

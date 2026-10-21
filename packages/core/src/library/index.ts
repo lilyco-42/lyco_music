@@ -275,6 +275,22 @@ export class Library {
     this.emit()
   }
 
+  /**
+   * 清空全部收藏（PARITY 4.9 列表数据清理）。
+   *
+   * 不做「逐条 removeFavorite」的循环：那样每次都要 persist + emit，
+   * 几千条收藏会把 localStorage 写几千遍。整体替换一次就够。
+   */
+  async clearFavorites(): Promise<number> {
+    await this.load()
+    const n = this.state.favorites.length
+    if (!n) return 0
+    this.state.favorites = []
+    await this.persist()
+    this.emit()
+    return n
+  }
+
   // ------------------------------------------------------------ 播放记录
 
   /** 记一次播放。同一首歌只保留一条，累计次数。 */
