@@ -104,6 +104,15 @@ export async function resolveWithFallback(
 ): Promise<FallbackOutcome> {
   const skip = opts.exclude
   const avoid = new Set<SourceId>(opts.avoid ?? [])
+
+  // 本地文件没有「换个源」可言：放不出来只可能是文件被删了、格式不支持，
+  // 或者自定义协议没注册。这时候跨源去搜一首同名的在线歌，用户会以为
+  // 自己的本地文件放出来了 —— 实际上听的是别人的版本。宁可报错。
+  if (item.source === 'local') {
+    const info = await getSource('local').getMusicUrl(item, quality)
+    return { info, item, switched: false }
+  }
+
   try {
     if (skip === item.source) throw new Error('[lxmn/fallback] 跳过仅提供试听的音源')
     const info = await getSource(item.source).getMusicUrl(item, quality)

@@ -16,5 +16,9 @@ __pycache__/
 apps/desktop/scripts/out-*/
 apps/desktop/scripts/probe-download-result.json
 
+# 本地导入探针的产物（scripts/probe-local.cjs 生成；scan 那份是 shot-stub-preload 的 fixture，可随时重跑）
+apps/desktop/scripts/probe-local-result.json
+apps/desktop/scripts/probe-local-scan.json
+
 # 截图脚本的产物（scripts/shot.cjs 生成）
 apps/desktop/scripts/shot.png*

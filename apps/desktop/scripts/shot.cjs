@@ -14,6 +14,7 @@
  *   SHOT_WAIT   （可选）reload 后等待毫秒数，默认 1800
  */
 const { app, BrowserWindow } = require('electron')
+const local = require('../electron/local.cjs')
 const fs = require('node:fs')
 const path = require('node:path')
 
@@ -32,13 +33,21 @@ const WAIT = Number(process.env.SHOT_WAIT || 1800)
 
 app.disableHardwareAcceleration()
 
+// SHOT_MEDIA=1 时把本地音乐协议也装上，这样截图脚本也能验证
+// <audio src="lxmn-media://..."> 真的能出元数据（时长 > 0）。
+if (process.env.SHOT_MEDIA) local.registerScheme()
+
 app.whenReady().then(async () => {
+  if (process.env.SHOT_MEDIA) local.installProtocol()
   const win = new BrowserWindow({
     width: 1440,
     height: 920,
     show: false,
     paintWhenInitiallyHidden: true,
-    webPreferences: { contextIsolation: true },
+    webPreferences: process.env.SHOT_PRELOAD
+      // 桩 preload 要读文件，必须关掉 sandbox（默认是开的）
+      ? { preload: path.resolve(process.env.SHOT_PRELOAD), sandbox: false, contextIsolation: false }
+      : { contextIsolation: true },
   })
   try {
     await win.loadURL(URL)

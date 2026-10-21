@@ -9,6 +9,7 @@ const path = require('node:path')
 const fs = require('node:fs/promises')
 const { startLoginFlow } = require('./oauth.cjs')
 const download = require('./download.cjs')
+const local = require('./local.cjs')
 
 const isDev = !app.isPackaged
 /** 允许在开发时用环境变量指向 vite dev server */
@@ -140,6 +141,10 @@ function createWindow() {
   win.on('closed', () => { win = null })
 }
 
+// 自定义协议的特权必须在 app ready 之前声明，之后改无效 —— Electron 的硬性顺序。
+// 本地音乐靠 lxmn-media:// 播放，见 local.cjs 里的说明。
+local.registerScheme()
+
 app.whenReady().then(() => {
   // 没抢到锁的进程已经 app.exit(0) 了，这里再兜一层，防止 exit 尚未生效时开窗
   if (!singleInstance) return
@@ -158,6 +163,8 @@ app.whenReady().then(() => {
   app.on('child-process-gone', (_e, details) => {
     logCrash('child-process-gone', JSON.stringify(details))
   })
+
+  local.installProtocol()
 
   createWindow()
   app.on('activate', () => {
@@ -517,6 +524,11 @@ ipcMain.handle('lxmn:download:ensure-dir', async (_e, dir) => download.ensureDir
 ipcMain.handle('lxmn:download:default-dir', async () => download.defaultDir())
 ipcMain.handle('lxmn:download:pick-dir', async () => download.pickDir(win))
 ipcMain.handle('lxmn:download:open-dir', async (_e, dir) => { download.openDir(dir); return true })
+
+// —— 本地音乐：探测网易云目录 / 扫目录 / 选目录 ——
+ipcMain.handle('lxmn:local:detect', async () => local.detectDirs())
+ipcMain.handle('lxmn:local:scan', async (_e, dir) => local.scan(String(dir ?? '')))
+ipcMain.handle('lxmn:local:pick-dir', async () => local.pickDir(win))
 
 /**
  * 保存文件：歌词导出（content）与音频下载（url）共用一条通道。

@@ -17,6 +17,7 @@ import {
   setPlatform,
   installKgSource,
   installKwSource,
+  installLocalSource,
   installMgSource,
   installWySource,
   hasSource,
@@ -85,6 +86,9 @@ const BUILTIN: { id: SourceId; install: () => void }[] = [
   { id: 'kw', install: installKwSource },
   { id: 'mg', install: installMgSource },
   { id: 'kg', install: installKgSource },
+  // 本地音乐：不发网络请求，但要走同一个 MusicSource 接口，
+  // 这样播放器不需要为本地歌写分支
+  { id: 'local', install: installLocalSource },
 ]
 
 export function ensureDesktopPlatform(): void {

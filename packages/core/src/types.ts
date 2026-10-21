@@ -1,6 +1,12 @@
 /** 音乐源统一数据模型 —— 桌面/移动共用 */
 
-export type SourceId = 'kw' | 'kg' | 'tx' | 'wy' | 'mg' | 'bd' | 'xm'
+/**
+ * 音源标识。
+ *
+ * `local` 是本机文件（从网易云下载目录等处导入），它不联网、没有搜索、
+ * 也不参与串源兜底 —— 见 sources/local.ts 与 fallback.ts 的短路判断。
+ */
+export type SourceId = 'kw' | 'kg' | 'tx' | 'wy' | 'mg' | 'bd' | 'xm' | 'local'
 
 export type Quality = '128k' | '320k' | 'flac' | 'flac24bit' | 'hires' | 'atmos' | 'master'
 

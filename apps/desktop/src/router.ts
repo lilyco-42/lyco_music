@@ -9,6 +9,7 @@ const routes = [
   { path: '/sync', name: 'sync', component: () => import('./views/Sync.vue') },
   { path: '/my', name: 'my', component: () => import('./views/MyMusic.vue') },
   { path: '/downloads', name: 'downloads', component: () => import('./views/Downloads.vue') },
+  { path: '/import', name: 'import', component: () => import('./views/Import.vue') },
   { path: '/friends', name: 'friends', component: () => import('./views/Friends.vue') },
   { path: '/settings', name: 'settings', component: () => import('./views/Settings.vue') },
   // 桌面歌词窗口（独立 BrowserWindow 加载这个路由）

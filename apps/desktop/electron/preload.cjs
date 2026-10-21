@@ -95,4 +95,10 @@ contextBridge.exposeInMainWorld('lxmnNative', {
       return () => ipcRenderer.removeListener('lxmn:download:event', handler)
     },
   },
+  // 本地音乐：探测网易云目录、扫描、选目录
+  local: {
+    detect: () => ipcRenderer.invoke('lxmn:local:detect'),
+    scan: (dir) => ipcRenderer.invoke('lxmn:local:scan', dir),
+    pickDir: () => ipcRenderer.invoke('lxmn:local:pick-dir'),
+  },
 })
