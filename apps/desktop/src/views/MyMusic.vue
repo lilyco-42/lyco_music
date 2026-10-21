@@ -11,11 +11,12 @@
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowDown, ArrowUp, ChevronLeft, Download, ListMusic, Pencil, Play, Plus, X } from 'lucide-vue-next'
+import { ArrowDown, ArrowUp, ChevronLeft, Download, ListMusic, Pencil, Play, Plus, X, CloudDownload } from 'lucide-vue-next'
 import { enqueueDownload } from '@/lib/downloads'
 import { usePlayer } from '@/lib/player'
 import { useSync } from '@/lib/sync'
 import { useSharing } from '@/lib/share'
+import { importWyPlaylist } from '@/lib/playlist-import'
 import { trackKey, type MusicItem, type SourceId } from '@lxmn/core'
 
 const { library, favorites, history, playlists, trial } = useSync()
@@ -356,6 +357,40 @@ function applyRoute(): void {
   }
 }
 
+/* ---------------- 导入网易云歌单（9.5） ---------------- */
+
+const wyImportOpen = ref(false)
+const wyImportText = ref('')
+const wyImportBusy = ref(false)
+const wyImportMsg = ref('')
+const wyImportErr = ref('')
+
+function openWyImport(): void {
+  wyImportOpen.value = true
+  wyImportText.value = ''
+  wyImportMsg.value = ''
+  wyImportErr.value = ''
+}
+
+async function doWyImport(): Promise<void> {
+  if (wyImportBusy.value) return
+  wyImportBusy.value = true
+  wyImportMsg.value = ''
+  wyImportErr.value = ''
+  try {
+    const r = await importWyPlaylist(wyImportText.value)
+    wyImportMsg.value = `已导入「${r.name}」共 ${r.added} 首（歌单 ${r.total} 首）`
+    wyImportText.value = ''
+    // 导入完成后直接打开这个歌单，用户马上能确认内容对不对
+    tab.value = 'playlist'
+    openId.value = r.playlistId
+  } catch (e) {
+    wyImportErr.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    wyImportBusy.value = false
+  }
+}
+
 onMounted(applyRoute)
 watch(() => [route.query.pl, route.query.new], applyRoute)
 watch(playlists, () => {
@@ -368,14 +403,52 @@ watch(playlists, () => {
   <div class="pt-2">
     <div class="flex items-start justify-between gap-4">
       <h1 class="text-[30px] font-bold leading-10 text-ncm-fg">我的音乐</h1>
-      <button
-        type="button"
-        class="mt-1 flex shrink-0 items-center gap-1.5 rounded-pill bg-ncm-accent px-4 py-2 text-[14px] text-white transition-opacity hover:opacity-90"
-        @click="startCreate()"
-      >
-        <Plus :size="17" :stroke-width="2.4" aria-hidden="true" />
-        <span>新建歌单</span>
-      </button>
+      <div class="mt-1 flex shrink-0 items-center gap-2">
+        <button
+          type="button"
+          class="flex items-center gap-1.5 rounded-pill border border-ncm-divider px-4 py-2 text-[14px] text-ncm-muted transition-colors hover:bg-ncm-bg"
+          @click="openWyImport"
+        >
+          <CloudDownload :size="17" :stroke-width="2" aria-hidden="true" />
+          <span>导入网易云歌单</span>
+        </button>
+        <button
+          type="button"
+          class="flex items-center gap-1.5 rounded-pill bg-ncm-accent px-4 py-2 text-[14px] text-white transition-opacity hover:opacity-90"
+          @click="startCreate()"
+        >
+          <Plus :size="17" :stroke-width="2.4" aria-hidden="true" />
+          <span>新建歌单</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 导入网易云歌单：粘链接即可，不要求登录 -->
+    <div v-if="wyImportOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/30" @click.self="wyImportOpen = false">
+      <div class="w-[520px] rounded-2xl bg-white p-6 shadow-[0_18px_48px_rgba(0,0,0,.18)]">
+        <h3 class="text-[17px] font-semibold text-ncm-fg">导入网易云歌单</h3>
+        <p class="mt-1 text-[12px] leading-[18px] text-ncm-faint">
+          粘歌单链接，或直接粘那串数字。只读取歌名/歌手/专辑/封面，播放仍走我们自己的音源（付费或下架的歌会自动换源）。
+        </p>
+        <textarea
+          v-model="wyImportText"
+          rows="3"
+          spellcheck="false"
+          placeholder="https://music.163.com/playlist?id=123456789"
+          class="mt-3 w-full resize-none rounded-xl border border-ncm-divider bg-ncm-bg px-3 py-2 font-mono text-[12px] leading-[19px] text-ncm-fg outline-none focus:border-ncm-accent"
+        />
+        <p v-if="wyImportMsg" class="mt-2 text-[12px] text-emerald-600">{{ wyImportMsg }}</p>
+        <p v-if="wyImportErr" class="mt-2 text-[12px] text-red-500">{{ wyImportErr }}</p>
+        <div class="mt-4 flex items-center justify-end gap-2">
+          <button type="button" class="rounded-pill border border-ncm-divider px-4 py-1.5 text-[13px] text-ncm-muted hover:bg-ncm-bg" @click="wyImportOpen = false">关闭</button>
+          <button
+            type="button"
+            class="rounded-pill bg-ncm-accent px-4 py-1.5 text-[13px] text-white disabled:opacity-40"
+            :disabled="wyImportBusy || !wyImportText.trim()"
+            @click="doWyImport"
+          >{{ wyImportBusy ? '导入中…' : '开始导入' }}</button>
+        </div>
+      </div>
     </div>
 
     <!-- 切换 -->
