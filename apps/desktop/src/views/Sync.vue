@@ -145,7 +145,7 @@ onMounted(async () => {
     <section class="mt-7 rounded-banner border border-ncm-divider bg-white p-7">
       <div class="flex items-center justify-between">
         <div>
-          <h2 class="text-[19px] font-semibold text-ncm-fg">同步服务器</h2>
+          <h2 class="text-[19px] font-semibold text-ncm-fg">{{ t('sync.server', '同步服务器') }}</h2>
           <p class="mt-1.5 text-[14px] text-ncm-muted">{{ server }}</p>
         </div>
         <span
@@ -166,7 +166,7 @@ onMounted(async () => {
           class="mt-5 w-full rounded-pill bg-ncm-accent py-3.5 text-[17px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
           :disabled="busy"
           @click="connectWithMembership"
-        >用会员订阅一键开通</button>
+        >{{ t('sync.oneClick', '用会员订阅一键开通') }}</button>
 
         <div v-else class="mt-5 rounded-channel bg-ncm-bg p-4">
           <p class="text-[14px] text-ncm-muted">
@@ -199,7 +199,7 @@ onMounted(async () => {
             class="mt-3 w-full rounded-pill border border-ncm-divider py-3 text-[16px] text-ncm-fg transition-colors hover:bg-black/5 disabled:opacity-60"
             :disabled="busy"
             @click="onConnect"
-          >连接</button>
+          >{{ t('sync.connect', '连接') }}</button>
         </template>
       </template>
 
@@ -207,11 +207,11 @@ onMounted(async () => {
       <template v-else>
         <div class="mt-5 flex items-center gap-6 rounded-channel bg-ncm-bg p-5">
           <div>
-            <p class="text-[13px] text-ncm-faint">同步令牌</p>
+            <p class="text-[13px] text-ncm-faint">{{ t('sync.token', '同步令牌') }}</p>
             <p class="mt-1 font-mono text-[15px] text-ncm-fg">{{ tokenMask || '—' }}</p>
           </div>
           <div class="ml-auto text-right">
-            <p class="text-[13px] text-ncm-faint">上次同步</p>
+            <p class="text-[13px] text-ncm-faint">{{ t('sync.lastSync', '上次同步') }}</p>
             <p class="mt-1 text-[15px] text-ncm-fg">{{ fmtTime(lastSyncedAt) }}</p>
           </div>
         </div>
@@ -228,7 +228,7 @@ onMounted(async () => {
             class="rounded-pill border border-ncm-divider px-7 py-3 text-[16px] text-ncm-fg transition-colors hover:bg-black/5 disabled:opacity-60"
             :disabled="busy"
             @click="disconnect"
-          >关闭同步</button>
+          >{{ t('sync.disable', '关闭同步') }}</button>
         </div>
       </template>
 
@@ -239,7 +239,7 @@ onMounted(async () => {
     <!-- 已认证设备（8.3） -->
     <section v-if="configured" class="mt-6 rounded-banner border border-ncm-divider bg-white p-7">
       <div class="flex items-center justify-between">
-        <h2 class="text-[19px] font-semibold text-ncm-fg">已认证设备</h2>
+        <h2 class="text-[19px] font-semibold text-ncm-fg">{{ t('sync.devices', '已认证设备') }}</h2>
         <button
           type="button"
           class="flex items-center gap-1.5 rounded-full border border-ncm-divider px-3 py-1 text-[12px] text-ncm-muted hover:bg-ncm-bg"
@@ -264,7 +264,7 @@ onMounted(async () => {
             <p class="truncate text-[14px]" :class="d.revoked ? 'text-ncm-fainter line-through' : 'text-ncm-fg'">{{ d.name }}</p>
             <p class="mt-0.5 text-[12px] text-ncm-faint">最近同步 {{ fmtIso(d.lastSeenAt) }} · 版本 {{ d.revision }}</p>
           </div>
-          <span v-if="d.revoked" class="shrink-0 rounded-pill bg-ncm-bg px-2.5 py-1 text-[12px] text-ncm-fainter">已撤销</span>
+          <span v-if="d.revoked" class="shrink-0 rounded-pill bg-ncm-bg px-2.5 py-1 text-[12px] text-ncm-fainter">{{ t('sync.revoked', '已撤销') }}</span>
           <button
             v-else
             type="button"
@@ -281,7 +281,7 @@ onMounted(async () => {
     <section v-if="srvAvailable" class="mt-6 rounded-banner border border-ncm-divider bg-white p-7">
       <div class="flex items-start justify-between gap-4">
         <div class="min-w-0">
-          <h2 class="text-[19px] font-semibold text-ncm-fg">把这台电脑变成同步服务器</h2>
+          <h2 class="text-[19px] font-semibold text-ncm-fg">{{ t('sync.host', '把这台电脑变成同步服务器') }}</h2>
           <p class="mt-1.5 text-[13px] leading-[19px] text-ncm-faint">
             局域网里的手机、另一台电脑填下面的地址和令牌就能同步。数据只存在本机的
             <span class="font-mono text-[12px]">userData/sync-server</span> 目录，不经过任何第三方服务器。
@@ -294,7 +294,7 @@ onMounted(async () => {
       </div>
 
       <div class="mt-5 flex flex-wrap items-center gap-3">
-        <label class="text-[13px] text-ncm-faint" for="srv-port">端口</label>
+        <label class="text-[13px] text-ncm-faint" for="srv-port">{{ t('sync.port', '端口') }}</label>
         <input
           id="srv-port"
           v-model.number="srvPort"

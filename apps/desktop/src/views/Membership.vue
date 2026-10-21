@@ -127,7 +127,7 @@ onMounted(restore)
         <div v-if="status.state === 'active'" class="mt-6 rounded-channel bg-ncm-bg p-5">
           <div class="flex items-center gap-2">
             <span class="size-2 rounded-full bg-[#4ec97a]" />
-            <span class="text-[16px] font-semibold text-ncm-fg">会员有效</span>
+            <span class="text-[16px] font-semibold text-ncm-fg">{{ t('mem.valid', '会员有效') }}</span>
           </div>
           <p class="mt-2 text-[15px] text-ncm-muted">{{ plan?.name }}</p>
           <p class="mt-1 text-[14px] text-ncm-faint">到期时间：{{ fmtDate(plan?.expiresAt ?? '') }}</p>
@@ -154,7 +154,7 @@ onMounted(restore)
         </div>
 
         <div v-else-if="status.state === 'expired'" class="mt-6 rounded-channel bg-ncm-bg p-5">
-          <p class="text-[16px] font-semibold text-ncm-accent">会员已过期</p>
+          <p class="text-[16px] font-semibold text-ncm-accent">{{ t('mem.expired', '会员已过期') }}</p>
           <p class="mt-1 text-[14px] text-ncm-faint">
             {{ status.plan.name }} · {{ fmtDate(status.plan.expiresAt) }}
           </p>
@@ -164,7 +164,7 @@ onMounted(restore)
           <p class="text-[15px] text-ncm-accent">{{ status.reason }}</p>
         </div>
 
-        <p v-else class="mt-6 text-[15px] text-ncm-faint">尚未激活会员</p>
+        <p v-else class="mt-6 text-[15px] text-ncm-faint">{{ t('mem.none', '尚未激活会员') }}</p>
       </section>
     </div>
   </div>

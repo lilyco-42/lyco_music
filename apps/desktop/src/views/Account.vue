@@ -36,7 +36,7 @@ onMounted(() => void account.restore())
           <div class="text-lg font-semibold">{{ account.profile.value.username }}</div>
           <p class="text-sm text-ncm-faint">账户 ID：{{ account.profile.value.account_id }}</p>
         </div>
-        <span v-if="account.vip.value" class="ml-auto rounded-full bg-ncm-accent px-3 py-1 text-xs text-white">音乐会员有效</span>
+        <span v-if="account.vip.value" class="ml-auto rounded-full bg-ncm-accent px-3 py-1 text-xs text-white">{{ t('acct.vip', '音乐会员有效') }}</span>
       </div>
       <p class="mt-6 text-sm text-ncm-muted">当前权益：{{ account.profile.value.entitlements?.length ?? 0 }} 项</p>
       <p class="mt-2 text-sm text-ncm-faint">{{ account.rememberOnDevice.value ? '授权凭证已通过系统密钥库加密保存，下次启动自动验证。' : '本机无法加密保存凭证；关闭软件后需重新授权。' }}</p>
@@ -47,7 +47,7 @@ onMounted(() => void account.restore())
     </div>
 
     <div v-else class="rounded-2xl border border-ncm-divider bg-white p-7 shadow-sm">
-      <h2 class="text-xl font-semibold">用 lain42.top 账号登录</h2>
+      <h2 class="text-xl font-semibold">{{ t('acct.login', '用 lain42.top 账号登录') }}</h2>
       <p class="mt-2 text-sm text-ncm-faint">
         点击下方按钮后会在系统浏览器里打开 lain42.top 的授权页，登录并确认后自动回到这里。
       </p>
