@@ -8,7 +8,7 @@
 |---|---|
 | 基准 A | `lx-music-desktop` **v2.12.6**（本地源码 `/d/demo/lx-music/lx-music-desktop`） |
 | 基准 B | `lx-music-mobile` **v1.9.1**（本地源码 `/d/demo/lx-music/lx-music-mobile`） |
-| 对照 | Lyco Music **0.2.25** |
+| 对照 | Lyco Music **0.2.26** |
 | 判定依据 | 逐个读取 lx 的 `src/renderer/views/`、`src/renderer/views/Setting/components/`、`src/lang/zh-cn.json`（**316 个 `setting__*` 键**）、`src/main/modules/openApi/`、`src/renderer/core/useApp/useDeeplink/` |
 | 统计口径 | 只统计**用户可感知的能力**，不把「一个设置项拆成多个」重复计数 |
 

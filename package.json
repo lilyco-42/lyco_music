@@ -1,6 +1,6 @@
 {
   "name": "lyco_music",
-  "version": "0.2.25",
+  "version": "0.2.26",
   "private": true,
   "description": "Lyco Music 网易云音乐风格 UI 重制版 — 共享内核 Monorepo",
   "license": "Apache-2.0",
@@ -14,7 +14,9 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint . --ext .ts,.vue --max-warnings 0",
     "test": "vitest run",
-    "tokens:build": "pnpm --filter @lxmn/tokens build"
+    "tokens:build": "pnpm --filter @lxmn/tokens build",
+    "bump": "node scripts/bump-version.mjs",
+    "probe:download": "electron scripts/probe-download.cjs"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

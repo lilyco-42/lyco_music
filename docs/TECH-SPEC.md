@@ -207,6 +207,17 @@ apps/*  ──►  packages/platform-*  ──►  packages/core
   * 咪咕错误负载 → 只有确定是 JSON 才判不可播，2 字节 Range 探测不预下载。
 * 歌词 / 封面失败**不得**阻断播放。
 
+### 8.1 下载
+
+* 调度在内核（`packages/core/src/download`）：并发上限、失败重试（1s/2s 退避）、暂停续传、持久化。
+* 字节写入在主进程（`apps/desktop/electron/download.cjs`），渲染层只发请求：
+  * 先写 `.part` 再 `rename`，断电不会留下「后缀正常、内容残缺」的文件；
+  * 续传位置以**磁盘上 `.part` 的大小**为准，不信内存里的 `downloaded`（含未落盘缓冲）；
+  * 服务器忽略 `Range` 返回 200 时整份重写，避免文件开头缺一段；
+  * 30 秒没有收到任何字节判定空闲超时，交给内核重试，界面不会永远转圈；
+  * 文件名用 `safeJoin` 收敛，主进程不信任渲染层传来的路径。
+* 单测用假传输层验证调度；真落盘用 `pnpm probe:download`（真 Electron + 本地 Range 服务，9 项）。
+
 ---
 
 ## 9. 代码约定
@@ -253,6 +264,7 @@ RN release 包没有红屏：**事件回调里任何未捕获异常都会杀掉 
 ### 9.5 版本
 
 * 版本号只在根 `package.json` 维护；`tests/version-consistency.test.ts` 会校验子包、`CORE_VERSION`、Android `build.gradle`、iOS `pbxproj` 全部一致。
+* 改版本必须用脚本，别手改：`pnpm bump 0.2.26`（12 个声明点一次改完）。0.2.25 就是漏了 Android/iOS 两处导致 CI 红。
 * 发版：`git tag vX.Y.Z && git push origin vX.Y.Z`，Release 工作流自动产出 msi/exe/dmg/apk/ipa/AppImage。
 
 ---
@@ -265,7 +277,7 @@ betterNCM 是网易云客户端的插件加载器，值得借鉴的是它的**�
 | --- | --- | --- |
 | 主题/皮肤 | 强调色令牌化 + 运行时切换（`lib/theme.ts`） | ✅ 已实现 |
 | 快捷操作 | 全局快捷键注册表（`lib/hotkeys.ts`） | ✅ 已实现 |
-| 桌面歌词 | 底栏浮层（`lyricOpen` 存于 store，按钮与 L 键共享） | ✅ 已实现 |
+| 桌面歌词 | 独立置顶透明窗口（`#/lyric-window`），底栏「词」按钮与 L 键共享 | ✅ 已实现 |
 | 插件化音源 | lx 脚本运行时 + 音源池（`sources/lxscript`） | ✅ 已实现 |
 | 插件 API/事件钩子 | 预留：在 `core` 暴露 `onBeforePlay/onLyric/onUIReady` 钩子后再做插件市场 | ⏳ 待做 |
 | 注入式 UI 改造 | **不做**：改为自建组件 + 令牌，避免依赖宿主 DOM 结构 | ❌ 明确放弃 |

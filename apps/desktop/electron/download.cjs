@@ -25,6 +25,15 @@ const path = require('node:path')
 /** id → { request, response, file, part, emit, paused, resolve } */
 const tasks = new Map()
 
+/**
+ * 空闲超时。
+ *
+ * `net.request` 没有默认超时：源站把 TCP 握上手就不发数据时，任务会一直
+ * 停在「下载中 0%」，用户看到的是永远转圈，连取消都不知道该不该点。
+ * 30 秒没有任何字节就当这次请求失败，交给内核重试/换源。
+ */
+const IDLE_TIMEOUT = 30000
+
 function defaultDir() {
   try {
     return path.join(app.getPath('downloads'), 'Lyco Music')
@@ -103,6 +112,14 @@ function start(request, emit) {
     const part = target + '.part'
     const offset = Number(request?.offset) || 0
     const entry = { request, response: null, part, target, emit, finished: false, resolve }
+    entry.lastDataAt = Date.now()
+    entry.idleTimer = setInterval(() => {
+      if (entry.finished || entry.paused) return
+      if (Date.now() - entry.lastDataAt <= IDLE_TIMEOUT) return
+      finish(id, { type: 'error', message: '连接超时：30 秒没有收到数据' })
+    }, 2000)
+    // 定时器不该拖住进程退出
+    entry.idleTimer.unref?.()
     tasks.set(id, entry)
 
     // 续传位置以**磁盘**为准，而不是内核传来的 offset。
@@ -171,6 +188,7 @@ function start(request, emit) {
       response.on('data', chunk => {
         // 暂停后流还没停干净，此时再 write 会抛 ERR_STREAM_WRITE_AFTER_END
         if (entry.paused) return
+        entry.lastDataAt = Date.now()
         received += chunk.length
         file.write(chunk)
         const now = Date.now()
@@ -217,6 +235,7 @@ function start(request, emit) {
     const entry = tasks.get(id)
     if (!entry || entry.finished) return
     entry.finished = true
+    clearInterval(entry.idleTimer)
     tasks.delete(id)
     try { entry.file?.destroy() } catch { /* ignore */ }
     entry.emit(event)
@@ -252,6 +271,7 @@ async function pause(id) {
   if (!entry) return
   entry.paused = true
   entry.finished = true
+  clearInterval(entry.idleTimer)
   tasks.delete(String(id))
   try { entry.request_handle?.abort() } catch { /* ignore */ }
   await flushFile(entry.file)
@@ -264,6 +284,7 @@ async function remove(id) {
   if (entry) {
     entry.paused = true
     entry.finished = true
+    clearInterval(entry.idleTimer)
     tasks.delete(String(id))
     try { entry.request_handle?.abort() } catch { /* ignore */ }
     await flushFile(entry.file)
