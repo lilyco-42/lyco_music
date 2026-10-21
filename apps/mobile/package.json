@@ -1,6 +1,6 @@
 {
   "name": "@lxmn/app-mobile",
-  "version": "0.2.40",
+  "version": "0.2.41",
   "private": true,
   "description": "Lyco Music 移动端 — 网易云风格 UI（React Native）",
   "license": "Apache-2.0",
