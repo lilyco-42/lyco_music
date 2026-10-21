@@ -111,19 +111,19 @@ async function onLyricEncodingChange(e: Event): Promise<void> {
           class="rounded-pill border border-ncm-divider px-4 py-1.5 text-[13px] text-ncm-muted transition-colors hover:bg-black/5 disabled:opacity-40"
           :disabled="!activeCount && !waitingCount"
           @click="pauseAll"
-        >全部暂停</button>
+        >{{ t('dl.pauseAll', '全部暂停') }}</button>
         <button
           type="button"
           class="rounded-pill border border-ncm-divider px-4 py-1.5 text-[13px] text-ncm-muted transition-colors hover:bg-black/5 disabled:opacity-40"
           :disabled="!tasks.some(t => t.status === 'paused' || t.status === 'error')"
           @click="resumeAll"
-        >全部继续</button>
+        >{{ t('dl.resumeAll', '全部继续') }}</button>
         <button
           type="button"
           class="rounded-pill border border-ncm-divider px-4 py-1.5 text-[13px] text-ncm-muted transition-colors hover:bg-black/5 disabled:opacity-40"
           :disabled="!completedCount"
           @click="clearCompleted"
-        >清空已完成</button>
+        >{{ t('dl.clearDone', '清空已完成') }}</button>
       </div>
     </div>
 
@@ -131,23 +131,23 @@ async function onLyricEncodingChange(e: Event): Promise<void> {
     <div class="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3 rounded-nav bg-ncm-surface p-4">
       <div class="flex min-w-0 flex-1 items-center gap-2">
         <FolderOpen :size="17" :stroke-width="1.9" class="shrink-0 text-ncm-accent" aria-hidden="true" />
-        <span class="shrink-0 text-[13px] text-ncm-faint">保存到</span>
+        <span class="shrink-0 text-[13px] text-ncm-faint">{{ t('dl.dir', '保存到') }}</span>
         <span class="min-w-0 flex-1 truncate text-[13px] text-ncm-fg" :title="dirLabel">{{ dirLabel }}</span>
         <button
           type="button"
           class="shrink-0 rounded-pill border border-ncm-divider px-3 py-1 text-[12px] text-ncm-muted hover:bg-black/5"
           @click="pickDir"
-        >更改</button>
+        >{{ t('dl.change', '更改') }}</button>
         <button
           type="button"
           class="shrink-0 rounded-pill border border-ncm-divider px-3 py-1 text-[12px] text-ncm-muted hover:bg-black/5 disabled:opacity-40"
           :disabled="!settings.dir"
           @click="openDir"
-        >打开</button>
+        >{{ t('dl.open', '打开') }}</button>
       </div>
 
       <label class="flex items-center gap-2">
-        <span class="shrink-0 text-[13px] text-ncm-faint">命名</span>
+        <span class="shrink-0 text-[13px] text-ncm-faint">{{ t('dl.naming', '命名') }}</span>
         <select
           :value="settings.nameFormat"
           class="rounded-[6px] border border-ncm-divider bg-white px-2 py-1 text-[13px] text-ncm-fg outline-none focus:border-ncm-accent"
@@ -164,7 +164,7 @@ async function onLyricEncodingChange(e: Event): Promise<void> {
           :checked="settings.subdirPerList"
           @change="onSubdirChange"
         />
-        <span class="shrink-0 text-[13px] text-ncm-faint">按歌单分目录</span>
+        <span class="shrink-0 text-[13px] text-ncm-faint">{{ t('dl.subdir', '按歌单分目录') }}</span>
       </label>
 
       <label class="flex cursor-pointer items-center gap-2" title="目标文件已存在时不覆盖，直接当作已完成">
@@ -174,7 +174,7 @@ async function onLyricEncodingChange(e: Event): Promise<void> {
           :checked="settings.skipExisting"
           @change="onSkipExistingChange"
         />
-        <span class="shrink-0 text-[13px] text-ncm-faint">同名跳过</span>
+        <span class="shrink-0 text-[13px] text-ncm-faint">{{ t('dl.skipExisting', '同名跳过') }}</span>
       </label>
 
       <label class="flex cursor-pointer items-center gap-2" title="把歌词写进 MP3/FLAC 文件本身，换设备也不丢">
@@ -184,7 +184,7 @@ async function onLyricEncodingChange(e: Event): Promise<void> {
           :checked="settings.embedLyric"
           @change="onEmbedLyricChange"
         />
-        <span class="shrink-0 text-[13px] text-ncm-faint">嵌入歌词</span>
+        <span class="shrink-0 text-[13px] text-ncm-faint">{{ t('dl.embedLyric', '嵌入歌词') }}</span>
       </label>
 
       <label class="flex cursor-pointer items-center gap-2" title="把封面写进 MP3/FLAC 文件本身">
@@ -194,7 +194,7 @@ async function onLyricEncodingChange(e: Event): Promise<void> {
           :checked="settings.embedCover"
           @change="onEmbedCoverChange"
         />
-        <span class="shrink-0 text-[13px] text-ncm-faint">嵌入封面</span>
+        <span class="shrink-0 text-[13px] text-ncm-faint">{{ t('dl.embedCover', '嵌入封面') }}</span>
       </label>
 
       <label class="flex cursor-pointer items-center gap-2" title="在音频旁边另存一份同名 .lrc">
@@ -204,11 +204,11 @@ async function onLyricEncodingChange(e: Event): Promise<void> {
           :checked="settings.saveLyric"
           @change="onSaveLyricChange"
         />
-        <span class="shrink-0 text-[13px] text-ncm-faint">另存 .lrc</span>
+        <span class="shrink-0 text-[13px] text-ncm-faint">{{ t('dl.sidecarLrc', '另存 .lrc') }}</span>
       </label>
 
       <label v-if="settings.saveLyric" class="flex items-center gap-2" title="车机和老播放器通常只认 GBK">
-        <span class="shrink-0 text-[13px] text-ncm-faint">歌词编码</span>
+        <span class="shrink-0 text-[13px] text-ncm-faint">{{ t('dl.lyricEncoding', '歌词编码') }}</span>
         <select
           :value="settings.lyricEncoding"
           class="rounded-[6px] border border-ncm-divider bg-white px-2 py-1 text-[13px] text-ncm-fg outline-none focus:border-ncm-accent"
@@ -220,7 +220,7 @@ async function onLyricEncodingChange(e: Event): Promise<void> {
       </label>
 
       <label class="flex items-center gap-2">
-        <span class="shrink-0 text-[13px] text-ncm-faint">同时下载</span>
+        <span class="shrink-0 text-[13px] text-ncm-faint">{{ t('dl.concurrency', '同时下载') }}</span>
         <select
           :value="settings.concurrency"
           class="rounded-[6px] border border-ncm-divider bg-white px-2 py-1 text-[13px] text-ncm-fg outline-none focus:border-ncm-accent"

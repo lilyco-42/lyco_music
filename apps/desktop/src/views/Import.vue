@@ -72,7 +72,7 @@ onMounted(() => { void imp.detect() })
     <!-- 自动找到的目录 -->
     <section class="mt-6">
       <div class="flex items-center gap-3">
-        <h2 class="text-[16px] font-semibold text-ncm-fg">找到的网易云目录</h2>
+        <h2 class="text-[16px] font-semibold text-ncm-fg">{{ t('imp.dirs', '找到的网易云目录') }}</h2>
         <span v-if="imp.detecting.value" class="flex items-center gap-1.5 text-[13px] text-ncm-faint">
           <Loader2 :size="13" class="animate-spin" aria-hidden="true" />探测中…
         </span>
@@ -82,12 +82,12 @@ onMounted(() => { void imp.detect() })
           @click="pickAndScan"
         >
           <FolderOpen :size="14" :stroke-width="2" aria-hidden="true" />
-          <span>选择其他目录…</span>
+          <span>{{ t('imp.chooseOther', '选择其他目录…') }}</span>
         </button>
       </div>
 
       <div v-if="!imp.detecting.value && !imp.foundDirs.value.length" class="mt-3 rounded-nav border border-ncm-divider p-4">
-        <p class="text-[14px] text-ncm-muted">没有自动找到网易云的下载目录。</p>
+        <p class="text-[14px] text-ncm-muted">{{ t('imp.none', '没有自动找到网易云的下载目录。') }}</p>
         <p class="mt-1 text-[13px] text-ncm-fainter">
           点右上角「选择其他目录…」手动指定（通常是「下载设置」里那个路径，例如 D:\CloudMusic）。
         </p>
@@ -124,7 +124,7 @@ onMounted(() => { void imp.detect() })
 
     <section v-else-if="imp.groups.value.length" class="mt-8">
       <div class="flex items-baseline gap-3">
-        <h2 class="text-[16px] font-semibold text-ncm-fg">扫描结果</h2>
+        <h2 class="text-[16px] font-semibold text-ncm-fg">{{ t('imp.result', '扫描结果') }}</h2>
         <span class="text-[13px] text-ncm-faint">
           可导入 {{ imp.totalTracks.value }} 首
           <template v-if="imp.totalEncrypted.value">· 跳过 {{ imp.totalEncrypted.value }} 个加密文件</template>
@@ -133,7 +133,7 @@ onMounted(() => { void imp.detect() })
 
       <p v-if="imp.truncated.value" class="mt-2 flex items-start gap-2 rounded-nav bg-amber-50 p-3 text-[13px] text-amber-800">
         <TriangleAlert :size="15" class="mt-0.5 shrink-0" aria-hidden="true" />
-        <span>目录里的文件太多，只扫描了前一部分。建议把目录选得更具体一些。</span>
+        <span>{{ t('imp.tooMany', '目录里的文件太多，只扫描了前一部分。建议把目录选得更具体一些。') }}</span>
       </p>
 
       <!-- 加密文件的说明：不给解释的话，用户会以为我们漏了 -->
