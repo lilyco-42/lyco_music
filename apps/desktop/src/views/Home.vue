@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { coverFor } from '@/lib/covers'
+import { useI18n } from '@/lib/i18n'
+
+const { t } = useI18n()
 
 /**
  * 首页「推荐」—— 实测规格：
@@ -15,15 +18,15 @@ import { coverFor } from '@/lib/covers'
  * 每个卡片带一个 keyword，点击后跳 /search?q=<keyword>。
  * tone 只用来区分视觉，不承载语义。
  */
-const channels = [
-  { title: '每日推荐', desc: '根据你的口味生成', tone: '#e57373', keyword: '热门' },
-  { title: '私人漫游', desc: '无限漫游', tone: '#64b5f6', keyword: '华语流行' },
-  { title: '私人雷达', desc: '为你精选', tone: '#9575cd', keyword: '轻音乐' },
-  { title: '嘻哈/说唱日推', desc: '每日更新', tone: '#4db6ac', keyword: '说唱' },
-  { title: '心情氛围歌单', desc: '此刻的心情', tone: '#ffb74d', keyword: '治愈' },
-  { title: '欧美流行日推', desc: '每日更新', tone: '#7986cb', keyword: '欧美流行' },
-  { title: '民谣日推', desc: '每日更新', tone: '#a1887f', keyword: '民谣' },
-]
+const channels = computed(() => [
+  { title: t('home.ch.daily', '每日推荐'), desc: t('home.ch.dailyDesc', '根据你的口味生成'), tone: '#e57373', keyword: '热门' },
+  { title: t('home.ch.roam', '私人漫游'), desc: t('home.ch.roamDesc', '无限漫游'), tone: '#64b5f6', keyword: '华语流行' },
+  { title: t('home.ch.radar', '私人雷达'), desc: t('home.ch.radarDesc', '为你精选'), tone: '#9575cd', keyword: '轻音乐' },
+  { title: t('home.ch.hiphop', '嘻哈/说唱日推'), desc: t('home.ch.updated', '每日更新'), tone: '#4db6ac', keyword: '说唱' },
+  { title: t('home.ch.mood', '心情氛围歌单'), desc: t('home.ch.moodDesc', '此刻的心情'), tone: '#ffb74d', keyword: '治愈' },
+  { title: t('home.ch.western', '欧美流行日推'), desc: t('home.ch.updated', '每日更新'), tone: '#7986cb', keyword: '欧美流行' },
+  { title: t('home.ch.folk', '民谣日推'), desc: t('home.ch.updated', '每日更新'), tone: '#a1887f', keyword: '民谣' },
+])
 
 const router = useRouter()
 
@@ -32,7 +35,7 @@ const covers = reactive<Record<string, string>>({})
 const loaded = ref(false)
 
 onMounted(async () => {
-  const keywords = [...channels.map(c => c.keyword), ...playlists.map(p => p.title)]
+  const keywords = [...channels.value.map(c => c.keyword), ...playlists.map(p => p.title)]
   const unique = [...new Set(keywords)]
   await Promise.all(
     unique.map(async k => {
