@@ -24,6 +24,7 @@ import SyncScreen from './src/screens/SyncScreen'
 import MyMusicScreen from './src/screens/MyMusicScreen'
 import { ensurePlatform } from './src/platform'
 import { setupPlayer, useTrackPlayerEvents } from './src/player'
+import { loadLibrary } from './src/sync'
 import { colors, subscribeAccent, TAB_BAR_HEIGHT } from './src/theme'
 import FriendsScreen from './src/screens/FriendsScreen'
 import AccountScreen from './src/screens/AccountScreen'
@@ -72,6 +73,14 @@ export default function App() {
     // 平台与音源已在模块加载期装配好（见文件顶部），这里只初始化原生播放器。
     // 失败不阻塞 UI：搜索和会员页不依赖它，只有真正点播放时才会再次尝试。
     void setupPlayer().catch(() => undefined)
+    /**
+     * 曲库也要尽早载入。
+     *
+     * 「不喜欢的歌曲」的跳过是**同步**判断（切歌时不该多一个 await），
+     * 依赖 load() 时建好的规则索引。只在同步页 load 的话，用户从首页
+     * 直接开播就完全跳过不生效 —— 表现是「设置了不喜欢但还在放」。
+     */
+    void loadLibrary().catch(() => undefined)
   }, [])
 
   // 通知栏 / 耳机切歌时同步 JS 状态

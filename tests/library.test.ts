@@ -189,6 +189,97 @@ describe('Library 歌单', () => {
   })
 })
 
+describe('Library 不喜欢的歌曲', () => {
+  it('标记后能查出来，取消后查不出来', async () => {
+    const lib = new Library()
+    await lib.load()
+    expect(lib.isDisliked({ name: '晴天', singer: '周杰伦' })).toBe(false)
+    await lib.addDislikes([{ name: '晴天', singer: '周杰伦' }])
+    expect(lib.isDisliked({ name: '晴天', singer: '周杰伦' })).toBe(true)
+    await lib.removeDislike({ name: '晴天', singer: '周杰伦' })
+    expect(lib.isDisliked({ name: '晴天', singer: '周杰伦' })).toBe(false)
+  })
+
+  it('重复标记同一首不会产生两条规则', async () => {
+    const lib = new Library()
+    await lib.load()
+    await lib.addDislikes([{ name: '晴天', singer: '周杰伦' }])
+    await lib.addDislikes([{ name: '晴天', singer: '周杰伦' }])
+    expect(lib.dislikes).toHaveLength(1)
+    expect(lib.dislikeIndex.count).toBe(1)
+  })
+
+  it('批量标记多首一次生效', async () => {
+    const lib = new Library()
+    await lib.load()
+    await lib.addDislikes([
+      { name: '晴天', singer: '周杰伦' },
+      // 只给歌名 → 屏蔽所有叫「学猫叫」的（不管谁唱）
+      { name: '学猫叫' },
+      // 只给歌手 → 屏蔽这个人的所有歌
+      { singer: '薛之谦' },
+    ])
+    expect(lib.dislikes).toEqual(['晴天@周杰伦', '学猫叫', '@薛之谦'])
+    expect(lib.isDisliked({ name: '学猫叫', singer: '任何人' })).toBe(true)
+    expect(lib.isDisliked({ name: '随便一首', singer: '薛之谦' })).toBe(true)
+    expect(lib.isDisliked({ name: '晴天', singer: '翻唱歌手' })).toBe(false)
+  })
+
+  it('整体替换规则文本（设置页保存走这条路）', async () => {
+    const lib = new Library()
+    await lib.load()
+    await lib.setDislikeRules('晴天@周杰伦\n@薛之谦\n\n  重复行去重  \n重复行去重')
+    expect(lib.dislikes).toEqual(['晴天@周杰伦', '@薛之谦', '重复行去重'])
+    expect(lib.isDisliked({ name: '演员', singer: '薛之谦' })).toBe(true)
+  })
+
+  it('清空规则', async () => {
+    const lib = new Library()
+    await lib.load()
+    await lib.setDislikeRules('晴天@周杰伦')
+    await lib.clearDislikes()
+    expect(lib.dislikes).toEqual([])
+    expect(lib.isDisliked({ name: '晴天', singer: '周杰伦' })).toBe(false)
+  })
+
+  it('规则会写进存储，重开一次还在', async () => {
+    const first = new Library()
+    await first.load()
+    await first.addDislikes([{ name: '晴天', singer: '周杰伦' }])
+
+    const second = new Library()
+    await second.load()
+    expect(second.dislikes).toEqual(['晴天@周杰伦'])
+    expect(second.isDisliked({ name: '晴天', singer: '周杰伦' })).toBe(true)
+  })
+
+  it('老版本的库没有 dislikes 字段时按空处理，不报错', async () => {
+    mem.set('lxmn.library', JSON.stringify({
+      favorites: [], playlists: [], history: [], settings: {}, settingsUpdatedAt: 0,
+    }))
+    const lib = new Library()
+    await lib.load()
+    expect(lib.dislikes).toEqual([])
+    expect(lib.isDisliked({ name: '晴天', singer: '周杰伦' })).toBe(false)
+  })
+
+  it('同步载荷里带着规则，合并时取并集', async () => {
+    const lib = new Library()
+    await lib.load()
+    await lib.addDislikes([{ name: '晴天', singer: '周杰伦' }])
+    expect(lib.toPayload().dislikes).toEqual(['晴天@周杰伦'])
+
+    await lib.replace({
+      settings: {}, settingsUpdatedAt: 0,
+      favorites: [], playlists: [], history: [],
+      dislikes: ['@薛之谦'],
+    })
+    expect(lib.dislikes.sort()).toEqual(['@薛之谦', '晴天@周杰伦'].sort())
+    expect(lib.isDisliked({ name: '演员', singer: '薛之谦' })).toBe(true)
+    expect(lib.isDisliked({ name: '晴天', singer: '周杰伦' })).toBe(true)
+  })
+})
+
 describe('Library 持久化与同步', () => {
   it('load 能把上次存的读回来', async () => {
     const a = new Library()

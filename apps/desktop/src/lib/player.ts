@@ -409,29 +409,59 @@ export function usePlayer() {
   }
 
   /**
+   * 从 start 出发按 step 找下一首「没被标记不喜欢」的歌。
+   *
+   * 整队列都被屏蔽时返回 -1 —— 调用方必须停下，不能退回去放第一首：
+   * 继续放就是放用户明确说过不想听的东西。宁可静音也不要自作聪明。
+   */
+  function findPlayable(start: number, step: 1 | -1): number {
+    const total = state.queue.length
+    for (let k = 1; k <= total; k++) {
+      const i = (((start + step * k) % total) + total) % total
+      const item = state.queue[i]
+      if (item && !library.isDisliked(item)) return i
+    }
+    return -1
+  }
+
+  /**
    * 播下一首。
    *
    * auto=true 表示是「一首放完了自动进下一首」，这时要遵守播放模式：
    * 单曲循环重放当前、随机抽一首、顺序播到末尾就停。
+   *
+   * 无论自动还是手动，都会跳过「不喜欢」的歌 —— 与 lx-music 一致。
+   * 从列表里直接点某首歌不受限制：那是用户的明确选择，不该拦。
    */
   async function next(auto = false): Promise<void> {
     if (!state.queue.length) return
 
     if (auto && state.mode === 'single') {
       const item = state.queue[state.index]
-      if (item) {
+      // 当前这首刚被标记不喜欢：不再重播，按列表往下走
+      if (item && !library.isDisliked(item)) {
         // 重取一次流再播：某些 CDN 地址带时效，直接 seek(0) 可能已经过期
         seek(0)
         if (state.url) { state.playing = true; return }
         await play(item)
+        return
       }
-      return
     }
 
     if (state.mode === 'shuffle' && state.queue.length > 1) {
-      let n = state.index
-      while (n === state.index) n = Math.floor(Math.random() * state.queue.length)
-      state.index = n
+      // 先把可播的候选挑出来再随机，而不是「抽到屏蔽的再重抽」——
+      // 后者在屏蔽比例高时会连着抽很多次，切歌手感变卡。
+      const candidates: number[] = []
+      for (let i = 0; i < state.queue.length; i++) {
+        if (i === state.index) continue
+        const item = state.queue[i]
+        if (item && !library.isDisliked(item)) candidates.push(i)
+      }
+      if (!candidates.length) {
+        state.playing = false
+        return
+      }
+      state.index = candidates[Math.floor(Math.random() * candidates.length)]!
       const picked = state.queue[state.index]
       if (picked) await play(picked)
       return
@@ -444,14 +474,21 @@ export function usePlayer() {
       return
     }
 
-    state.index = (state.index + 1) % state.queue.length
+    const target = findPlayable(state.index, 1)
+    if (target < 0) {
+      state.playing = false
+      return
+    }
+    state.index = target
     const item = state.queue[state.index]
     if (item) await play(item)
   }
 
   async function prev(): Promise<void> {
     if (!state.queue.length) return
-    state.index = (state.index - 1 + state.queue.length) % state.queue.length
+    const target = findPlayable(state.index, -1)
+    if (target < 0) return
+    state.index = target
     const item = state.queue[state.index]
     if (item) await play(item)
   }

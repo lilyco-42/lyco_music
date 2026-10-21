@@ -12,6 +12,16 @@ import type { MusicItem } from '../types'
 import { SyncClient, DEFAULT_SYNC_BASE } from '../sync/client'
 import { mergePayload } from '../sync/merge'
 import {
+  addDislikeRules,
+  hasDislike as matchDislike,
+  linesToRules,
+  parseDislikeRules,
+  removeDislikeRule,
+  ruleLines,
+  type DislikeIndex,
+  type DislikeTarget,
+} from '../dislike'
+import {
   emptyPayload,
   type SyncFavorite,
   type SyncHistoryEntry,
@@ -33,12 +43,14 @@ export interface LibraryState {
   favorites: SyncFavorite[]
   playlists: SyncPlaylist[]
   history: SyncHistoryEntry[]
+  /** 「不喜欢的歌曲」规则，一行一条。格式与 lx-music 兼容 */
+  dislikes: string[]
   settings: SyncSettings
   settingsUpdatedAt: number
 }
 
 function initialState(): LibraryState {
-  return { favorites: [], playlists: [], history: [], settings: {}, settingsUpdatedAt: 0 }
+  return { favorites: [], playlists: [], history: [], dislikes: [], settings: {}, settingsUpdatedAt: 0 }
 }
 
 function trackKey(item: { source?: string; songmid?: string | number }): string {
@@ -78,6 +90,13 @@ export class Library {
   private loaded = false
   private readonly sync: SyncClient
   private readonly listeners = new Set<(s: LibraryState) => void>()
+  /**
+   * 规则解析结果缓存。
+   *
+   * 每次判断「这首歌要不要跳过」都重新解析整份规则文本是浪费 ——
+   * 随机播放时每切一首歌都要问一次。规则只在增删时变，重建一次就够。
+   */
+  private dislikeIdx: DislikeIndex = parseDislikeRules('')
 
   constructor(options: { syncBaseUrl?: string; deviceName?: string } = {}) {
     this.sync = createSyncClient(options)
@@ -94,25 +113,29 @@ export class Library {
   }
 
   private emit(): void {
-    // 复制一份再广播：宿主是响应式系统，直接给内部对象会让外部改到内部状态
-    const snapshot: LibraryState = {
-      favorites: [...this.state.favorites],
-      playlists: this.state.playlists.map(p => ({ ...p, items: [...p.items] })),
-      history: [...this.state.history],
-      settings: { ...this.state.settings },
-      settingsUpdatedAt: this.state.settingsUpdatedAt,
-    }
+    const snapshot = this.view()
     for (const fn of this.listeners) fn(snapshot)
   }
 
-  snapshot(): LibraryState {
+  /**
+   * 复制一份状态给外部。
+   *
+   * 宿主是响应式系统（Vue 的 ref / React 的 setState），直接把内部对象
+   * 交出去，外部改到数组就会绕过 persist 改坏内部状态。
+   */
+  private view(): LibraryState {
     return {
       favorites: [...this.state.favorites],
       playlists: this.state.playlists.map(p => ({ ...p, items: [...p.items] })),
       history: [...this.state.history],
+      dislikes: [...this.state.dislikes],
       settings: { ...this.state.settings },
       settingsUpdatedAt: this.state.settingsUpdatedAt,
     }
+  }
+
+  snapshot(): LibraryState {
+    return this.view()
   }
 
   /** 从本地存储载入；失败时退回空库而不是抛错（首次启动没有数据是正常的） */
@@ -126,6 +149,8 @@ export class Library {
           favorites: Array.isArray(parsed.favorites) ? parsed.favorites : [],
           playlists: Array.isArray(parsed.playlists) ? parsed.playlists : [],
           history: Array.isArray(parsed.history) ? parsed.history : [],
+          // 老版本的库里没有 dislikes 字段，缺省成空数组即可，不需要迁移
+          dislikes: Array.isArray(parsed.dislikes) ? parsed.dislikes.map(String) : [],
           settings: parsed.settings && typeof parsed.settings === 'object' ? parsed.settings : {},
           settingsUpdatedAt: Number(parsed.settingsUpdatedAt) || 0,
         }
@@ -133,6 +158,7 @@ export class Library {
     } catch {
       this.state = initialState()
     }
+    this.rebuildDislikeIndex()
     this.loaded = true
     this.emit()
     return this.snapshot()
@@ -166,6 +192,7 @@ export class Library {
       favorites: [...this.state.favorites],
       playlists: this.state.playlists.map(p => ({ ...p, items: [...p.items] })),
       history: [...this.state.history],
+      dislikes: [...this.state.dislikes],
     }
   }
 
@@ -176,9 +203,11 @@ export class Library {
       favorites: merged.favorites.slice(0, MAX_FAVORITES),
       playlists: merged.playlists,
       history: merged.history.slice(0, MAX_HISTORY),
+      dislikes: linesToRules(merged.dislikes ?? []).split('\n').filter(Boolean),
       settings: merged.settings,
       settingsUpdatedAt: Number(merged.settingsUpdatedAt) || 0,
     }
+    this.rebuildDislikeIndex()
     await this.persist()
     this.emit()
   }
@@ -317,6 +346,73 @@ export class Library {
     const at = this.state.playlists.findIndex(p => p.id === playlistId)
     if (at < 0) return
     this.state.playlists.splice(at, 1)
+    await this.persist()
+    this.emit()
+  }
+
+  // ------------------------------------------------------------ 不喜欢的歌曲
+
+  private rebuildDislikeIndex(): void {
+    this.dislikeIdx = parseDislikeRules(this.state.dislikes.join('\n'))
+  }
+
+  /** 规则索引（只读）。界面用它显示「已屏蔽 N 条」 */
+  get dislikeIndex(): DislikeIndex {
+    return this.dislikeIdx
+  }
+
+  /** 规则原文，一行一条 */
+  get dislikes(): string[] {
+    return [...this.state.dislikes]
+  }
+
+  /**
+   * 这首歌是否被标记为「不喜欢」。
+   *
+   * 刻意做成**同步**方法：随机播放时每切一首歌都要判断一次，
+   * 做成 async 会让播放链路多一个 await，切歌手感变钝。
+   * 前提是调用方已经 `load()` 过（应用启动时会做）。
+   */
+  isDisliked(item: DislikeTarget | null | undefined): boolean {
+    return matchDislike(this.dislikeIdx, item)
+  }
+
+  /** 标记不喜欢，可一次传多首 */
+  async addDislikes(targets: readonly DislikeTarget[]): Promise<void> {
+    await this.load()
+    await this.applyDislikeText(addDislikeRules(this.state.dislikes.join('\n'), targets))
+  }
+
+  /** 取消不喜欢 */
+  async removeDislike(target: DislikeTarget): Promise<void> {
+    await this.load()
+    await this.applyDislikeText(removeDislikeRule(this.state.dislikes.join('\n'), target))
+  }
+
+  /** 整体替换规则（设置页的文本框保存时调用） */
+  async setDislikeRules(text: string): Promise<void> {
+    await this.load()
+    await this.applyDislikeText(text)
+  }
+
+  /** 清空全部规则 */
+  async clearDislikes(): Promise<void> {
+    await this.load()
+    await this.applyDislikeText('')
+  }
+
+  /**
+   * 落盘 + 广播。
+   *
+   * 先比对再写：规则没变就不 emit —— 否则设置页每次失焦保存都会
+   * 触发一次全应用重渲染，正在播的歌单列表会白闪一下。
+   */
+  private async applyDislikeText(text: string): Promise<void> {
+    const lines = ruleLines(text)
+    const prev = this.state.dislikes
+    if (lines.length === prev.length && lines.every((line, i) => line === prev[i])) return
+    this.state.dislikes = lines
+    this.rebuildDislikeIndex()
     await this.persist()
     this.emit()
   }

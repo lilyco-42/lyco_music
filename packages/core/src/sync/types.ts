@@ -69,6 +69,13 @@ export interface SyncPayload {
   favorites: SyncFavorite[]
   playlists: SyncPlaylist[]
   history: SyncHistoryEntry[]
+  /**
+   * 「不喜欢的歌曲」规则，一行一条（`歌名@艺术家` / `歌名` / `@艺术家`）。
+   *
+   * 用数组而不是整段文本：合并时要逐条取并集，字符串没法做。
+   * 格式与 lx-music 完全一致，从 lx 导出的规则可以直接粘进来。
+   */
+  dislikes?: string[]
 }
 
 /** 服务端返回的同步文档 */
@@ -105,5 +112,5 @@ export interface SyncClientOptions {
 
 /** 空的同步载荷，用于首次同步 */
 export function emptyPayload(): SyncPayload {
-  return { settings: {}, settingsUpdatedAt: 0, favorites: [], playlists: [], history: [] }
+  return { settings: {}, settingsUpdatedAt: 0, favorites: [], playlists: [], history: [], dislikes: [] }
 }

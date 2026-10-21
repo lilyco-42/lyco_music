@@ -3,6 +3,7 @@ import App from './App.vue'
 import router from './router'
 import { ensureDesktopPlatform } from './lib/platform'
 import { useMembership } from './lib/membership'
+import { library } from './lib/sync'
 import { initTheme } from './lib/theme'
 import { initTexture } from './lib/texture'
 import { installHotkeys } from './lib/hotkeys'
@@ -23,6 +24,17 @@ ensureDesktopPlatform()
  * restore() 内部是静默的：命中缓存就立刻可用，没有就什么都不发生。
  */
 void useMembership().restore()
+
+/**
+ * 曲库也要在启动时载入。
+ *
+ * 「不喜欢的歌曲」的跳过逻辑是**同步**判断（切歌时不该多一个 await），
+ * 依赖 load() 时建好的规则索引。如果只在「我的音乐」页挂载时才 load，
+ * 用户从首页直接开播就完全跳过不生效 —— 表现是「设置了不喜欢但还在放」。
+ *
+ * load() 是幂等的，Sidebar 里的 restore() 再调一次没有额外开销。
+ */
+void library.load()
 
 // 主题色要在首屏渲染前应用，否则会先闪一下默认红
 initTheme()

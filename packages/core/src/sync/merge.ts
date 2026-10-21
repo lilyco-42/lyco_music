@@ -137,7 +137,26 @@ export function mergePayload(local: SyncPayload, remote: SyncPayload): SyncPaylo
     favorites: mergeFavorites(local.favorites ?? [], remote.favorites ?? []),
     playlists: mergePlaylists(local.playlists ?? [], remote.playlists ?? []),
     history: mergeHistory(local.history ?? [], remote.history ?? []),
+    dislikes: mergeDislikes(local.dislikes ?? [], remote.dislikes ?? []),
   }
+}
+
+/**
+ * 「不喜欢」规则合并：取并集，保留本地顺序。
+ *
+ * 两边各屏蔽了一些歌，合并后应该都保留 —— 与收藏同策略。
+ * 逐条归一化去重，避免 `晴天@周杰伦` 和 ` 晴天@周杰伦 ` 变成两条。
+ */
+export function mergeDislikes(a: string[], b: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const line of [...a, ...b]) {
+    const rule = String(line ?? '').trim()
+    if (!rule || seen.has(rule)) continue
+    seen.add(rule)
+    out.push(rule)
+  }
+  return out
 }
 
 /** 载荷是否有实质内容（决定首次同步要不要真的写一次服务端） */
@@ -146,6 +165,7 @@ export function isEmptyPayload(p: SyncPayload): boolean {
     !p.favorites?.length &&
     !p.playlists?.length &&
     !p.history?.length &&
+    !p.dislikes?.length &&
     !Object.keys(p.settings ?? {}).length
   )
 }

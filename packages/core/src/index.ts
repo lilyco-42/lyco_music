@@ -15,6 +15,7 @@ export * from './sync'
 export * from './library'
 export * from './sources'
 export * from './fallback'
+export * from './dislike'
 
 export const CORE_VERSION = '0.2.25'
 
