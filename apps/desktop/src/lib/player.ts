@@ -60,6 +60,23 @@ export interface PlayerState {
   volumeBeforeMute: number
   /** 本曲是否已经因为「只给试听」重取过，避免来回换源 */
   trialRetried: boolean
+  /** 播放速度（0.5–2.0）。播客/有声书用，音乐一般 1.0 */
+  rate: number
+}
+
+const RATE_KEY = 'lxmn.playback.rate'
+const RATE_MIN = 0.5
+const RATE_MAX = 2
+
+/** 读上次设的速度。越界值（旧版本写坏过存储）一律回落到 1.0 */
+function readRate(): number {
+  try {
+    const raw = Number(localStorage.getItem(RATE_KEY))
+    if (!Number.isFinite(raw) || raw < RATE_MIN || raw > RATE_MAX) return 1
+    return raw
+  } catch {
+    return 1
+  }
 }
 
 const state = reactive<PlayerState>({
@@ -83,6 +100,7 @@ const state = reactive<PlayerState>({
   lyricOpen: false,
   volumeBeforeMute: 0.7,
   trialRetried: false,
+  rate: readRate(),
 })
 
 /** 播放地址的获取方式由组件注入（内核不认识 <audio>） */
@@ -591,6 +609,18 @@ export function usePlayer() {
       if (looksLikeTrialClip(d)) void retryAfterTrialClip()
     },
     setVolume: (v: number) => { state.volume = v },
+    /**
+     * 改播放速度。
+     *
+     * 手机上「变速不变调」是系统播放器的能力；桌面 <audio> 默认也会做
+     * 时间伸缩（Chromium 的 preservePitch 默认开启），所以这里不用额外处理。
+     */
+    setRate: (r: number) => {
+      const v = Math.min(RATE_MAX, Math.max(RATE_MIN, Number(r) || 1))
+      state.rate = v
+      try { localStorage.setItem(RATE_KEY, String(v)) } catch { /* 隐私模式写不进去 */ }
+    },
+    RATE_OPTIONS: [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const,
     setPlaying: (p: boolean) => { state.playing = p },
     setError: (msg: string) => { state.error = msg },
     clearError: () => { state.error = '' },

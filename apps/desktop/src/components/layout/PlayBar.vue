@@ -7,7 +7,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ListMusic, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward } from 'lucide-vue-next'
+import { Check, ListMusic, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward } from 'lucide-vue-next'
 import { parseLyric, findLineIndex } from '@lxmn/core'
 import { usePlayer } from '@/lib/player'
 import { useSync } from '@/lib/sync'
@@ -164,7 +164,18 @@ const seekHint = computed(() => {
 /* ---------------- 右侧「…」菜单与播放队列 ---------------- */
 
 /** 面板互斥：同时只开一个，避免两层浮层叠在一起 */
-const openPanel = ref<'none' | 'more' | 'queue' | 'addto'>('none')
+const openPanel = ref<'none' | 'more' | 'queue' | 'addto' | 'rate'>('none')
+
+/** 0.5 → "0.5×"；1 → "1×"（不要 1.00× 那种零） */
+function fmtRate(r: number): string {
+  return String(Number(r.toFixed(2))) + '×'
+}
+
+function pickRate(r: number): void {
+  player.setRate(r)
+  openPanel.value = 'none'
+  toast(`播放速度 ${fmtRate(r)}`)
+}
 
 function togglePanel(name: 'more' | 'queue'): void {
   openPanel.value = openPanel.value === name ? 'none' : name
@@ -191,6 +202,7 @@ const moreItems = computed(() => {
       ? { key: 'dislike', label: '取消不喜欢', hint: '恢复推荐与播放' }
       : { key: 'dislike', label: '不喜欢这首歌', hint: '加入屏蔽规则，之后自动跳过' },
     { key: 'lyric', label: lyricActive.value ? '关闭桌面歌词' : '打开桌面歌词', hint: '' },
+    { key: 'rate', label: '播放速度', hint: fmtRate(player.state.rate) },
     { key: 'queue', label: `播放队列（${player.state.queue.length}）`, hint: '' },
   ]
 })
@@ -314,6 +326,10 @@ async function onMore(key: string): Promise<void> {
       await dislike(target)
       toast('已加入不喜欢，之后自动跳过')
     }
+    return
+  }
+  if (key === 'rate') {
+    openPanel.value = 'rate'
     return
   }
   if (key === 'queue') {
@@ -548,6 +564,25 @@ const error = computed(() => player.state.error)
           :disabled="addBusy"
         >创建并加入</button>
       </form>
+    </div>
+
+    <!-- 播放速度 -->
+    <div
+      v-if="openPanel === 'rate'"
+      class="absolute bottom-[112px] right-[28px] z-50 w-[190px] overflow-hidden rounded-2xl border border-ncm-divider bg-white py-1 shadow-[0_12px_32px_rgba(0,0,0,.14)]"
+    >
+      <div class="px-4 py-1.5 text-[12px] text-ncm-fainter">播放速度</div>
+      <button
+        v-for="r in player.RATE_OPTIONS"
+        :key="r"
+        type="button"
+        class="flex w-full items-center justify-between px-4 py-1.5 text-left text-[13px] transition-colors hover:bg-black/5"
+        :class="player.state.rate === r ? 'text-ncm-accent' : 'text-ncm-fg'"
+        @click="pickRate(r)"
+      >
+        <span>{{ fmtRate(r) }}</span>
+        <Check v-if="player.state.rate === r" :size="14" aria-hidden="true" />
+      </button>
     </div>
 
     <!-- 播放队列 -->

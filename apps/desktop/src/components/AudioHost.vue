@@ -61,6 +61,8 @@ onMounted(() => {
     }
     a.src = url
     a.volume = player.state.volume
+    // 换 src 会把 playbackRate 重置成 1，必须每次重新灌
+    a.playbackRate = player.state.rate
     armWatchdog()
     await a.play()
   })
@@ -101,6 +103,10 @@ watch(() => player.state.url, url => {
 
 watch(() => player.state.volume, v => {
   if (el.value) el.value.volume = v
+})
+
+watch(() => player.state.rate, r => {
+  if (el.value) el.value.playbackRate = r
 })
 
 function onTime(): void {
