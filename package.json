@@ -1,6 +1,6 @@
 {
   "name": "lyco_music",
-  "version": "0.2.35",
+  "version": "0.2.36",
   "private": true,
   "description": "Lyco Music 网易云音乐风格 UI 重制版 — 共享内核 Monorepo",
   "license": "Apache-2.0",

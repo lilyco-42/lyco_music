@@ -73,6 +73,7 @@ function install(ctx) {
    *   lxmusic://music/searchPlay?keyword=起风了
    *   lxmusic://music/play?source=wy&songmid=123&name=..&singer=..
    *   lxmusic://music/{source}/{songmid}
+   *   lxmusic://songlist/import?id=3778678     导入网易云歌单（也认 /songlist/3778678）
    */
   function parseSchemeUrl(raw) {
     const text = String(raw || '').trim()
@@ -83,6 +84,15 @@ function install(ctx) {
     const action = url.pathname.replace(/^\/+/, '').toLowerCase()
     const q = url.searchParams
     if (kind === 'player') return { kind, action }
+    if (kind === 'songlist') {
+      // 歌单只支持网易云：另外三家的歌单接口没有稳定的「按 id 取全量」能力，
+      // 与其给个半通不通的入口，不如在文档里写清楚
+      const fromQuery = q.get('id') || q.get('songlistid') || q.get('list') || q.get('songlist')
+      const parts = url.pathname.split('/').filter(Boolean)
+      const id = fromQuery || (action !== 'import' && parts[0]) || parts[1] || ''
+      if (!id) return null
+      return { kind: 'songlist', id: String(id) }
+    }
     if (kind === 'music') {
       if (action === 'search') return { kind: 'search', keyword: q.get('keyword') || q.get('name') || '' }
       if (action === 'searchplay') return { kind: 'searchPlay', keyword: q.get('keyword') || q.get('name') || '' }

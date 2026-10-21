@@ -30,6 +30,8 @@ export interface DesktopPrefs {
   preventSleep: boolean
   /** 启动后静默检查更新（6.9） */
   autoCheckUpdate: boolean
+  /** 升级后第一次启动时弹一次更新日志（6.10） */
+  showChangelogAfterUpdate: boolean
 
   /* ---- 播放 ---- */
   /** 启动后自动接着播上次的队列（2.12） */
@@ -129,6 +131,7 @@ function defaults(): DesktopPrefs {
     taskbarProgress: true,
     preventSleep: true,
     autoCheckUpdate: true,
+    showChangelogAfterUpdate: true,
     autoPlayOnStart: false,
     rememberProgress: true,
     outputDevice: '',
@@ -185,6 +188,7 @@ function merge(raw: unknown): DesktopPrefs {
     taskbarProgress: bool(src.taskbarProgress, base.taskbarProgress),
     preventSleep: bool(src.preventSleep, base.preventSleep),
     autoCheckUpdate: bool(src.autoCheckUpdate, base.autoCheckUpdate),
+    showChangelogAfterUpdate: bool(src.showChangelogAfterUpdate, base.showChangelogAfterUpdate),
     autoPlayOnStart: bool(src.autoPlayOnStart, base.autoPlayOnStart),
     rememberProgress: bool(src.rememberProgress, base.rememberProgress),
     outputDevice: str(src.outputDevice, base.outputDevice),

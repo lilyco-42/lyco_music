@@ -133,6 +133,8 @@ export function installShellIntegration(): void {
    */
   // 静默检查更新（6.9）：不弹窗、不自动下载，只在有新版本时提示一下
   useUpdater().maybeAutoCheck()
+  // 升级后第一次启动：把本版改动摆出来（6.10）
+  void useUpdater().maybeShowChangelog()
 
   if (prefs.autoPlayOnStart && restoreQueue()) {
     const item = player.state.queue[player.state.index]

@@ -79,7 +79,13 @@ export function parseTrackName(fileName: string): { title: string; singer: strin
   return { title: base.trim(), singer: '' }
 }
 
-/** 目录扫描得到的一个文件（宿主负责填） */
+/**
+ * 目录扫描得到的一个文件（宿主负责填）。
+ *
+ * `title` / `artist` / `album` / `hasCover` 来自**文件内嵌标签**（PARITY 4.8），
+ * 不是每个文件都有。没有时退回文件名解析 —— 网易云下载的文件名本来就带
+ * `歌手 - 歌名`，两条路都能出结果，只是标签更准（专辑名、多人合作都对）。
+ */
 export interface LocalFileEntry {
   /** 绝对路径 */
   path: string
@@ -89,6 +95,14 @@ export interface LocalFileEntry {
   size: number
   /** 修改时间，毫秒 */
   mtime: number
+  /** 内嵌标签里的歌名 */
+  title?: string
+  /** 内嵌标签里的歌手 */
+  artist?: string
+  /** 内嵌标签里的专辑 */
+  album?: string
+  /** 有没有内嵌封面（有的话封面走 lxmn-media://cover/ 按需读） */
+  hasCover?: boolean
 }
 
 /** 按所在目录分好组的扫描结果 */
@@ -117,6 +131,16 @@ export const LOCAL_MEDIA_SCHEME = 'lxmn-media'
 
 export function localMediaUrl(path: string): string {
   return `${LOCAL_MEDIA_SCHEME}://local/${encodeURIComponent(String(path ?? ''))}`
+}
+
+/**
+ * 内嵌封面的地址。
+ *
+ * 不把图片 base64 塞进扫描结果：一个目录几百首、每张封面几十到几百 KB，
+ * 一次扫描就能把 IPC 报文推到几十 MB。这里只给地址，界面真显示时才去读。
+ */
+export function localCoverUrl(path: string): string {
+  return `${LOCAL_MEDIA_SCHEME}://cover/${encodeURIComponent(String(path ?? ''))}`
 }
 
 /** 从媒体地址还原出文件路径（主进程侧用，测试里也用） */
@@ -149,7 +173,10 @@ export function buildLocalTracks(files: readonly LocalFileEntry[], options: Buil
   const out: MusicItem[] = []
   for (const file of files) {
     if (!isAudioFile(file.name)) continue
-    const { title, singer } = parseTrackName(file.name)
+    const parsed = parseTrackName(file.name)
+    // 标签优先、文件名兜底：两者都空才算没名字（例如 `01.mp3` 这种纯编号）
+    const title = String(file.title ?? '').trim() || parsed.title
+    const singer = String(file.artist ?? '').trim() || parsed.singer
     if (!title) continue
     out.push({
       id: localTrackId(file.path),
@@ -161,6 +188,8 @@ export function buildLocalTracks(files: readonly LocalFileEntry[], options: Buil
       path: file.path,
       size: file.size,
       mtime: file.mtime,
+      ...(file.album ? { albumName: String(file.album) } : {}),
+      ...(file.hasCover ? { picUrl: localCoverUrl(file.path) } : {}),
       // 歌词在导入时就一并带进来：本地文件不需要再发请求，
       // 播放时内核的 getLyric 直接返回它，省一次 IO 往返
       ...(lyrics[file.path] ? { lyric: lyrics[file.path] } : {}),

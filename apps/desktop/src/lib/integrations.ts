@@ -14,6 +14,7 @@ import { parseLyric, findLineIndex, type MusicItem } from '@lxmn/core'
 import { usePlayer } from './player'
 import { library } from './sync'
 import { prefs } from './prefs'
+import { toast } from './toast'
 
 function native(): Window['lxmnNative'] | undefined {
   return typeof window === 'undefined' ? undefined : window.lxmnNative
@@ -159,8 +160,28 @@ export function installIntegrations(router: Router): void {
       | { kind: 'search'; keyword: string }
       | { kind: 'searchPlay'; keyword: string }
       | { kind: 'play'; item: { source?: string; songmid?: string; name?: string; singer?: string } }
+      | { kind: 'songlist'; id: string }
       | null
     if (!p) return
+    /**
+     * 歌单导入（6.6 的 songlist/*）。
+     *
+     * 不做「先跳页面再让用户点确认」：链接本身就是用户的确认动作，
+     * 再拦一道只会让人觉得「点了没反应」。导入结果用 toast 说清楚。
+     */
+    if (p.kind === 'songlist') {
+      const id = String(p.id || '').trim()
+      if (!id) return
+      await router.push({ name: 'my' })
+      try {
+        const { importWyPlaylist } = await import('./playlist-import')
+        const r = await importWyPlaylist(id)
+        toast(`已导入「${r.name}」：${r.added} / ${r.total} 首`)
+      } catch (e) {
+        toast('导入歌单失败：' + (e instanceof Error ? e.message : String(e)))
+      }
+      return
+    }
     if (p.kind === 'search' || p.kind === 'searchPlay') {
       const keyword = String(p.keyword || '').trim()
       if (!keyword) return

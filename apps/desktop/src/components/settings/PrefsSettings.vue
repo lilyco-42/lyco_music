@@ -18,6 +18,7 @@ import { library, useSync } from '@/lib/sync'
 import { toast } from '@/lib/toast'
 import { useUpdater } from '@/lib/update'
 import { exportBackup, importBackup } from '@/lib/backup'
+import HotkeySettings from './HotkeySettings.vue'
 
 const player = usePlayer()
 const { favorites, history, playlists, trial } = useSync()
@@ -560,6 +561,9 @@ const PROGRESS_STYLES: { id: ProgressStyle; label: string; desc: string }[] = [
       </div>
     </div>
 
+    <!-- ============ 快捷键（6.2） ============ -->
+    <HotkeySettings />
+
     <!-- ============ 系统 ============ -->
     <div class="mt-5 rounded-2xl border border-ncm-divider bg-white p-7">
       <div class="flex items-center gap-2">
@@ -688,7 +692,18 @@ const PROGRESS_STYLES: { id: ProgressStyle; label: string; desc: string }[] = [
           <input v-model="prefs.autoCheckUpdate" type="checkbox" class="size-3.5 accent-[var(--color-ncm-accent)]" />
           启动时自动检查
         </label>
+        <label class="flex cursor-pointer items-center gap-2 text-[12px] text-ncm-muted">
+          <input v-model="prefs.showChangelogAfterUpdate" type="checkbox" class="size-3.5 accent-[var(--color-ncm-accent)]" />
+          升级后弹更新日志
+        </label>
       </div>
+
+      <button
+        v-if="updater.pendingChangelog.value === null"
+        type="button"
+        class="mt-2 text-[12px] text-ncm-accent hover:underline"
+        @click="updater.maybeShowChangelog(true)"
+      >再看一次本版更新日志</button>
 
       <p v-if="updater.error.value" class="mt-3 text-[12px] text-red-500">检查失败：{{ updater.error.value }}</p>
       <p v-else-if="updater.hasUpdate.value && updater.latest.value" class="mt-3 text-[12px] text-emerald-600">

@@ -23,6 +23,8 @@ import {
   type ResolvedStream,
 } from '@lxmn/core'
 import { ensureDesktopPlatform } from './platform'
+import { resolveWithFallback } from './fallback'
+import { prefs } from './prefs'
 
 ensureDesktopPlatform()
 
@@ -145,10 +147,27 @@ const manager = new DownloadManager({
   /**
    * 取流。源可能降级（flac 无权限给 mp3），把实际音质带回去，
    * 内核据此改文件扩展名 —— 否则会写出后缀是 .flac 的 mp3。
+   *
+   * 「下载失败自动换源」（1.6）：原源取不到流时，走和播放完全同一条兜底链
+   * （内置源 → 脚本池 → 跨源匹配同名曲）。为什么不自己再写一套搜索：
+   * 那条链上已经踩过所有坑（匹配过严会漏、过松会串到翻唱），
+   * 复制一份必然两边行为不一致 —— 用户会遇到「能播但下不了」。
+   *
+   * 关掉这个开关就只试原源：有人就是要「下不到就别拿别人的版本凑数」。
    */
   resolveStream: async (task): Promise<ResolvedStream | null> => {
     const source = getSource(task.item.source)
     if (!source?.getMusicUrl) return null
+    if (prefs.autoSwitchOnDownloadFail && task.item.source !== 'local') {
+      try {
+        const out = await resolveWithFallback(task.item, task.quality)
+        if (out?.info?.url) {
+          return { url: out.info.url, quality: out.info.quality, type: out.info.type }
+        }
+      } catch {
+        return null
+      }
+    }
     try {
       const info = await source.getMusicUrl(task.item, task.quality)
       if (!info?.url) return null

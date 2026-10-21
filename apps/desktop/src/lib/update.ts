@@ -30,6 +30,25 @@ const latest = ref<ReleaseInfo | null>(null)
 const error = ref('')
 const lastCheckedAt = ref(0)
 
+/**
+ * 「升级后弹一次更新日志」（6.10）。
+ *
+ * 判断依据是 localStorage 里记的「上次看过的版本」，而不是安装时间：
+ * 用户装了新版但当天没打开，第二天打开仍然该看到 —— 那才是他第一次
+ * 见到这个版本。首次安装（没有记录）**不弹**：新用户不需要「本次更新」。
+ */
+const SEEN_KEY = 'lxmn.seen.version'
+
+const pendingChangelog = ref<{ version: string; notes: string; url: string } | null>(null)
+
+function seenVersion(): string {
+  try { return localStorage.getItem(SEEN_KEY) ?? '' } catch { return '' }
+}
+
+function markSeen(version: string): void {
+  try { localStorage.setItem(SEEN_KEY, version) } catch { /* 隐私模式：下次还会弹，不影响功能 */ }
+}
+
 /** 把 v0.2.31-20261021 / v0.2.31 这类 tag 归一成可比较的三段式 */
 export function versionFromTag(tag: string): string {
   const m = /v?(\d+)\.(\d+)\.(\d+)/.exec(String(tag || ''))
@@ -52,28 +71,38 @@ export function useUpdater() {
   const current = APP_VERSION
   const hasUpdate = computed(() => Boolean(latest.value?.newer))
 
+  /**
+   * 拉 release 列表。失败时抛错，由调用方决定「静默」还是「提示」。
+   *
+   * 单独抽出来是因为更新日志弹窗也要用它找**当前版本**的说明，
+   * 而 check() 只关心「有没有比当前新的」。
+   */
+  async function fetchReleases(): Promise<ReleaseInfo[]> {
+    const res = await fetch(RELEASES_API, { headers: { accept: 'application/vnd.github+json' } })
+    if (!res.ok) throw new Error('GitHub 返回 ' + res.status)
+    const raw = (await res.json()) as Array<{ tag_name?: string; name?: string; body?: string; html_url?: string; published_at?: string; draft?: boolean }>
+    return (Array.isArray(raw) ? raw : [])
+      .filter(r => !r.draft && r.tag_name)
+      .map(r => {
+        const v = versionFromTag(String(r.tag_name))
+        return {
+          tag: String(r.tag_name),
+          name: String(r.name || r.tag_name),
+          notes: String(r.body || ''),
+          url: String(r.html_url || RELEASES_PAGE),
+          publishedAt: String(r.published_at || ''),
+          version: v,
+          newer: v ? compareVersion(v, current) > 0 : false,
+        }
+      })
+  }
+
   async function check(silent = false): Promise<ReleaseInfo | null> {
     if (checking.value) return latest.value
     checking.value = true
     error.value = ''
     try {
-      const res = await fetch(RELEASES_API, { headers: { accept: 'application/vnd.github+json' } })
-      if (!res.ok) throw new Error('GitHub 返回 ' + res.status)
-      const raw = (await res.json()) as Array<{ tag_name?: string; name?: string; body?: string; html_url?: string; published_at?: string; draft?: boolean }>
-      const items = (Array.isArray(raw) ? raw : [])
-        .filter(r => !r.draft && r.tag_name)
-        .map(r => {
-          const v = versionFromTag(String(r.tag_name))
-          return {
-            tag: String(r.tag_name),
-            name: String(r.name || r.tag_name),
-            notes: String(r.body || ''),
-            url: String(r.html_url || RELEASES_PAGE),
-            publishedAt: String(r.published_at || ''),
-            version: v,
-            newer: v ? compareVersion(v, current) > 0 : false,
-          }
-        })
+      const items = await fetchReleases()
       const best = items
         .filter(i => i.version)
         .sort((a, b) => compareVersion(b.version, a.version))[0]
@@ -98,10 +127,46 @@ export function useUpdater() {
     setTimeout(() => { void check(true) }, 3000)
   }
 
+  /**
+   * 升级后第一次启动时把「本次更新了什么」摆出来（6.10）。
+   *
+   * 拿不到 release notes 也照样弹：只显示版本号 + 「去发布页看」——
+   * 静默什么都不弹，用户就永远不知道这次更新改了什么。
+   */
+  async function maybeShowChangelog(force = false): Promise<void> {
+    // force 只给设置页的「再看一次」用：用户主动点的不该被「已看过」挡住
+    if (!force && !prefs.showChangelogAfterUpdate) return
+    const seen = seenVersion()
+    if (!force) {
+      if (seen === current) return
+      if (!seen) { markSeen(current); return }
+    }
+    let notes = ''
+    let url = RELEASES_PAGE
+    try {
+      const items = await fetchReleases()
+      const hit = items.find(i => i.version === current)
+        ?? items.filter(i => i.version && compareVersion(i.version, current) <= 0)
+          .sort((a, b) => compareVersion(b.version, a.version))[0]
+      if (hit) { notes = hit.notes; url = hit.url }
+    } catch {
+      // 离线/被墙：只显示版本号，不阻断启动
+    }
+    pendingChangelog.value = { version: current, notes, url }
+  }
+
+  function dismissChangelog(): void {
+    markSeen(current)
+    pendingChangelog.value = null
+  }
+
   function openDownload(): void {
     const url = latest.value?.newer ? latest.value.url : RELEASES_PAGE
     void window.lxmnNative?.openExternal?.(url)
   }
 
-  return { current, latest, checking, error, lastCheckedAt, hasUpdate, check, maybeAutoCheck, openDownload, RELEASES_PAGE }
+  return {
+    current, latest, checking, error, lastCheckedAt, hasUpdate, check, maybeAutoCheck, openDownload, RELEASES_PAGE,
+    pendingChangelog, maybeShowChangelog, dismissChangelog,
+  }
 }

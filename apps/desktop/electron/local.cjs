@@ -18,9 +18,18 @@ const fsp = require('node:fs/promises')
 const path = require('node:path')
 const { Readable } = require('node:stream')
 const zlib = require('node:zlib')
+const tags = require('./tags.cjs')
 
 const SCHEME = 'lxmn-media'
 const PREFIX = `${SCHEME}://local/`
+/**
+ * 内嵌封面的地址前缀。
+ *
+ * 为什么单独一条路由而不是把 base64 塞进扫描结果：一个目录几百首、
+ * 每张封面几十到几百 KB，一次扫描就能把 IPC 报文推到几十 MB，
+ * 界面还会因为一次性解码一堆图片卡住。这里按需读、按需返回。
+ */
+const COVER_PREFIX = `${SCHEME}://cover/`
 
 /** 扫目录时最多往下走几层。网易云按歌单分目录最多两层，4 层足够且能挡住误选整个盘 */
 const MAX_DEPTH = 4
@@ -83,8 +92,58 @@ function pathFromUrl(url) {
 }
 
 /** 装协议处理器（app ready 之后调用） */
+/**
+ * 封面缓存：key 是「路径 + 修改时间」，文件换了一首同名歌也能失效。
+ * 上限 60 张，按插入顺序淘汰最旧的 —— 列表滚过去就够了，不需要真 LRU。
+ */
+const coverCache = new Map()
+const COVER_CACHE_MAX = 60
+
+async function coverResponse(url) {
+  let filePath = ''
+  try {
+    filePath = decodeURIComponent(String(url || '').slice(COVER_PREFIX.length))
+  } catch {
+    return new Response('bad url', { status: 400 })
+  }
+  if (!filePath) return new Response('bad url', { status: 400 })
+  let mtime = 0
+  try {
+    mtime = (await fsp.stat(filePath)).mtimeMs
+  } catch {
+    return new Response('not found', { status: 404 })
+  }
+  const key = filePath + '|' + mtime
+  const hit = coverCache.get(key)
+  if (hit) return coverResponseFrom(hit)
+  const info = await tags.readTags(filePath)
+  if (!info?.picture?.data?.length) return new Response('no cover', { status: 404 })
+  const entry = { mime: info.picture.mime, data: info.picture.data }
+  coverCache.set(key, entry)
+  if (coverCache.size > COVER_CACHE_MAX) {
+    const oldest = coverCache.keys().next().value
+    if (oldest) coverCache.delete(oldest)
+  }
+  return coverResponseFrom(entry)
+}
+
+function coverResponseFrom(entry) {
+  return new Response(entry.data, {
+    status: 200,
+    headers: {
+      'content-type': entry.mime,
+      'content-length': String(entry.data.length),
+      'cache-control': 'max-age=86400',
+    },
+  })
+}
+
 function installProtocol() {
   protocol.handle(SCHEME, async request => {
+    // 封面走同一条协议的另一条路由，先分流，免得被当成文件路径
+    if (String(request.url || '').startsWith(COVER_PREFIX)) {
+      return await coverResponse(request.url)
+    }
     const filePath = pathFromUrl(request.url)
     if (!filePath) return new Response('bad url', { status: 400 })
 
@@ -257,6 +316,34 @@ function krcToLrc(text) {
 }
 
 /**
+ * 给音频文件补上内嵌标签与「有没有封面」（PARITY 4.8）。
+ *
+ * 并发 4：全部串行会让一千首的目录扫上半分钟；并发再高，
+ * 机械硬盘上反而更慢（寻道打架）。
+ *
+ * 读不到标签不算错：文件名本身就是网易云按 `歌手 - 歌名` 命名的，
+ * 标签只是「更准的那一份」。所以这里静默跳过，不写 error。
+ */
+async function attachTags(entries) {
+  let cursor = 0
+  const workers = new Array(Math.min(4, entries.length)).fill(0).map(async () => {
+    for (;;) {
+      const i = cursor++
+      if (i >= entries.length) return
+      const e = entries[i]
+      if (!AUDIO_EXTS.has(e.ext)) continue
+      const info = await tags.readTags(e.path)
+      if (!info) continue
+      if (info.title) e.title = info.title
+      if (info.artist) e.artist = info.artist
+      if (info.album) e.album = info.album
+      if (info.picture?.data?.length) e.hasCover = true
+    }
+  })
+  await Promise.all(workers)
+}
+
+/**
  * 扫描一个目录。
  *
  * 返回**未过滤**的完整清单（音频 + 加密 + lrc），由渲染层用内核的
@@ -298,9 +385,12 @@ async function scan(dir) {
     for (const audioExt of AUDIO_EXTS) lrc[`${target}.${audioExt}`] = text
   }
 
+  const audioEntries = entries.filter(e => e.ext !== 'lrc' && e.ext !== 'krc')
+  await attachTags(audioEntries)
+
   return {
     root,
-    entries: entries.filter(e => e.ext !== 'lrc' && e.ext !== 'krc'),
+    entries: audioEntries,
     lrc,
     truncated: entries.length >= MAX_FILES,
   }

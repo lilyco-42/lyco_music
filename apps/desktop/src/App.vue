@@ -10,6 +10,7 @@ import Sidebar from './components/layout/Sidebar.vue'
 import TopBar from './components/layout/TopBar.vue'
 import PlayBar from './components/layout/PlayBar.vue'
 import AudioHost from './components/AudioHost.vue'
+import ChangelogDialog from './components/ChangelogDialog.vue'
 import { toastText } from './lib/toast'
 
 const route = useRoute()
@@ -62,6 +63,9 @@ const isLyricWindow = computed(() => route.name === 'lyric-window' || location.h
     <!-- 底栏：实测 102px -->
     <PlayBar class="h-bottombar shrink-0" />
   </div>
+
+  <!-- 升级后的更新日志（6.10）：只在主窗口出现，歌词窗口里不弹 -->
+  <ChangelogDialog v-if="!isLyricWindow" />
 
   <!-- 全局轻提示：下载/导出的结果。放在最外层，播放器模式也能看到 -->
   <div
