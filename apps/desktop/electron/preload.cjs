@@ -75,4 +75,24 @@ contextBridge.exposeInMainWorld('lxmnNative', {
   },
   /** 用系统浏览器打开外部链接（购买页等） */
   openExternal: (url) => ipcRenderer.invoke('lxmn:open-external', url),
+  /**
+   * 下载：内核只管调度，真正的落盘在主进程。
+   *
+   * start 只负责启动（立即返回），进度通过 onEvent 推 ——
+   * 一个任务可能下几分钟，invoke 挂那么久会让 Promise 长期不 settle。
+   */
+  download: {
+    start: (request) => ipcRenderer.invoke('lxmn:download:start', request),
+    pause: (id) => ipcRenderer.invoke('lxmn:download:pause', id),
+    remove: (id) => ipcRenderer.invoke('lxmn:download:remove', id),
+    ensureDir: (dir) => ipcRenderer.invoke('lxmn:download:ensure-dir', dir),
+    defaultDir: () => ipcRenderer.invoke('lxmn:download:default-dir'),
+    pickDir: () => ipcRenderer.invoke('lxmn:download:pick-dir'),
+    openDir: (dir) => ipcRenderer.invoke('lxmn:download:open-dir', dir),
+    onEvent: (cb) => {
+      const handler = (_e, payload) => { try { cb(payload) } catch { /* ignore */ } }
+      ipcRenderer.on('lxmn:download:event', handler)
+      return () => ipcRenderer.removeListener('lxmn:download:event', handler)
+    },
+  },
 })

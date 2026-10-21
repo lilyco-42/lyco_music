@@ -11,7 +11,8 @@
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ChevronLeft, ListMusic, Pencil, Play, Plus } from 'lucide-vue-next'
+import { ChevronLeft, Download, ListMusic, Pencil, Play, Plus } from 'lucide-vue-next'
+import { enqueueDownload } from '@/lib/downloads'
 import { usePlayer } from '@/lib/player'
 import { useSync } from '@/lib/sync'
 import { useSharing } from '@/lib/share'
@@ -163,6 +164,24 @@ async function playAll(): Promise<void> {
   const first = items[0]
   if (first) await player.play(first, items)
 }
+
+/** 把当前列表整批加进下载队列（不阻塞界面，进度在下载管理页看） */
+const downloadingAll = ref(false)
+async function downloadAll(): Promise<void> {
+  const items = detailItems.value
+  if (!items.length || downloadingAll.value) return
+  downloadingAll.value = true
+  try {
+    const pl = opened.value
+    const n = await enqueueDownload(items, player.state.quality, pl ? { id: pl.id, name: pl.name } : undefined)
+    downloadHint.value = n ? `已加入下载队列（${n} 首）` : '这些歌都已经在下载列表里了'
+  } catch (e) {
+    downloadHint.value = e instanceof Error ? e.message : '加入下载队列失败'
+  } finally {
+    downloadingAll.value = false
+  }
+}
+const downloadHint = ref('')
 
 async function removeTrack(item: MusicItem): Promise<void> {
   const pl = opened.value
@@ -491,6 +510,17 @@ watch(playlists, () => {
               <Play :size="15" :stroke-width="2.2" aria-hidden="true" />
               <span>播放全部</span>
             </button>
+
+            <button
+              type="button"
+              class="flex items-center gap-1.5 rounded-pill border border-ncm-divider px-4 py-1.5 text-[13px] text-ncm-muted transition-colors hover:bg-black/5 disabled:opacity-40"
+              :disabled="!opened.items.length || downloadingAll"
+              @click="downloadAll"
+            >
+              <Download :size="15" :stroke-width="2" aria-hidden="true" />
+              <span>{{ downloadingAll ? '加入中…' : '下载全部' }}</span>
+            </button>
+            <span v-if="downloadHint" class="text-[12px] text-ncm-faint">{{ downloadHint }}</span>
 
             <template v-if="!confirmDelete">
               <button

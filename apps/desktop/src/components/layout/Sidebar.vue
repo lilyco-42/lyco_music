@@ -30,7 +30,7 @@ const navServices = [
 const navMine = [
   { key: 'like', label: '我喜欢的音乐', icon: Heart, route: '/my', tab: 'fav' },
   { key: 'recent', label: '最近播放', icon: History, route: '/my', tab: 'recent' },
-  { key: 'download', label: '下载管理', icon: Download, route: '', tab: '' },
+  { key: 'download', label: '下载管理', icon: Download, route: '/downloads', tab: '' },
   { key: 'more', label: '更多', icon: Ellipsis, route: '/account', tab: '' },
 ]
 

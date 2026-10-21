@@ -14,6 +14,7 @@ import { useSync } from '@/lib/sync'
 import IconButton from '@/components/ui/IconButton.vue'
 import QualityMenu from '@/components/layout/QualityMenu.vue'
 import { saveUrl, safeFileName, audioExt } from '@/lib/download'
+import { enqueueDownload } from '@/lib/downloads'
 import { toast } from '@/lib/toast'
 
 const router = useRouter()
@@ -177,6 +178,7 @@ const moreItems = computed(() => {
     { key: 'album', label: `专辑：${t.albumName || '未知'}`, hint: '在搜索里查看这张专辑' },
     { key: 'addto', label: '添加到歌单', hint: playlists.value.length ? `共 ${playlists.value.length} 个歌单` : '还没有歌单，可以直接新建' },
     { key: 'download', label: '下载歌曲', hint: downloading.value ? '正在下载…' : '另存为音频文件' },
+    { key: 'enqueue', label: '下载到音乐库', hint: '进下载管理，可暂停 / 续传' },
     { key: 'copy', label: '复制歌名 - 歌手', hint: '粘贴到别处分享' },
     { key: 'lyric', label: lyricActive.value ? '关闭桌面歌词' : '打开桌面歌词', hint: '' },
     { key: 'queue', label: `播放队列（${player.state.queue.length}）`, hint: '' },
@@ -283,6 +285,14 @@ async function onMore(key: string): Promise<void> {
   }
   if (key === 'download') {
     await downloadCurrent()
+    return
+  }
+  if (key === 'enqueue') {
+    const t = track.value
+    if (!t) return
+    openPanel.value = 'none'
+    const n = await enqueueDownload([t], player.state.quality)
+    toast(n ? '已加入下载队列' : '这首已经在下载列表里了')
     return
   }
   if (key === 'queue') {

@@ -16,6 +16,9 @@ export * from './library'
 export * from './sources'
 export * from './fallback'
 export * from './dislike'
+export * from './download'
+export * from './download/types'
+export * from './download/naming'
 
 export const CORE_VERSION = '0.2.25'
 

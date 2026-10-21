@@ -11,3 +11,7 @@ release/
 # Python 字节码：本地校验脚本语法时会生成，不应进仓库
 __pycache__/
 *.pyc
+
+# 下载探针的产物（scripts/probe-download.cjs 生成）
+apps/desktop/scripts/out-*/
+apps/desktop/scripts/probe-download-result.json

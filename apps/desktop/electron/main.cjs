@@ -8,6 +8,7 @@ const { app, BrowserWindow, shell, ipcMain, net, safeStorage, screen, dialog } =
 const path = require('node:path')
 const fs = require('node:fs/promises')
 const { startLoginFlow } = require('./oauth.cjs')
+const download = require('./download.cjs')
 
 const isDev = !app.isPackaged
 /** 允许在开发时用环境变量指向 vite dev server */
@@ -489,6 +490,33 @@ ipcMain.handle('lxmn:request', async (_e, options) => {
     raw: buf,
   }
 })
+
+/* ---------- 下载（真正的字节写入在这里） ---------- */
+
+/**
+ * 下载的事件不走 invoke 的返回值，而是单独推。
+ *
+ * 一个任务可能下几分钟，如果让 invoke 一直挂着，渲染层的 Promise
+ * 会长期不 settle，而且窗口刷新就丢了回调。改成「invoke 只负责启动，
+ * 进度用 send 推」—— 与 lx 的 worker 消息模型一致。
+ */
+ipcMain.handle('lxmn:download:start', async (e, request) => {
+  const sender = e.sender
+  void download.start(request, event => {
+    if (sender.isDestroyed()) return
+    try {
+      sender.send('lxmn:download:event', { id: request?.id, ...event })
+    } catch { /* 窗口正在关闭 */ }
+  })
+  return true
+})
+
+ipcMain.handle('lxmn:download:pause', async (_e, id) => { await download.pause(id); return true })
+ipcMain.handle('lxmn:download:remove', async (_e, id) => { await download.remove(id); return true })
+ipcMain.handle('lxmn:download:ensure-dir', async (_e, dir) => download.ensureDir(String(dir ?? '')))
+ipcMain.handle('lxmn:download:default-dir', async () => download.defaultDir())
+ipcMain.handle('lxmn:download:pick-dir', async () => download.pickDir(win))
+ipcMain.handle('lxmn:download:open-dir', async (_e, dir) => { download.openDir(dir); return true })
 
 /**
  * 保存文件：歌词导出（content）与音频下载（url）共用一条通道。

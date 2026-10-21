@@ -10,7 +10,8 @@
     "typecheck": "vue-tsc --noEmit -p tsconfig.json",
     "preview": "vite preview",
     "electron:dev": "cross-env LXMN_DEV_URL=http://localhost:5173 electron .",
-    "electron:build": "pnpm build && electron-builder --publish never"
+    "electron:build": "pnpm build && electron-builder --publish never",
+    "probe:download": "electron scripts/probe-download.cjs"
   },
   "dependencies": {
     "@lxmn/core": "workspace:*",
