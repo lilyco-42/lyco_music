@@ -15,11 +15,13 @@ import IconButton from '@/components/ui/IconButton.vue'
 import QualityMenu from '@/components/layout/QualityMenu.vue'
 import { saveUrl, safeFileName, audioExt } from '@/lib/download'
 import { enqueueDownload } from '@/lib/downloads'
+import { useSleepTimer } from '@/lib/sleep-timer'
 import { toast } from '@/lib/toast'
 
 const router = useRouter()
 const player = usePlayer()
 const { library, playlists, dislikes, isDisliked, dislike, undislike } = useSync()
+const sleep = useSleepTimer()
 
 const track = computed(() => player.current.value)
 
@@ -164,7 +166,7 @@ const seekHint = computed(() => {
 /* ---------------- 右侧「…」菜单与播放队列 ---------------- */
 
 /** 面板互斥：同时只开一个，避免两层浮层叠在一起 */
-const openPanel = ref<'none' | 'more' | 'queue' | 'addto' | 'rate'>('none')
+const openPanel = ref<'none' | 'more' | 'queue' | 'addto' | 'rate' | 'sleep'>('none')
 
 /** 0.5 → "0.5×"；1 → "1×"（不要 1.00× 那种零） */
 function fmtRate(r: number): string {
@@ -203,6 +205,9 @@ const moreItems = computed(() => {
       : { key: 'dislike', label: '不喜欢这首歌', hint: '加入屏蔽规则，之后自动跳过' },
     { key: 'lyric', label: lyricActive.value ? '关闭桌面歌词' : '打开桌面歌词', hint: '' },
     { key: 'rate', label: '播放速度', hint: fmtRate(player.state.rate) },
+    sleep.active.value
+      ? { key: 'sleep', label: '定时暂停', hint: `${sleep.label.value} 后暂停` }
+      : { key: 'sleep', label: '定时暂停', hint: '到时自动暂停' },
     { key: 'queue', label: `播放队列（${player.state.queue.length}）`, hint: '' },
   ]
 })
@@ -330,6 +335,10 @@ async function onMore(key: string): Promise<void> {
   }
   if (key === 'rate') {
     openPanel.value = 'rate'
+    return
+  }
+  if (key === 'sleep') {
+    openPanel.value = 'sleep'
     return
   }
   if (key === 'queue') {
@@ -564,6 +573,29 @@ const error = computed(() => player.state.error)
           :disabled="addBusy"
         >创建并加入</button>
       </form>
+    </div>
+
+    <!-- 定时暂停 -->
+    <div
+      v-if="openPanel === 'sleep'"
+      class="absolute bottom-[112px] right-[28px] z-50 w-[210px] overflow-hidden rounded-2xl border border-ncm-divider bg-white py-1 shadow-[0_12px_32px_rgba(0,0,0,.14)]"
+    >
+      <div class="px-4 py-1.5 text-[12px] text-ncm-fainter">
+        定时暂停{{ sleep.active.value ? '（剩余 ' + sleep.label.value + '）' : '' }}
+      </div>
+      <button
+        v-for="m in sleep.OPTIONS"
+        :key="m"
+        type="button"
+        class="flex w-full items-center justify-between px-4 py-1.5 text-left text-[13px] text-ncm-fg transition-colors hover:bg-black/5"
+        @click="sleep.start(m); openPanel = 'none'"
+      >{{ m }} 分钟后暂停</button>
+      <button
+        v-if="sleep.active.value"
+        type="button"
+        class="flex w-full items-center justify-between border-t border-ncm-divider px-4 py-1.5 text-left text-[13px] text-ncm-accent transition-colors hover:bg-black/5"
+        @click="sleep.cancel(); openPanel = 'none'"
+      >取消定时</button>
     </div>
 
     <!-- 播放速度 -->
