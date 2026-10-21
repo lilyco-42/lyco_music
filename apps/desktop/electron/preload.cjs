@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('lxmnNative', {
   request: (options) => ipcRenderer.invoke('lxmn:request', options),
   /** 弹系统另存为对话框并写文件：歌词导出（content）/ 音频下载（url） */
   saveFile: (payload) => ipcRenderer.invoke('lxmn:save-file', payload),
+  /** 弹选择文件对话框并读取文本（备份恢复用） */
+  openFile: (options) => ipcRenderer.invoke('lxmn:open-file', options),
   storage: {
     get: (k) => ipcRenderer.invoke('lxmn:storage:get', k),
     set: (k, v) => ipcRenderer.invoke('lxmn:storage:set', k, v),

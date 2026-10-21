@@ -57,6 +57,15 @@ interface LxmnSchemeApi {
   onLink: (cb: (payload: LxmnSchemePayload) => void) => () => void
 }
 
+interface LxmnOpenFileResult {
+  canceled?: boolean
+  ok?: boolean
+  name?: string
+  path?: string
+  content?: string
+  error?: string
+}
+
 interface LxmnTaskbarApi {
   /** 0..1 正常进度；-1 清除；2 不确定态 */
   setProgress: (value: number) => Promise<boolean>
@@ -135,6 +144,8 @@ interface Window {
     taskbar?: LxmnTaskbarApi
     power?: LxmnPowerApi
     openExternal?: (url: string) => Promise<boolean>
+    openFile?: (options?: { title?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<LxmnOpenFileResult>
+    saveFile?: (payload: { filename: string; content?: string; url?: string; dir?: string }) => Promise<{ ok?: boolean; canceled?: boolean; path?: string; size?: number; error?: string }>
     [key: string]: unknown
   }
 }

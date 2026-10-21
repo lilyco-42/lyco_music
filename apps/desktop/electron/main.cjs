@@ -863,6 +863,33 @@ ipcMain.handle('lxmn:local:pick-dir', async () => local.pickDir(win))
  *      而跨域的 <a download> 在 file:// 页面里文件名会被服务器路径覆盖；
  *   2. 直接抓音频流 —— 渲染层抓 CDN 会被 CORS 拦，主进程的 net.fetch 不会。
  */
+/**
+ * 打开并读取一个文本文件（备份恢复用）。
+ *
+ * 为什么不让渲染层用 <input type=file>：Electron 里它拿到的是 File 对象，
+ * 读大文件要 FileReader，而且用户上次打开的目录不会被记住 —— 备份文件
+ * 通常在「下载」里，让每次都要重新找一遍很烦。
+ */
+ipcMain.handle('lxmn:open-file', async (_e, options) => {
+  const opts = options || {}
+  const picked = await dialog.showOpenDialog(win ?? undefined, {
+    title: typeof opts.title === 'string' ? opts.title : '打开文件',
+    properties: ['openFile'],
+    filters: Array.isArray(opts.filters) ? opts.filters : [{ name: '所有文件', extensions: ['*'] }],
+  })
+  if (picked.canceled || !picked.filePaths.length) return { canceled: true }
+  const filePath = picked.filePaths[0]
+  try {
+    const stat = await fs.stat(filePath)
+    // 备份文件正常几十 KB；超过 20MB 几乎肯定选错了文件，直接拒绝而不是把内存吃满
+    if (stat.size > 20 * 1024 * 1024) return { ok: false, error: '文件超过 20MB，可能不是备份文件' }
+    const content = await fs.readFile(filePath, 'utf8')
+    return { ok: true, name: path.basename(filePath), path: filePath, content }
+  } catch (e) {
+    return { ok: false, error: e && e.message ? e.message : String(e) }
+  }
+})
+
 ipcMain.handle('lxmn:save-file', async (_e, payload) => {
   const { filename, content, url, dir } = payload || {}
   if (typeof filename !== 'string' || !filename) return { ok: false, error: '缺少文件名' }

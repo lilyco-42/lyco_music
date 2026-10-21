@@ -8,7 +8,7 @@
  */
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import {
-  Download, ListOrdered, Monitor, Music2, RotateCcw, Trash2, Volume2, FolderInput, Type, Globe, Link2, Copy, RefreshCw, ExternalLink, Info,
+  Download, ListOrdered, Monitor, Music2, RotateCcw, Trash2, Volume2, FolderInput, Type, Globe, Link2, Copy, RefreshCw, ExternalLink, Info, Archive,
 } from 'lucide-vue-next'
 import {
   prefs, resetPrefs, FONT_SCALES, WINDOW_PRESETS, type ProgressStyle,
@@ -17,10 +17,54 @@ import { clearResumePositions, shuffleQueue, usePlayer } from '@/lib/player'
 import { library, useSync } from '@/lib/sync'
 import { toast } from '@/lib/toast'
 import { useUpdater } from '@/lib/update'
+import { exportBackup, importBackup } from '@/lib/backup'
 
 const player = usePlayer()
 const { favorites, history, playlists, trial } = useSync()
 const updater = useUpdater()
+
+/* ---------------- 备份与恢复（4.10） ---------------- */
+
+const backupBusy = ref(false)
+const backupMsg = ref('')
+const backupErr = ref('')
+
+async function doExport(): Promise<void> {
+  if (backupBusy.value) return
+  backupBusy.value = true
+  backupMsg.value = ''
+  backupErr.value = ''
+  try {
+    const r = await exportBackup()
+    if ('canceled' in r) return
+    if ('error' in r) { backupErr.value = r.error; return }
+    backupMsg.value = `已导出：收藏 ${r.counts.favorites} · 歌单 ${r.counts.playlists} · 历史 ${r.counts.history} · 试听 ${r.counts.trial}`
+  } finally {
+    backupBusy.value = false
+  }
+}
+
+/**
+ * 恢复。覆盖模式必须点两次：这个操作没有「撤销」，而备份又很容易点错文件。
+ */
+async function doImport(mode: 'merge' | 'replace'): Promise<void> {
+  if (backupBusy.value) return
+  if (mode === 'replace' && arm('restore')) return
+  backupBusy.value = true
+  backupMsg.value = ''
+  backupErr.value = ''
+  try {
+    const r = await importBackup(mode)
+    if (!r.ok) {
+      if (!('canceled' in r && r.canceled)) backupErr.value = r.error || '导入失败'
+      return
+    }
+    backupMsg.value = (mode === 'merge' ? '已合并：' : '已恢复：') +
+      `收藏 ${r.counts.favorites} · 歌单 ${r.counts.playlists} · 历史 ${r.counts.history} · 试听 ${r.counts.trial}`
+  } finally {
+    backupBusy.value = false
+  }
+}
 
 /* ---------------- 系统集成（6.5 / 6.6 / 6.8） ---------------- */
 
@@ -419,6 +463,40 @@ const PROGRESS_STYLES: { id: ProgressStyle; label: string; desc: string }[] = [
           >{{ pending === 'pos' ? '再点一次清空进度' : '清空播放进度' }}</button>
         </div>
         <p class="mt-2 text-[12px] text-ncm-faint">清理只动本机数据；已开启云同步的话，下次同步会把这些删除推上去。</p>
+      </div>
+
+      <!-- 备份与恢复（4.10） -->
+      <div class="mt-5 border-t border-ncm-divider pt-4">
+        <div class="flex items-center gap-2">
+          <Archive :size="16" class="text-ncm-faint" />
+          <span class="text-[14px] text-ncm-fg">备份与恢复</span>
+        </div>
+        <p class="mt-1 text-[12px] leading-[18px] text-ncm-faint">
+          导出一个可读的 JSON（收藏 / 歌单 / 试听列表 / 历史 / 屏蔽规则 / 设置）。换设备或重装前先导一份最省事。
+        </p>
+        <div class="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            class="rounded-full bg-ncm-accent px-3.5 py-1.5 text-[12px] text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+            :disabled="backupBusy"
+            @click="doExport"
+          >导出备份</button>
+          <button
+            type="button"
+            class="rounded-full border border-ncm-divider px-3.5 py-1.5 text-[12px] text-ncm-muted transition-colors hover:bg-ncm-bg disabled:opacity-40"
+            :disabled="backupBusy"
+            @click="doImport('merge')"
+          >恢复并合并</button>
+          <button
+            type="button"
+            class="rounded-full border px-3.5 py-1.5 text-[12px] transition-colors"
+            :class="pending === 'restore' ? 'border-red-400 bg-red-50 text-red-600' : 'border-ncm-divider text-ncm-muted hover:bg-ncm-bg'"
+            :disabled="backupBusy"
+            @click="doImport('replace')"
+          >{{ pending === 'restore' ? '再点一次覆盖本机数据' : '恢复并覆盖' }}</button>
+        </div>
+        <p v-if="backupMsg" class="mt-2 text-[12px] text-emerald-600">{{ backupMsg }}</p>
+        <p v-if="backupErr" class="mt-2 text-[12px] text-red-500">{{ backupErr }}</p>
       </div>
     </div>
 
