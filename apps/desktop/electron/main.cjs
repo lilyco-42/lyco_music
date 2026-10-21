@@ -5,7 +5,7 @@
  * （渲染层可通过 preload 暴露的 API 读写本地文件 / 发起无 CORS 请求）。
  */
 const {
-  app, BrowserWindow, shell, ipcMain, net, safeStorage, screen, dialog,
+  app, BrowserWindow, shell, ipcMain, net, safeStorage, screen, dialog, session,
   Tray, Menu, nativeImage, powerSaveBlocker,
 } = require('electron')
 const path = require('node:path')
@@ -13,6 +13,10 @@ const fs = require('node:fs/promises')
 const { startLoginFlow } = require('./oauth.cjs')
 const download = require('./download.cjs')
 const local = require('./local.cjs')
+const extras = require('./extras.cjs')
+
+/** 系统集成（代理 / Scheme URL / 开放 API）的句柄，whenReady 后才有 */
+let sys = null
 
 const isDev = !app.isPackaged
 /** 允许在开发时用环境变量指向 vite dev server */
@@ -85,7 +89,9 @@ if (!singleInstance) {
   app.exit(0)
 }
 
-app.on('second-instance', () => {
+app.on('second-instance', (_e, argv) => {
+  // Windows 下 scheme 链接是作为第二个实例的命令行参数进来的
+  sys?.consumeArgv(argv)
   if (!win || win.isDestroyed()) return
   if (win.isMinimized()) win.restore()
   win.show()
@@ -415,6 +421,23 @@ app.whenReady().then(() => {
 
   createWindow()
   createTray()
+
+  /**
+   * 系统集成（6.5 开放 API / 6.6 Scheme URL / 6.8 HTTP 代理）。
+   *
+   * 放在 createWindow 之后：这些能力都要往渲染层发消息，窗口不存在时
+   * 发出去的消息会被丢掉，用户看到的是「接口调了没反应」。
+   */
+  sys = extras.install({
+    app, ipcMain, session, path,
+    getWin: () => win,
+    showMainWindow,
+    sendToRenderer,
+    logCrash,
+  })
+  sys.registerSchemeClient()
+  // 冷启动就带着 scheme 链接的情况（Windows）
+  sys.consumeArgv(process.argv)
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

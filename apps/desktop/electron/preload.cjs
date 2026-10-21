@@ -98,6 +98,36 @@ contextBridge.exposeInMainWorld('lxmnNative', {
       return () => ipcRenderer.removeListener('lxmn:lyric:data', handler)
     },
   },
+  /**
+   * 系统集成（PARITY 6.5 / 6.6 / 6.8）：HTTP 代理、Scheme URL、开放 API。
+   *
+   * 三者的共同点：真正的实现对端在主进程（session 级代理、协议注册、HTTP 服务），
+   * 渲染层只发配置、收命令 —— 把「播放状态」留在渲染层这一份真相里。
+   */
+  proxy: {
+    /** {enabled, host, port, username, password}；返回 {mode, rules?} */
+    apply: (cfg) => ipcRenderer.invoke('lxmn:proxy:apply', cfg),
+  },
+  api: {
+    /** {enabled, port}；返回 {running, port?, error?} */
+    setEnabled: (cfg) => ipcRenderer.invoke('lxmn:api:set-enabled', cfg),
+    reply: (id, result) => ipcRenderer.invoke('lxmn:api:reply', id, result),
+    pushState: (state) => ipcRenderer.invoke('lxmn:api:state', state),
+    /** 外部程序调 /play 之类，主进程转成命令下发 */
+    onCommand: (cb) => {
+      const handler = (_e, payload) => { try { cb(payload) } catch { /* ignore */ } }
+      ipcRenderer.on('lxmn:api:command', handler)
+      return () => ipcRenderer.removeListener('lxmn:api:command', handler)
+    },
+  },
+  scheme: {
+    /** lxmusic://… 被唤起（含冷启动带参数、第二实例、macOS open-url） */
+    onLink: (cb) => {
+      const handler = (_e, payload) => { try { cb(payload) } catch { /* ignore */ } }
+      ipcRenderer.on('lxmn:scheme', handler)
+      return () => ipcRenderer.removeListener('lxmn:scheme', handler)
+    },
+  },
   /** 用系统浏览器打开外部链接（购买页等） */
   openExternal: (url) => ipcRenderer.invoke('lxmn:open-external', url),
   /**

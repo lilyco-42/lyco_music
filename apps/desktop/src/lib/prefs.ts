@@ -84,6 +84,8 @@ export interface ProxyPrefs {
 export interface ApiPrefs {
   enabled: boolean
   port: number
+  /** 上次启动失败的原因（端口被占用等），界面上要看得见 */
+  lastError?: string
 }
 
 export const FONT_SCALES = [

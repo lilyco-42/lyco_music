@@ -8,6 +8,7 @@ import { initTheme } from './lib/theme'
 import { initTexture } from './lib/texture'
 import { installHotkeys } from './lib/hotkeys'
 import { installShellIntegration } from './lib/shell'
+import { installIntegrations } from './lib/integrations'
 import { installLyricBridge } from './lib/lyric-window'
 import './styles/main.css'
 
@@ -59,6 +60,9 @@ installHotkeys()
 
 // 系统集成：托盘、任务栏进度、播放时防休眠、界面缩放、启动自动播放
 installShellIntegration()
+
+// 系统集成（另一个方向）：账号/协议/代理 —— 开放 API、scheme 唤起、HTTP 代理
+installIntegrations(router)
 
 createApp(App).use(router).mount('#app')
 

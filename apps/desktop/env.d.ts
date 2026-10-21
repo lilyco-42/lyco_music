@@ -35,6 +35,28 @@ interface LxmnTrayApi {
   onCommand: (cb: (cmd: string) => void) => () => void
 }
 
+/** 系统集成（6.5 / 6.6 / 6.8） */
+interface LxmnProxyApi {
+  apply: (cfg: { enabled: boolean; host: string; port: string; username: string; password: string }) => Promise<{ mode: string; rules?: string }>
+}
+
+interface LxmnApiServer {
+  setEnabled: (cfg: { enabled: boolean; port?: number }) => Promise<{ running: boolean; port?: number; error?: string }>
+  reply: (id: number, result: unknown) => Promise<boolean>
+  pushState: (state: Record<string, unknown>) => Promise<boolean>
+  onCommand: (cb: (payload: unknown) => void) => () => void
+}
+
+type LxmnSchemePayload =
+  | { kind: 'player'; action: string }
+  | { kind: 'search'; keyword: string }
+  | { kind: 'searchPlay'; keyword: string }
+  | { kind: 'play'; item: { source?: string; songmid?: string; name?: string; singer?: string } }
+
+interface LxmnSchemeApi {
+  onLink: (cb: (payload: LxmnSchemePayload) => void) => () => void
+}
+
 interface LxmnTaskbarApi {
   /** 0..1 正常进度；-1 清除；2 不确定态 */
   setProgress: (value: number) => Promise<boolean>
@@ -107,6 +129,9 @@ interface Window {
     lyric?: LxmnLyricApi
     win?: LxmnWindowControls
     tray?: LxmnTrayApi
+    proxy?: LxmnProxyApi
+    api?: LxmnApiServer
+    scheme?: LxmnSchemeApi
     taskbar?: LxmnTaskbarApi
     power?: LxmnPowerApi
     openExternal?: (url: string) => Promise<boolean>

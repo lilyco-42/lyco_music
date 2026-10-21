@@ -8,7 +8,7 @@
  */
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import {
-  Download, ListOrdered, Monitor, Music2, RotateCcw, Trash2, Volume2, FolderInput, Type,
+  Download, ListOrdered, Monitor, Music2, RotateCcw, Trash2, Volume2, FolderInput, Type, Globe, Link2, Copy,
 } from 'lucide-vue-next'
 import {
   prefs, resetPrefs, FONT_SCALES, WINDOW_PRESETS, type ProgressStyle,
@@ -19,6 +19,19 @@ import { toast } from '@/lib/toast'
 
 const player = usePlayer()
 const { favorites, history, playlists, trial } = useSync()
+
+/* ---------------- 系统集成（6.5 / 6.6 / 6.8） ---------------- */
+
+/** 开放 API 的示例端点：设一次就不用去翻文档 */
+const API_EXAMPLE = 'http://127.0.0.1:23330/status'
+const SCHEME_EXAMPLE = 'lxmusic://music/search?keyword=晴天'
+
+function copy(text: string): void {
+  void navigator.clipboard.writeText(text).then(
+    () => toast('已复制'),
+    () => toast('复制失败，请手动选中'),
+  )
+}
 
 /* ---------------- 输出设备（2.5） ---------------- */
 
@@ -495,6 +508,59 @@ const PROGRESS_STYLES: { id: ProgressStyle; label: string; desc: string }[] = [
             <span class="mt-0.5 block text-[12px] leading-[18px] text-ncm-faint">原音源下不下来时换其他源再试一次，避免整批任务红一片</span>
           </span>
         </label>
+      </div>
+
+      <!-- HTTP 代理（6.8） -->
+      <div class="mt-4 rounded-xl border border-ncm-divider p-4">
+        <label class="flex cursor-pointer items-start gap-3">
+          <input v-model="prefs.proxy.enabled" type="checkbox" class="mt-0.5 size-4 accent-[var(--color-ncm-accent)]" />
+          <span class="min-w-0 flex-1">
+            <span class="flex items-center gap-1.5 text-[14px] text-ncm-fg"><Globe :size="14" />HTTP 代理</span>
+            <span class="mt-0.5 block text-[12px] leading-[18px] text-ncm-faint">整机级别的 session 代理：接口、封面、音频流一起走，不会只通一部分</span>
+          </span>
+        </label>
+        <div v-if="prefs.proxy.enabled" class="mt-3 grid grid-cols-2 gap-2">
+          <input v-model="prefs.proxy.host" placeholder="主机 127.0.0.1" class="col-span-2 rounded-[6px] border border-ncm-divider px-2 py-1.5 text-[13px] outline-none focus:border-ncm-accent sm:col-span-1" />
+          <input v-model="prefs.proxy.port" placeholder="端口 7890" class="rounded-[6px] border border-ncm-divider px-2 py-1.5 text-[13px] outline-none focus:border-ncm-accent" />
+          <input v-model="prefs.proxy.username" placeholder="用户名（可选）" class="rounded-[6px] border border-ncm-divider px-2 py-1.5 text-[13px] outline-none focus:border-ncm-accent" />
+          <input v-model="prefs.proxy.password" type="password" placeholder="密码（可选）" class="rounded-[6px] border border-ncm-divider px-2 py-1.5 text-[13px] outline-none focus:border-ncm-accent" />
+        </div>
+        <p class="mt-2 text-[12px] text-ncm-faint">改完立即生效；localhost 与内网地址自动绕过。</p>
+      </div>
+
+      <!-- 开放 API（6.5） -->
+      <div class="mt-3 rounded-xl border border-ncm-divider p-4">
+        <label class="flex cursor-pointer items-start gap-3">
+          <input v-model="prefs.api.enabled" type="checkbox" class="mt-0.5 size-4 accent-[var(--color-ncm-accent)]" />
+          <span class="min-w-0 flex-1">
+            <span class="flex items-center gap-1.5 text-[14px] text-ncm-fg"><Monitor :size="14" />开放 API</span>
+            <span class="mt-0.5 block text-[12px] leading-[18px] text-ncm-faint">只监听 127.0.0.1，给 OBS / 直播工具 / 自己的脚本用</span>
+          </span>
+        </label>
+        <div v-if="prefs.api.enabled" class="mt-3 flex items-center gap-2">
+          <span class="text-[12px] text-ncm-faint">端口</span>
+          <input v-model.number="prefs.api.port" type="number" min="1024" max="65535" class="w-[92px] rounded-[6px] border border-ncm-divider px-2 py-1 text-[13px] outline-none focus:border-ncm-accent" />
+          <button type="button" class="flex items-center gap-1 rounded-full border border-ncm-divider px-2.5 py-1 text-[12px] text-ncm-muted hover:bg-ncm-bg" @click="copy(API_EXAMPLE)">
+            <Copy :size="12" />复制示例
+          </button>
+        </div>
+        <p v-if="prefs.api.lastError" class="mt-2 text-[12px] text-red-500">启动失败：{{ prefs.api.lastError }}</p>
+        <p v-else-if="prefs.api.enabled" class="mt-2 text-[12px] text-emerald-600">正在 127.0.0.1:{{ prefs.api.port }} 监听</p>
+      </div>
+
+      <!-- Scheme URL（6.6） -->
+      <div class="mt-3 rounded-xl border border-ncm-divider p-4">
+        <span class="flex items-center gap-1.5 text-[14px] text-ncm-fg"><Link2 :size="14" />Scheme URL</span>
+        <p class="mt-1 text-[12px] leading-[18px] text-ncm-faint">
+          外部程序可以用 <code class="rounded bg-ncm-bg px-1">lxmusic://</code> 唤起播放器：
+          <code class="rounded bg-ncm-bg px-1">player/play</code>、
+          <code class="rounded bg-ncm-bg px-1">player/skipNext</code>、
+          <code class="rounded bg-ncm-bg px-1">music/search?keyword=…</code>、
+          <code class="rounded bg-ncm-bg px-1">music/wy/&lt;songmid&gt;</code>。
+        </p>
+        <button type="button" class="mt-2 flex items-center gap-1 rounded-full border border-ncm-divider px-2.5 py-1 text-[12px] text-ncm-muted hover:bg-ncm-bg" @click="copy(SCHEME_EXAMPLE)">
+          <Copy :size="12" />复制示例
+        </button>
       </div>
 
       <div class="mt-4 flex items-center gap-2 border-t border-ncm-divider pt-4">
