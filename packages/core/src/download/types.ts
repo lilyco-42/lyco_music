@@ -46,6 +46,13 @@ export interface DownloadRequest {
   fileName: string
   /** 已下载字节数：> 0 时要求断点续传 */
   offset: number
+  /**
+   * 目标文件已存在时直接跳过（不覆盖）。
+   *
+   * 与 lx 的「同名文件跳过」一致：用户第二次下同一首时，不该把已经整理好
+   * 标签/重命名过的文件覆盖掉。传输层负责判断「存在」，内核不认识文件系统。
+   */
+  skipIfExists?: boolean
 }
 
 /** 传输层上报的事件 */
@@ -96,6 +103,8 @@ export interface DownloadManagerOptions {
    * 即使歌单后来改名也不影响已入队的任务。
    */
   subdirPerList?: () => boolean
+  /** 同名文件跳过（默认关，关=覆盖） */
+  skipExisting?: () => boolean
   /** 本地持久化键，默认 lxmn.downloads */
   storageKey?: string
 }

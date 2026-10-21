@@ -110,6 +110,20 @@ function start(request, emit) {
     }
 
     const part = target + '.part'
+
+    // 同名文件跳过：只跳过「已完成」的文件，半截的 .part 仍然续传
+    if (request?.skipIfExists) {
+      try {
+        const st = fs.statSync(target)
+        if (st.isFile() && st.size > 0 && !fs.existsSync(part)) {
+          emit({ type: 'complete', total: st.size })
+          return resolve()
+        }
+      } catch {
+        // 文件不存在就是正常情况，继续下载
+      }
+    }
+
     const offset = Number(request?.offset) || 0
     const entry = { request, response: null, part, target, emit, finished: false, resolve }
     entry.lastDataAt = Date.now()

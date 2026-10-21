@@ -69,6 +69,10 @@ async function onConcurrencyChange(e: Event): Promise<void> {
 async function onSubdirChange(e: Event): Promise<void> {
   await saveSettings({ subdirPerList: (e.target as HTMLInputElement).checked })
 }
+
+async function onSkipExistingChange(e: Event): Promise<void> {
+  await saveSettings({ skipExisting: (e.target as HTMLInputElement).checked })
+}
 </script>
 
 <template>
@@ -140,6 +144,16 @@ async function onSubdirChange(e: Event): Promise<void> {
           @change="onSubdirChange"
         />
         <span class="shrink-0 text-[13px] text-ncm-faint">按歌单分目录</span>
+      </label>
+
+      <label class="flex cursor-pointer items-center gap-2" title="目标文件已存在时不覆盖，直接当作已完成">
+        <input
+          type="checkbox"
+          class="size-[14px] accent-ncm-accent"
+          :checked="settings.skipExisting"
+          @change="onSkipExistingChange"
+        />
+        <span class="shrink-0 text-[13px] text-ncm-faint">同名跳过</span>
       </label>
 
       <label class="flex items-center gap-2">

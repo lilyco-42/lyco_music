@@ -183,6 +183,25 @@ app.whenReady().then(async () => {
     assert.ok(err, '空闲没有超时，界面会永远显示下载中')
   })
 
+  await check('同名跳过：目标文件已存在时只报完成，不覆盖原文件', async () => {
+    const target = path.join(dir, 'skip.mp3')
+    fs.writeFileSync(target, 'OLD-CONTENT')
+    const { events, done } = run('skip', { url: base + '/s2.mp3', dir, fileName: 'skip.mp3', offset: 0, skipIfExists: true })
+    await done
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), 'OLD-CONTENT', '原文件被覆盖了')
+    assert.ok(events.some(e => e.type === 'complete'), '没有报完成，界面会一直停在等待中')
+  })
+
+  await check('同名跳过不会吞掉半截文件：有 .part 时仍然续传', async () => {
+    const target = path.join(dir, 'resume-skip.mp3')
+    fs.writeFileSync(target, 'OLD-CONTENT')
+    fs.writeFileSync(target + '.part', PAYLOAD.subarray(0, 1024))
+    const { events, done } = run('resume-skip', { url: base + '/r2.mp3', dir, fileName: 'resume-skip.mp3', offset: 1024, skipIfExists: true })
+    await done
+    assert.ok(events.some(e => e.type === 'complete'))
+    assert.ok(fs.readFileSync(target).equals(PAYLOAD), '续传后内容不对（说明被跳过了）')
+  })
+
   await check('非法文件名 / 非 http 地址直接拒绝', async () => {
     const a = run('bad1', { url: base + '/x.mp3', dir, fileName: '..', offset: 0 })
     await a.done

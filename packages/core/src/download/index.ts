@@ -372,7 +372,14 @@ export class DownloadManager {
       }
 
       await this.options.transport.start(
-        { id: task.id, url: stream.url, dir, fileName: task.fileName, offset },
+        {
+          id: task.id,
+          url: stream.url,
+          dir,
+          fileName: task.fileName,
+          offset,
+          skipIfExists: this.options.skipExisting?.() ?? false,
+        },
         event => this.onEvent(task, event),
       )
     } catch (e) {
