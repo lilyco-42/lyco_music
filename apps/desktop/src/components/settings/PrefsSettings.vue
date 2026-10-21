@@ -41,6 +41,54 @@ function refreshChannelHint(): void {
 onMounted(() => { setTimeout(refreshChannelHint, 120) })
 watch(() => prefs.maxOutputChannels, () => { setTimeout(refreshChannelHint, 120) })
 
+/* ---------------- 圆角与阴影外框（7.7） ---------------- */
+
+/**
+ * 这一项和其他开关不一样：它改的是**窗口创建参数**，运行时改不了。
+ * 所以「改了」和「生效了」是两件事 —— 界面上必须说清楚，
+ * 并且给一个「现在重启」，而不是让用户自己去找重启按钮。
+ */
+const frameRestart = ref(false)
+const frameError = ref('')
+/** 本次运行实际用的模式；null = 拿不到（浏览器里跑 / 旧版主进程） */
+const runningFrame = ref<boolean | null>(null)
+
+onMounted(async () => {
+  const api = window.lxmnNative?.win
+  if (!api?.frameMode) return
+  try {
+    runningFrame.value = await api.frameMode()
+    frameRestart.value = runningFrame.value !== prefs.roundedWindow
+  } catch {
+    runningFrame.value = null
+  }
+})
+
+watch(() => prefs.roundedWindow, async want => {
+  const api = window.lxmnNative?.win
+  if (!api?.setFrame) return
+  frameError.value = ''
+  try {
+    const r = await api.setFrame(want)
+    if (!r.ok) {
+      frameError.value = '写入窗口配置失败，重启后可能不会生效'
+      return
+    }
+    frameRestart.value = runningFrame.value !== null && runningFrame.value !== want
+  } catch (e) {
+    frameError.value = e instanceof Error ? e.message : String(e)
+  }
+})
+
+async function restartApp(): Promise<void> {
+  try {
+    await window.lxmnNative?.win?.restart?.()
+  } catch (e) {
+    frameError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+
 /* ---------------- 备份与恢复（4.10） ---------------- */
 
 const backupBusy = ref(false)
@@ -588,6 +636,38 @@ const PROGRESS_STYLES: { id: ProgressStyle; label: string; desc: string }[] = [
           >{{ p.label }}</button>
         </div>
         <p class="mt-2 text-[12px] text-ncm-faint">超出屏幕的预设会被自动夹到工作区内并居中。</p>
+      </div>
+
+      <!-- 圆角与阴影（7.7） -->
+      <div class="mt-5">
+        <label class="flex cursor-pointer items-start gap-3">
+          <input
+            v-model="prefs.roundedWindow"
+            type="checkbox"
+            class="mt-0.5 size-4 accent-[var(--color-ncm-accent)]"
+          />
+          <span class="min-w-0 flex-1">
+            <span class="block text-[14px] text-ncm-fg">使用软件内置的圆角与阴影</span>
+            <span class="mt-0.5 block text-[12px] leading-[18px] text-ncm-faint">
+              开一个透明窗口，四周留 10px 画投影，窗口看起来更「浮起来」。
+              Win11 本身就会给无边框窗口加圆角，这个开关主要对 Win10 / Linux 有用。
+            </span>
+          </span>
+        </label>
+        <div v-if="frameRestart" class="mt-2 flex flex-wrap items-center gap-2 rounded-[10px] bg-ncm-bg px-3 py-2">
+          <span class="text-[12px] text-ncm-muted">外框模式已记录，重启后生效。</span>
+          <button
+            type="button"
+            class="rounded-full bg-ncm-accent px-3 py-1 text-[12px] text-white hover:opacity-90"
+            @click="restartApp"
+          >现在重启</button>
+          <button
+            type="button"
+            class="rounded-full border border-ncm-divider px-3 py-1 text-[12px] text-ncm-muted hover:bg-white"
+            @click="frameRestart = false"
+          >稍后</button>
+        </div>
+        <p v-if="frameError" class="mt-1 text-[12px] text-red-500">{{ frameError }}</p>
       </div>
     </div>
 

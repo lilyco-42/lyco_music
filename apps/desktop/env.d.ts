@@ -17,6 +17,12 @@ interface LxmnWindowControls {
     x: number; y: number; width: number; height: number
   } | null>
   hide: () => Promise<boolean>
+  /** 软件内置圆角与阴影（7.7）：只写配置，下次启动生效 */
+  setFrame: (rounded: boolean) => Promise<{ ok: boolean; rounded: boolean }>
+  /** 本次运行实际用的外框模式 */
+  frameMode: () => Promise<boolean>
+  /** 立刻重启应用 */
+  restart: () => Promise<boolean>
   onMaximizeChange: (cb: (maximized: boolean) => void) => () => void
 }
 

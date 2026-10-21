@@ -10,6 +10,7 @@ const {
 } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs/promises')
+const fsSync = require('node:fs')
 const { startLoginFlow } = require('./oauth.cjs')
 const download = require('./download.cjs')
 const local = require('./local.cjs')
@@ -114,18 +115,63 @@ app.on('second-instance', (_e, argv) => {
  */
 const START_HIDDEN = process.argv.some(a => a === '-hidden' || a === '--hidden' || a === '--start-hidden')
 
+/* ---------- 窗口外框模式（7.7） ---------- */
+
+/**
+ * 软件内置的圆角与阴影。
+ *
+ * 为什么必须落到**主进程的一个文件**里、而不是 localStorage：
+ * `transparent` 是 BrowserWindow 的**创建期**选项，窗口一建好就改不了，
+ * 而窗口要在渲染进程加载之前创建 —— 那时 localStorage 还读不到。
+ * 所以渲染进程改设置时把结果写到这里，下次启动由主进程读。
+ *
+ * 和 lx 的做法一致（它也是启动参数 + 重启生效）。Win11 本来就会给无边框
+ * 窗口加圆角，这个开关真正有用的是 Win10 / Linux，以及想要「一圈更明显
+ * 的投影」的人。
+ */
+function frameFile() {
+  return path.join(app.getPath('userData'), 'window-frame.json')
+}
+
+function readRoundedFrame() {
+  try {
+    return JSON.parse(fsSync.readFileSync(frameFile(), 'utf8')).rounded === true
+  } catch {
+    return false
+  }
+}
+
+function writeRoundedFrame(rounded) {
+  try {
+    fsSync.writeFileSync(frameFile(), JSON.stringify({ rounded: Boolean(rounded) }))
+    return true
+  } catch {
+    // 写不进去（权限/只读盘）也不要让设置页崩掉，如实返回失败
+    return false
+  }
+}
+
+
+/** 本次运行实际用的外框模式（配置改了但没重启时，两者会不一样） */
+let runningRoundedFrame = false
+
 function createWindow() {
+  const roundedFrame = readRoundedFrame()
+  runningRoundedFrame = roundedFrame
   win = new BrowserWindow({
     width: 1280,
     height: 820,
     minWidth: 1000,
     minHeight: 670,
-    backgroundColor: '#F4F6FB',
+    backgroundColor: roundedFrame ? '#00000000' : '#F4F6FB',
     title: 'Lyco Music',
     // 无边框：界面自己画右上角的最小化/最大化/关闭。
     // 之前 frame 默认为 true，系统标题栏和页面里的自绘按钮会同时出现，
     // 视觉上就是「多了一套缩放按钮」。
     frame: false,
+    // 软件内置圆角 + 阴影（7.7）：透明窗口，圆角和投影由页面 CSS 画。
+    // 关掉系统那套（hasShadow / roundedCorners），否则会和 CSS 的叠成两层。
+    ...(roundedFrame ? { transparent: true, hasShadow: false, roundedCorners: false } : {}),
     // macOS 上仍保留红绿灯的位置语义；Windows/Linux 完全由页面控制
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' } : {}),
     autoHideMenuBar: true,
@@ -979,6 +1025,28 @@ ipcMain.handle('lxmn:win:toggle-maximize', () => {
 })
 ipcMain.handle('lxmn:win:close', () => { win?.close(); return true })
 ipcMain.handle('lxmn:win:is-maximized', () => win?.isMaximized() ?? false)
+
+/**
+ * 圆角/阴影外框（7.7）。
+ *
+ * 只写配置文件、**不重建窗口**：`transparent` 是创建期选项，运行时改不了，
+ * 而悄悄重启会把用户正在听的队列和进度打断。改成「记下来 + 提示重启」，
+ * 什么时候重启由用户决定。
+ */
+ipcMain.handle('lxmn:win:frame', (_e, opts) => {
+  const rounded = Boolean(opts && opts.rounded)
+  return { ok: writeRoundedFrame(rounded), rounded }
+})
+
+/** 本次运行**实际**用的外框模式：配置改了还没重启时，两者不一样 */
+ipcMain.handle('lxmn:win:frame-mode', () => runningRoundedFrame)
+
+/** 立刻重启（应用外框模式改了之后，用户点「现在重启」） */
+ipcMain.handle('lxmn:win:restart', () => {
+  app.relaunch()
+  app.exit(0)
+  return true
+})
 
 ipcMain.handle('lxmn:app:info', async () => ({
   version: app.getVersion(),

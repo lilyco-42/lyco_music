@@ -27,6 +27,15 @@ contextBridge.exposeInMainWorld('lxmnNative', {
     setSize: (size) => ipcRenderer.invoke('lxmn:win:set-size', size),
     /** 隐藏到托盘 */
     hide: () => ipcRenderer.invoke('lxmn:win:hide'),
+    /**
+     * 软件内置圆角与阴影（PARITY 7.7）。
+     * 只写配置、下次启动生效 —— 透明是创建期选项，运行时改不了。
+     */
+    setFrame: (rounded) => ipcRenderer.invoke('lxmn:win:frame', { rounded: Boolean(rounded) }),
+    /** 本次运行实际用的外框模式（改了配置但还没重启时为 false） */
+    frameMode: () => ipcRenderer.invoke('lxmn:win:frame-mode'),
+    /** 立刻重启应用（外框模式改完后由用户确认） */
+    restart: () => ipcRenderer.invoke('lxmn:win:restart'),
     /** 最大化状态变化（双击标题栏等）时同步图标 */
     onMaximizeChange: (cb) => {
       const handler = (_e, value) => { try { cb(Boolean(value)) } catch { /* ignore */ } }

@@ -54,6 +54,8 @@ export interface DesktopPrefs {
   progressStyle: ProgressStyle
   /** 窗口尺寸预设 id（7.5） */
   windowPreset: string
+  /** 软件内置圆角与阴影（7.7），改完需要重启 */
+  roundedWindow: boolean
 
   /* ---- 歌词 ---- */
   /** 繁体转简体（3.4） */
@@ -142,6 +144,7 @@ function defaults(): DesktopPrefs {
     fontScale: 1,
     progressStyle: 'line',
     windowPreset: 'standard',
+    roundedWindow: false,
     lyricS2T: false,
     lyricOffset: 0,
     playLyricFontSize: 16,
@@ -200,6 +203,7 @@ function merge(raw: unknown): DesktopPrefs {
     fontScale: num(src.fontScale, base.fontScale, 0.75, 1.6),
     progressStyle: style === 'thick' || style === 'dot' ? style : 'line',
     windowPreset: str(src.windowPreset, base.windowPreset),
+    roundedWindow: bool(src.roundedWindow, base.roundedWindow),
     lyricS2T: bool(src.lyricS2T, base.lyricS2T),
     lyricOffset: num(src.lyricOffset, 0, -10, 10),
     playLyricFontSize: num(src.playLyricFontSize, base.playLyricFontSize, 12, 32),

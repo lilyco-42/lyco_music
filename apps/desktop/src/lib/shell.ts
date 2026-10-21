@@ -57,6 +57,24 @@ export function installShellIntegration(): void {
   // 这类系统记忆失效，用户会觉得窗口位置自己乱跑。
   watch(() => prefs.windowPreset, applyWindow)
 
+  /* ---------------- 圆角与阴影外框（7.7） ---------------- */
+
+  /**
+   * 只有**本次运行真的用了透明窗口**才挂 `data-frame`。
+   *
+   * 用户在设置里改了开关，但窗口的 `transparent` 是创建期选项 —— 要等重启
+   * 才生效。这中间如果先把 CSS 挂上，四周会露出一圈窗口底色（灰边），
+   * 看起来像渲染坏了。所以这里问主进程「你现在实际是不是透明窗口」。
+   */
+  void n?.win?.frameMode?.().then(on => {
+    if (on) document.documentElement.dataset.frame = 'rounded'
+  })
+
+  // 最大化时去掉圆角：四角圆起来会直接露出桌面
+  n?.win?.onMaximizeChange?.(on => {
+    document.documentElement.dataset.maximized = on ? '1' : '0'
+  })
+
   /* ---------------- 托盘（6.3 / 6.4） ---------------- */
 
   watch(() => prefs.closeToTray, on => { void n?.tray?.setCloseToTray(on) }, { immediate: true })

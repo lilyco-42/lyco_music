@@ -111,6 +111,47 @@ html[data-window='lyric'] #app {
 
 /*
  * ============================================================
+ * 软件内置圆角与阴影（PARITY 7.7）
+ *
+ * 主进程用 `transparent: true` 开一个透明窗口，这里把四周留出 10px 的空隙，
+ * 空隙里画投影，内层 #app 才是真正的内容 —— 就是 lx 的做法。
+ * 为什么不直接给 body 加 border-radius：投影画在窗口边界之外的部分会被
+ * 裁掉，必须有这圈「透明留白」才能看见阴影。
+ *
+ * 只在**本次运行确实用了透明窗口**时才挂 data-frame（由主进程的
+ * frame-mode 决定）—— 否则会看到一圈灰色的窗口底色。
+ * ============================================================ */
+html[data-frame='rounded'],
+html[data-frame='rounded'] body {
+  background: transparent !important;
+}
+
+html[data-frame='rounded'] body {
+  padding: 10px;
+  box-sizing: border-box;
+}
+
+html[data-frame='rounded'] #app {
+  border-radius: 12px;
+  overflow: hidden;
+  /* 大范围柔和投影 + 一圈极细的暗边，窗口边缘才有「立起来」的实感 */
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.12),
+    0 10px 34px rgba(15, 23, 42, 0.42);
+  background: var(--color-ncm-bg);
+}
+
+/* 最大化时不要圆角，否则四个角会露出桌面 */
+html[data-frame='rounded'][data-maximized='1'] body {
+  padding: 0;
+}
+html[data-frame='rounded'][data-maximized='1'] #app {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/*
+ * ============================================================
  * 皮肤：液态玻璃（Apple Liquid Glass 的 Web 版做法）
  *
  * 三条硬约束，少一条就不是液态玻璃而只是「半透明」：
