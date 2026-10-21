@@ -20,6 +20,18 @@ import PrefsSettings from '@/components/settings/PrefsSettings.vue'
 const tex = useTexture()
 const theme = useTheme()
 
+/* ---------------- 自定义主色（7.2） ---------------- */
+
+/** 取色器显示值：当前是自定义就用自定义色，否则用当前预设的主色 */
+const customColor = ref(theme.custom.value?.accent ?? theme.current.value.accent)
+
+function onPickColor(e: Event): void {
+  const v = (e.target as HTMLInputElement).value
+  customColor.value = v
+  // 取色器拖动时每帧都触发 input，直接应用可以得到实时预览
+  theme.setCustom(v)
+}
+
 /* ---------------- 不喜欢（屏蔽规则） ---------------- */
 
 const { dislikes, setDislikeRules, clearDislikes } = useSync()
@@ -272,6 +284,28 @@ const SKIN_DESC: Record<SkinId, string> = {
           <span class="text-[13px] text-ncm-muted">{{ p.name }}</span>
           <Check v-if="theme.currentId.value === p.id" :size="13" class="text-ncm-accent" />
         </button>
+      </div>
+
+      <!-- 自定义主色（7.2）：只让改主色，进度条/次级色自动推导 -->
+      <div class="mt-4 flex flex-wrap items-center gap-3 border-t border-ncm-divider pt-4">
+        <label class="flex items-center gap-2 text-[13px] text-ncm-muted">
+          <span>自定义</span>
+          <input
+            :value="customColor"
+            type="color"
+            class="h-7 w-10 cursor-pointer rounded border border-ncm-divider bg-white p-0.5"
+            aria-label="自定义强调色"
+            @input="onPickColor"
+          />
+        </label>
+        <span class="font-mono text-[12px] text-ncm-faint">{{ customColor }}</span>
+        <button
+          v-if="theme.currentId.value === 'custom'"
+          type="button"
+          class="rounded-full px-3 py-1 text-[12px] transition-colors"
+          :class="'bg-ncm-accent/10 text-ncm-accent'"
+        >正在使用</button>
+        <span class="text-[12px] text-ncm-faint">进度条与次级强调色按主色自动混白，保证有层次</span>
       </div>
     </div>
 

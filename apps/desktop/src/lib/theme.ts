@@ -29,6 +29,56 @@ export const THEME_PRESETS: ThemePreset[] = [
 ]
 
 const STORAGE_KEY = 'lxmn.theme.accent'
+const CUSTOM_KEY = 'lxmn.theme.custom'
+
+/**
+ * 自定义主题（7.2）。
+ *
+ * 只让用户改**强调色**：结构色（背景/文字/分割线）跟着改会立刻出现
+ * 对比度问题，而 lx 那种「完整色板编辑器」实际上要求用户有配色能力。
+ * 这里从主色自动推导进度条色（混白 32%），保证任何主色下都有层次。
+ */
+export interface CustomTheme {
+  accent: string
+  progress: string
+}
+
+/** 校验 #rgb / #rrggbb */
+export function normalizeHex(input: string): string {
+  const raw = String(input || '').trim()
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(raw)
+  if (!m) return ''
+  const hex = m[1]!.toLowerCase()
+  if (hex.length === 3) return '#' + hex.split('').map(c => c + c).join('')
+  return '#' + hex
+}
+
+/** 与白色混合，得到同色系的浅色（进度条/次级强调） */
+export function lighten(hex: string, amount = 0.32): string {
+  const h = normalizeHex(hex)
+  if (!h) return hex
+  const n = parseInt(h.slice(1), 16)
+  const mix = (c: number) => Math.round(c + (255 - c) * amount)
+  const r = mix((n >> 16) & 0xff)
+  const g = mix((n >> 8) & 0xff)
+  const b = mix(n & 0xff)
+  return '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('')
+}
+
+function readCustom(): CustomTheme | null {
+  try {
+    const raw = localStorage.getItem(CUSTOM_KEY)
+    if (!raw) return null
+    const p = JSON.parse(raw) as Partial<CustomTheme>
+    const accent = normalizeHex(String(p.accent ?? ''))
+    if (!accent) return null
+    return { accent, progress: normalizeHex(String(p.progress ?? '')) || lighten(accent) }
+  } catch {
+    return null
+  }
+}
+
+const custom = ref<CustomTheme | null>(readCustom())
 
 /** 当前主题 id（从本地存储恢复，默认网易红） */
 const currentId = ref<string>(readInitial())
@@ -36,6 +86,7 @@ const currentId = ref<string>(readInitial())
 function readInitial(): string {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
+    if (saved === 'custom' && custom.value) return 'custom'
     if (saved && THEME_PRESETS.some(p => p.id === saved)) return saved
   } catch {
     // 隐私模式 / 存储被禁用时按默认走
@@ -43,9 +94,12 @@ function readInitial(): string {
   return THEME_PRESETS[0]!.id
 }
 
-const current = computed<ThemePreset>(
-  () => THEME_PRESETS.find(p => p.id === currentId.value) ?? THEME_PRESETS[0]!,
-)
+const current = computed<ThemePreset>(() => {
+  if (currentId.value === 'custom' && custom.value) {
+    return { id: 'custom', name: '自定义', accent: custom.value.accent, progress: custom.value.progress }
+  }
+  return THEME_PRESETS.find(p => p.id === currentId.value) ?? THEME_PRESETS[0]!
+})
 
 /** 把颜色写到根节点：所有 bg-ncm-accent / text-ncm-accent 自动跟着变 */
 function applyPreset(preset: ThemePreset): void {
@@ -111,7 +165,25 @@ export function useTheme() {
     try { localStorage.setItem(STORAGE_KEY, preset.id) } catch { /* 忽略 */ }
   }
 
-  return { presets: THEME_PRESETS, current, currentId, setTheme, skins: SKINS, skinId }
+  /**
+   * 应用自定义主色。
+   *
+   * 非法输入直接忽略（不动当前主题）：用户可能在取色器里拖到一半。
+   */
+  function setCustom(accent: string): void {
+    const hex = normalizeHex(accent)
+    if (!hex) return
+    const next = { accent: hex, progress: lighten(hex) }
+    custom.value = next
+    currentId.value = 'custom'
+    applyPreset({ id: 'custom', name: '自定义', ...next })
+    try {
+      localStorage.setItem(CUSTOM_KEY, JSON.stringify(next))
+      localStorage.setItem(STORAGE_KEY, 'custom')
+    } catch { /* 忽略 */ }
+  }
+
+  return { presets: THEME_PRESETS, current, currentId, setTheme, skins: SKINS, skinId, custom, setCustom }
 }
 
 /** 启动时立即应用，避免先闪一下红色再变色 */
