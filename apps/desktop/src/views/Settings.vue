@@ -7,12 +7,14 @@
  * 有人喜欢干净、有人屏幕是 1080p 带缩放（纹理在高 DPI 下会糊），
  * 所以每一档都必须能关掉。
  */
-import { computed, ref, watch } from 'vue'
-import { Check, Layers, Palette, Sparkles, ThumbsDown } from 'lucide-vue-next'
+import { computed, onMounted, ref, watch } from 'vue'
+import { Check, FileCode2, Layers, Palette, Sparkles, ThumbsDown, Trash2 } from 'lucide-vue-next'
 import { useTexture, type TextureId } from '@/lib/texture'
 import { useTheme, SKINS, type SkinId } from '@/lib/theme'
 import { useSync } from '@/lib/sync'
 import { toast } from '@/lib/toast'
+import { useUserSources } from '@/lib/user-sources'
+import { sourcePool, syncScriptSources } from '@/lib/source-pool'
 
 const tex = useTexture()
 const theme = useTheme()
@@ -47,6 +49,83 @@ async function wipeDislikes(): Promise<void> {
   dislikeDirty.value = false
   dislikeDraft.value = ''
   toast('已清空屏蔽规则')
+}
+
+/* ---------------- 自定义音源（lx 脚本） ---------------- */
+
+const userSources = useUserSources()
+const sourceUrl = ref('')
+const sourceBusy = ref(false)
+const sourceMsg = ref('')
+const sourceErr = ref('')
+const fileInput = ref<HTMLInputElement | null>(null)
+
+/**
+ * 音源池的真实状态（成功/失败次数、上次错误）。
+ *
+ * 只显示「已导入 N 个」是不够的：脚本可能语法错误、初始化就失败，
+ * 用户看到「启用了」却取不到流，会以为是播放器的问题。
+ */
+const poolInfo = ref<ReturnType<typeof sourcePool.list>>([])
+
+/** 池子内容变了要重新 sync，否则新脚本要等下次重启才生效 */
+async function refreshPool(): Promise<void> {
+  await syncScriptSources().catch(() => 0)
+  poolInfo.value = sourcePool.list()
+}
+
+onMounted(() => { void refreshPool() })
+
+/** 某个音源在池子里的运行状态（没有运行记录时返回 undefined） */
+function poolState(id: string) {
+  return poolInfo.value.find(p => p.id === id)
+}
+
+async function importSourceUrl(): Promise<void> {
+  if (sourceBusy.value) return
+  sourceBusy.value = true
+  sourceMsg.value = ''
+  sourceErr.value = ''
+  try {
+    const s = await userSources.addFromUrl(sourceUrl.value)
+    sourceUrl.value = ''
+    await refreshPool()
+    sourceMsg.value = `已导入「${s.name}」`
+  } catch (e) {
+    sourceErr.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    sourceBusy.value = false
+  }
+}
+
+async function importSourceFile(e: Event): Promise<void> {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  sourceBusy.value = true
+  sourceMsg.value = ''
+  sourceErr.value = ''
+  try {
+    const s = await userSources.addFromFile(file)
+    await refreshPool()
+    sourceMsg.value = `已导入「${s.name}」`
+  } catch (err) {
+    sourceErr.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    sourceBusy.value = false
+    input.value = ''
+  }
+}
+
+async function toggleSource(id: string): Promise<void> {
+  userSources.toggle(id)
+  await refreshPool()
+}
+
+async function removeSource(id: string): Promise<void> {
+  userSources.remove(id)
+  await refreshPool()
+  sourceMsg.value = '已删除，音源池已更新'
 }
 
 const activeTexture = computed(() => tex.textures.find(t => t.id === tex.textureId.value) ?? tex.textures[0]!)
@@ -235,6 +314,88 @@ const SKIN_DESC: Record<SkinId, string> = {
       </div>
       <p class="mt-3 text-[12px] leading-[18px] text-ncm-faint">
         整串比对，不做分词：singer 是「周杰伦/费玉清」时，规则写「千里之外@周杰伦」不会命中，要写「千里之外」或「@费玉清」。
+      </p>
+    </div>
+
+    <!-- ============ 自定义音源 ============ -->
+    <div class="mt-5 rounded-2xl border border-ncm-divider bg-white p-7">
+      <div class="flex items-center gap-2">
+        <FileCode2 :size="19" class="text-ncm-accent" aria-hidden="true" />
+        <h2 class="text-lg font-semibold text-ncm-fg">自定义音源</h2>
+        <span class="ml-1 text-[12px] text-ncm-faint">
+          已导入 {{ userSources.list.value.length }} 个 · 启用 {{ userSources.enabledCount.value }} 个
+        </span>
+      </div>
+      <p class="mt-2 text-sm text-ncm-faint">
+        支持 lx-music 的音源脚本（.js）。导入后与内置源、会员订阅源一起参与串源，取不到流时自动换下一个。
+      </p>
+      <p class="mt-1 text-[12px] leading-[18px] text-ncm-faint">
+        脚本会在沙箱里执行 —— 导入第三方脚本相当于信任作者，请只导入你信得过的来源。
+      </p>
+
+      <div class="mt-4 flex flex-wrap items-center gap-2">
+        <input
+          v-model="sourceUrl"
+          type="url"
+          spellcheck="false"
+          placeholder="脚本地址，https://…/xxx.js"
+          class="min-w-[280px] flex-1 rounded-[8px] border border-ncm-divider bg-ncm-bg px-3 py-1.5 text-[13px] text-ncm-fg outline-none placeholder:text-ncm-fainter focus:border-ncm-accent"
+          @keydown.enter.prevent="importSourceUrl"
+        />
+        <button
+          type="button"
+          class="rounded-full bg-ncm-accent px-4 py-1.5 text-[13px] text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+          :disabled="sourceBusy || !sourceUrl.trim()"
+          @click="importSourceUrl"
+        >{{ sourceBusy ? '导入中…' : '从链接导入' }}</button>
+        <button
+          type="button"
+          class="rounded-full border border-ncm-divider px-4 py-1.5 text-[13px] text-ncm-muted hover:bg-ncm-bg disabled:opacity-40"
+          :disabled="sourceBusy"
+          @click="fileInput?.click()"
+        >导入本地文件</button>
+        <input ref="fileInput" type="file" accept=".js,text/javascript" class="hidden" @change="importSourceFile" />
+      </div>
+
+      <p v-if="sourceMsg" class="mt-2 text-[12px] text-emerald-600">{{ sourceMsg }}</p>
+      <p v-if="sourceErr" class="mt-2 text-[12px] text-red-500">{{ sourceErr }}</p>
+
+      <ul v-if="userSources.list.value.length" class="mt-4 divide-y divide-ncm-divider rounded-xl border border-ncm-divider">
+        <li
+          v-for="s in userSources.list.value"
+          :key="s.id"
+          class="flex items-center gap-3 px-3 py-2.5"
+        >
+          <span
+            class="size-[8px] shrink-0 rounded-full"
+            :class="s.enabled ? 'bg-emerald-500' : 'bg-ncm-fainter'"
+            :title="s.enabled ? '已启用' : '已停用'"
+          />
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <span class="truncate text-[13px] text-ncm-fg">{{ s.name }}</span>
+              <span v-if="s.version" class="shrink-0 rounded-[3px] border border-ncm-divider px-1 text-[11px] text-ncm-faint">v{{ s.version }}</span>
+            </div>
+            <p class="mt-0.5 truncate text-[11px] text-ncm-fainter" :title="s.origin">{{ s.origin || '本地导入' }}</p>
+            <p v-if="poolState(s.id)" class="mt-0.5 text-[11px]" :class="poolState(s.id)!.lastError ? 'text-red-500' : 'text-ncm-fainter'">
+              {{ poolState(s.id)!.lastError ? '取流失败：' + poolState(s.id)!.lastError : `成功 ${poolState(s.id)!.ok} · 失败 ${poolState(s.id)!.fail}` }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="shrink-0 rounded-full border border-ncm-divider px-3 py-1 text-[12px] text-ncm-muted hover:bg-ncm-bg"
+            @click="toggleSource(s.id)"
+          >{{ s.enabled ? '停用' : '启用' }}</button>
+          <button
+            type="button"
+            class="shrink-0 rounded-full p-1.5 text-ncm-faint transition-colors hover:bg-black/5 hover:text-red-500"
+            title="删除这个音源"
+            @click="removeSource(s.id)"
+          ><Trash2 :size="15" aria-hidden="true" /></button>
+        </li>
+      </ul>
+      <p v-else class="mt-4 rounded-xl border border-dashed border-ncm-divider px-4 py-6 text-center text-[13px] text-ncm-fainter">
+        还没有导入音源。lx-music 的脚本可以直接粘链接或用文件导入。
       </p>
     </div>
 

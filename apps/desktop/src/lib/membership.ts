@@ -64,6 +64,10 @@ export function useMembership() {
           void syncScriptSources().catch(() => undefined)
         }
       }).catch(() => undefined)
+    } else {
+      // 没有会员也要把「用户自己导入的脚本」装进池子：
+      // 订阅与用户脚本共用同一个池，只在会员分支里 sync 会让自定义源重启后失效
+      void syncScriptSources().catch(() => undefined)
     }
   }
 

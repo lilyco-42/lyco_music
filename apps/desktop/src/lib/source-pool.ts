@@ -10,6 +10,7 @@
 
 import { sourcePool, type PoolEntry } from '@lxmn/core'
 import { subscription } from './subscription'
+import { userSourceEntries } from './user-sources'
 
 // 让 fallback.ts 也能直接用同一个池实例
 export { sourcePool }
@@ -82,27 +83,22 @@ async function sha256Hex(text: string): Promise<string> {
  * 订阅本身还有效，只是脚本源暂时拿不到，内置源照样能播。
  */
 export async function syncScriptSources(): Promise<number> {
+  const entries: PoolEntry[] = []
+
   let status
   try {
     status = await subscription.status()
   } catch {
-    return 0
-  }
-  if (status.state !== 'active') {
-    sourcePool.sync([])
-    return 0
+    // 订阅拿不到不影响用户自己导入的脚本
+    status = null
   }
 
-  const scripts = status.sources.filter(
-    (s) => s.type === 'script' && s.url && s.enabled !== false,
-  )
-  if (!scripts.length) {
-    sourcePool.sync([])
-    return 0
-  }
+  const scripts =
+    status && status.state === 'active'
+      ? status.sources.filter((s) => s.type === 'script' && s.url && s.enabled !== false)
+      : []
 
   const cache = await readCache()
-  const entries: PoolEntry[] = []
 
   for (const s of scripts) {
     const url = String(s.url)
@@ -131,6 +127,9 @@ export async function syncScriptSources(): Promise<number> {
       enabled: s.enabled,
     })
   }
+
+  // 用户自己导入的脚本排在订阅之后（order 900+），不依赖会员状态
+  for (const e of userSourceEntries()) entries.push(e)
 
   await writeCache(cache)
   sourcePool.sync(entries)
