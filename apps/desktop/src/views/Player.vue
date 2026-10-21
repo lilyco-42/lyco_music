@@ -157,6 +157,46 @@ function setScrollMode(mode: LyricScrollMode): void {
   void nextTick().then(() => centerActiveLine())
 }
 
+/* ---------------- 歌词对齐（左 / 中 / 右） ---------------- */
+
+/**
+ * 对齐方式。
+ *
+ * 默认左对齐：中文歌词多为长句，居中后每行起点参差，读起来反而更累；
+ * 但投影/桌面歌词场景下居中最省眼睛，所以给三档并记住选择。
+ */
+const ALIGN_KEY = 'lxmn.lyric.align'
+const ALIGNS = [
+  { id: 'left' as const, label: '左' },
+  { id: 'center' as const, label: '中' },
+  { id: 'right' as const, label: '右' },
+]
+type LyricAlign = (typeof ALIGNS)[number]['id']
+
+function readAlign(): LyricAlign {
+  try {
+    const v = localStorage.getItem(ALIGN_KEY)
+    return v === 'center' || v === 'right' ? v : 'left'
+  } catch {
+    return 'left'
+  }
+}
+
+const align = ref<LyricAlign>(readAlign())
+
+function setAlign(a: LyricAlign): void {
+  align.value = a
+  try {
+    localStorage.setItem(ALIGN_KEY, a)
+  } catch {
+    // 隐私模式下写不进去，只影响下次启动的默认值
+  }
+}
+
+const alignClass = computed(() =>
+  align.value === 'center' ? 'text-center' : align.value === 'right' ? 'text-right' : 'text-left',
+)
+
 /* ---------------- 歌词层级开关（原文 / 罗马音 / 翻译） ---------------- */
 
 /**
@@ -692,6 +732,19 @@ const vinylStyle = computed(() => ({
               >
                 {{ m.label }}
               </button>
+              <span class="mx-1 text-ncmd-darker">|</span>
+              <span>对齐</span>
+              <button
+                v-for="a in ALIGNS"
+                :key="a.id"
+                type="button"
+                class="shrink-0 rounded-full px-2 py-[2px] transition-colors"
+                :class="align === a.id ? 'bg-white/15 text-ncmd-fg' : 'hover:bg-white/10 hover:text-ncmd-muted'"
+                :title="`歌词${a.label}对齐`"
+                @click="setAlign(a.id)"
+              >
+                {{ a.label }}
+              </button>
               <!-- 导出歌词：把当前这首（含翻译/罗马音）存成 .lrc -->
               <button
                 type="button"
@@ -706,7 +759,7 @@ const vinylStyle = computed(() => ({
 
           <!-- 歌词区：与页签间留约 260px 空白，起始 y=573 -->
           <TabsContent value="lyric" class="mt-[24px] flex min-h-0 max-w-[620px] flex-1 flex-col pb-4">
-            <div ref="lyricBox" class="min-h-0 flex-1 overflow-y-auto pr-3">
+            <div ref="lyricBox" class="min-h-0 flex-1 overflow-y-auto pr-3" :class="alignClass">
               <p v-if="!lyrics.length" class="text-[20px] leading-[32px] text-ncmd-dim">暂无歌词</p>
               <div
                 v-for="(line, i) in lyrics"
