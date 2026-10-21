@@ -21,10 +21,14 @@ jest.mock('../src/player', () => {
     usePlayerState: () => ({
       queue: [item], index: 0, playing: false, loading: false, error: '',
       quality: '320k', lyric: '[00:01.00]第一句', tlyric: '', picUrl: '', mode: 'loop',
+      // 播放速率（2.3）：页面用 st.rate 算显示文本，缺了会在渲染期抛 toFixed 错误
+      rate: 1,
     }),
     useProgressState: () => ({ position: 1, duration: 180, playing: false }),
     useLyricLines: () => ({ lines: [{ time: 1, text: '第一句' }], activeIndex: 0 }),
     cycleMode: jest.fn(() => 'single'),
+    setRate: jest.fn(),
+    RATES: [0.75, 1, 1.25, 1.5, 2],
     modeLabel: () => '列表循环',
     cycleQuality: jest.fn(),
     next: jest.fn(), prev: jest.fn(), seek: jest.fn(), toggle: jest.fn(), play: jest.fn(),
