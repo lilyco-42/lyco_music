@@ -801,7 +801,7 @@ const vinylStyle = computed(() => ({
           class="absolute bottom-[140px] left-1/2 flex h-[49px] w-[330px] -translate-x-1/2 items-center justify-center gap-2 rounded-pill bg-black/70 px-4 backdrop-blur"
         >
           <template v-if="state.loading">
-            <span class="text-[14px] text-white">正在获取播放地址…</span>
+            <span class="text-[14px] text-white">{{ t('pl.fetching', '正在获取播放地址…') }}</span>
           </template>
           <template v-else>
             <span class="truncate text-[14px] text-ncmd-accent" :title="state.error">{{ state.error }}</span>
@@ -908,26 +908,26 @@ const vinylStyle = computed(() => ({
               <button
                 type="button"
                 class="shrink-0 rounded-full px-1.5 py-[2px] transition-colors hover:bg-white/10"
-                title="歌词提前 0.5 秒"
+                :title="t('pl.earlier', '歌词提前 0.5 秒')"
                 @click="setOffset(lyricOffset - 0.5)"
               >−</button>
               <button
                 type="button"
                 class="shrink-0 rounded-full px-1.5 py-[2px] transition-colors hover:bg-white/10"
-                title="歌词延后 0.5 秒"
+                :title="t('pl.later', '歌词延后 0.5 秒')"
                 @click="setOffset(lyricOffset + 0.5)"
               >+</button>
               <span class="mx-1 text-ncmd-darker">|</span>
               <button
                 type="button"
                 class="shrink-0 rounded-full px-1.5 py-[2px] transition-colors hover:bg-white/10"
-                title="歌词字号变小"
+                :title="t('pl.fontDown', '歌词字号变小')"
                 @click="setLyricFont(lyricFontSize - 2)"
               >A−</button>
               <button
                 type="button"
                 class="shrink-0 rounded-full px-1.5 py-[2px] transition-colors hover:bg-white/10"
-                title="歌词字号变大"
+                :title="t('pl.fontUp', '歌词字号变大')"
                 @click="setLyricFont(lyricFontSize + 2)"
               >A+</button>
               <span class="mx-1 text-ncmd-darker">|</span>
@@ -947,7 +947,7 @@ const vinylStyle = computed(() => ({
                 type="button"
                 class="ml-1 shrink-0 rounded-full p-1 transition-colors hover:bg-white/10 hover:text-ncmd-muted disabled:opacity-40"
                 :disabled="!lyrics.length || exporting"
-                title="导出歌词为 .lrc"
+                :title="t('pl.exportLrc', '导出歌词为 .lrc')"
                 aria-label="导出歌词"
                 @click="exportLyric"
               >
@@ -968,7 +968,7 @@ const vinylStyle = computed(() => ({
                 v-if="dragHint"
                 class="pointer-events-none sticky top-0 z-10 mb-2 inline-block rounded-full bg-black/70 px-3 py-1 text-[12px] text-white backdrop-blur"
               >{{ dragHint }}</div>
-              <p v-if="!lyrics.length" class="text-[20px] leading-[32px] text-ncmd-dim">暂无歌词</p>
+              <p v-if="!lyrics.length" class="text-[20px] leading-[32px] text-ncmd-dim">{{ t('pl.noLyric', '暂无歌词') }}</p>
               <div
                 v-for="(line, i) in lyrics"
                 :key="i"
@@ -1032,12 +1032,12 @@ const vinylStyle = computed(() => ({
                 >{{ s.label }}</button>
               </div>
               <span v-if="commentTotal">{{ fmtLikes(commentTotal) }}</span>
-              <span v-if="commentResolving" class="text-ncmd-dim">正在找这首歌的评论…</span>
-              <span v-else-if="!commentSource" class="text-ncmd-dim">这首歌暂时没有可用的评论</span>
-              <span v-else-if="commentTarget?.borrowed" class="text-ncmd-dim">来自网易云同名歌曲</span>
+              <span v-if="commentResolving" class="text-ncmd-dim">{{ t('pl.resolvingComments', '正在找这首歌的评论…') }}</span>
+              <span v-else-if="!commentSource" class="text-ncmd-dim">{{ t('pl.noComments', '这首歌暂时没有可用的评论') }}</span>
+              <span v-else-if="commentTarget?.borrowed" class="text-ncmd-dim">{{ t('pl.borrowed', '来自网易云同名歌曲') }}</span>
             </div>
             <div class="min-h-0 flex-1 overflow-y-auto pr-3">
-              <p v-if="commentLoading && !comments.length" class="text-[15px] text-ncmd-dim">加载评论中…</p>
+              <p v-if="commentLoading && !comments.length" class="text-[15px] text-ncmd-dim">{{ t('pl.commentsLoading', '加载评论中…') }}</p>
               <p v-else-if="commentError" class="text-[15px] text-ncmd-accent">{{ commentError }}</p>
               <p v-else-if="!comments.length" class="text-[15px] text-ncmd-dim">
                 {{ commentResolving ? '正在找这首歌的评论…' : '还没有评论' }}
@@ -1055,7 +1055,7 @@ const vinylStyle = computed(() => ({
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-2 text-[13px]">
                     <span class="truncate text-ncmd-muted">{{ c.userName || '匿名用户' }}</span>
-                    <span v-if="c.hot" class="shrink-0 rounded-[3px] border border-ncmd-muted px-1 text-[10px] leading-[15px] text-ncmd-muted">热评</span>
+                    <span v-if="c.hot" class="shrink-0 rounded-[3px] border border-ncmd-muted px-1 text-[10px] leading-[15px] text-ncmd-muted">{{ t('pl.hot', '热评') }}</span>
                   </div>
                   <div class="mt-1 whitespace-pre-wrap break-words text-[15px] leading-[24px] text-ncmd-fg/90">
                     <template v-for="(seg, si) in commentSegments(c.content)" :key="si">

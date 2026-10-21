@@ -113,26 +113,40 @@ Test Files  10 passed | 5 skipped (15)
 
 本机只做代码编写与提交，产物从 Actions artifacts 与 GitHub Release 下载。
 
-## 下载与发布
+## 下载
 
-打 tag 即触发全平台构建并发布到 GitHub Release：
+**主入口：<https://lain42.top/downloads/>**（按版本列出各平台安装包与 SHA256）
 
-```bash
-git tag v0.1.0 && git push origin v0.1.0
-# 或手动触发
-gh workflow run release.yml
-```
+也可以从 GitHub Release 下载：<https://github.com/lilyco-42/lyco_music/releases>
 
 | 平台 | 产物 | 说明 |
 |---|---|---|
-| Windows | `*-windows-setup.exe` / `*.msi` / portable | 未签名，SmartScreen 会提示 |
+| Windows | `*-windows-setup.exe` / `*.msi` / `*-portable.exe` | 未签名，SmartScreen 会提示 |
 | macOS | `*.dmg`（x64 + arm64） | 未签名，首次打开需右键 → 打开 |
-| Android | `*.apk` | 直接侧载安装 |
-| iOS | `LX-Music-unsigned.ipa` | 未签名，需自签或 AltStore 侧载 |
+| Android | `*-android-universal.apk` | 直接侧载安装 |
+| iOS | `*-ios-unsigned.ipa` | 未签名，需自签或 AltStore 侧载 |
 | Linux | `*.AppImage` | `chmod +x` 后运行 |
 
-Android 默认用模板自带的 debug keystore 签名（可直接安装）；
-配置 `LXMN_KEYSTORE_*` secrets 后自动切换为正式签名。
+> **当前平台状态（2026-10-22）**：Windows 与 Android 已由本机构建并发布到
+> lain42.top 的 `v0.2.43-20261022`。macOS / iOS / Linux 的产物仍停在 **v0.2.37** ——
+> GitHub Actions 的 Release 运行长时间处于 queued 状态，这三个平台需要在
+> macOS / Linux 上构建，本机（Windows）无法交叉出包。详见
+> [`docs/RELEASE.md`](./docs/RELEASE.md)。
+
+### 发布
+
+正常路径（打 tag 或 push 带 package.json 变更的提交）会自动构建全平台并发布：
+
+```bash
+pnpm bump 0.2.44 && pnpm test
+git add -A && git commit -m "chore(release): 0.2.44"
+git push origin main
+```
+
+CI 卡住时的本机构建 + 手工上传步骤见 [`docs/RELEASE.md`](./docs/RELEASE.md)。
+
+Android 默认用仓库里的 debug keystore 签名（可直接安装，但**和正式签名包不能互相覆盖升级**）；
+配置 `LXMN_KEYSTORE_PATH/PASSWORD/ALIAS/KEY_PASSWORD` 后自动切换为正式签名。
 
 ## 会员与音源订阅
 
