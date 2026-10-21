@@ -13,7 +13,9 @@
  */
 import { computed, onBeforeUnmount, ref, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { parseLyric, findLineIndex, getSource, hasSource, type MusicComment, type MusicItem, type SourceId } from '@lxmn/core'
+import { findLineIndex, getSource, hasSource, type MusicComment, type MusicItem, type SourceId } from '@lxmn/core'
+import { viewLyric } from '@/lib/lyric-view'
+import { prefs } from '@/lib/prefs'
 import { findSameSong } from '@/lib/same-song'
 import { lyricScrollDelta, type LyricScrollMode } from '@/lib/lyric-style'
 import { buildLrc } from '@/lib/lrc-export'
@@ -44,7 +46,7 @@ const state = player.state
 /** 黑胶只在真正播放时转，暂停就停 —— 之前是独立的 spinning，会和实际状态脱节 */
 const spinning = computed(() => state.playing)
 
-const parsed = computed(() => parseLyric(state.lyric, state.tlyric, state.romalrc, state.ylyric))
+const parsed = computed(() => viewLyric(state.lyric, state.tlyric, state.romalrc, state.ylyric))
 const lyrics = computed(() => parsed.value.lines)
 
 /**
@@ -130,37 +132,32 @@ const isPlainLyric = computed(() => parsed.value.plain === true)
  *
  * 约定：offset > 0 表示歌词**晚**出现（播放位置减去 offset 再去查行）。
  */
-const OFFSET_KEY = 'lxmn.lyric.offset'
 const OFFSET_MAX = 5
 const OFFSET_STEP = 0.5
 
-function readOffset(): number {
-  try {
-    const v = Number(localStorage.getItem(OFFSET_KEY))
-    if (!Number.isFinite(v)) return 0
-    return Math.max(-OFFSET_MAX, Math.min(OFFSET_MAX, Math.round(v * 2) / 2))
-  } catch {
-    return 0
-  }
-}
-
-const lyricOffset = ref(readOffset())
+/**
+ * 偏移存在全局偏好里（不再用本页私有 key）。
+ *
+ * 原来只有播放页认这个值，播放栏和桌面歌词各走各的 —— 用户调完发现
+ * 「这边对齐了，桌面歌词还是慢半拍」。现在三处共用一份，
+ * 由 viewLyric() 在解析阶段统一平移时间轴。
+ */
+const lyricOffset = computed({
+  get: () => prefs.lyricOffset,
+  set: v => {
+    prefs.lyricOffset = Math.max(-OFFSET_MAX, Math.min(OFFSET_MAX, Math.round(v / OFFSET_STEP) * OFFSET_STEP))
+  },
+})
 
 function setOffset(v: number): void {
-  const next = Math.max(-OFFSET_MAX, Math.min(OFFSET_MAX, Math.round(v * 2) / 2))
-  lyricOffset.value = next
-  try {
-    localStorage.setItem(OFFSET_KEY, String(next))
-  } catch {
-    // 隐私模式下写不进去，只影响下次启动的默认值
-  }
+  lyricOffset.value = v
   void nextTick().then(() => centerActiveLine())
 }
 
 const offsetLabel = computed(() => (lyricOffset.value > 0 ? '+' : '') + lyricOffset.value.toFixed(1) + 's')
 
 const currentLine = computed(() =>
-  isPlainLyric.value ? -1 : findLineIndex(lyrics.value, state.currentTime - lyricOffset.value),
+  isPlainLyric.value ? -1 : findLineIndex(lyrics.value, state.currentTime),
 )
 
 /** 把正在唱的那行滚到可视区中间 */
@@ -340,9 +337,52 @@ function centerActiveLine(behavior: ScrollBehavior = 'smooth'): void {  const bo
   box.scrollTo({ top: box.scrollTop + delta, behavior })
 }
 
-/** 当前行变化时跟随滚动（歌词滚动的核心） */
+/* ---------------- 歌词字号（3.6） ---------------- */
+
+/**
+ * 详情页歌词字号。
+ *
+ * 和桌面歌词的字号分开：那边是浮在桌面上的大字（默认 34px），
+ * 这边是跟着页面读的中等字号（默认 22px），共用一个值会让两边都不舒服。
+ */
+const FONT_MIN = 14
+const FONT_MAX = 34
+
+const lyricFontSize = computed(() => prefs.playLyricFontSize)
+
+function setLyricFont(v: number): void {
+  prefs.playLyricFontSize = Math.max(FONT_MIN, Math.min(FONT_MAX, Math.round(v)))
+  void nextTick().then(() => centerActiveLine())
+}
+
+/** 主行与副行的字号/行高：副行按主行的 0.86 倍走，比例固定 */
+function lineFontStyle(sub: boolean): Record<string, string> {
+  const size = lyricFontSize.value * (sub ? 0.86 : 1)
+  return { fontSize: size + 'px', lineHeight: Math.round(size * 1.4) + 'px' }
+}
+
+/* ---------------- 歌词滚动 ---------------- */
+
+let scrollTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * 当前行变化时跟随滚动。
+ *
+ * 延迟滚动（3.8）：把滚动推迟 N 毫秒，让当前行先唱一小段再居中 ——
+ * 有些歌一句特别长，行一出现就滚会让人反复「重新找位置」。
+ * 每次切行都要清掉上一次的定时器，否则快速切歌时会攒下一串滚动动作。
+ */
 watch(currentLine, async (i) => {
   if (i < 0) return
+  if (scrollTimer) { clearTimeout(scrollTimer); scrollTimer = null }
+  const delay = prefs.lyricScrollDelay
+  if (delay > 0) {
+    scrollTimer = setTimeout(() => {
+      scrollTimer = null
+      void nextTick().then(() => centerActiveLine())
+    }, delay)
+    return
+  }
   await nextTick()
   centerActiveLine()
 })
@@ -353,12 +393,64 @@ watch([lyrics, () => state.lyric], async () => {
   centerActiveLine('auto')
 })
 
+/* ---------------- 拖拽歌词调进度 ---------------- */
+
+/**
+ * 按住歌词区上下拖动可以刮擦定位（仿 lx 的「拖拽歌词调整播放进度」）。
+ *
+ * 为什么不用 click：click 只能跳到「点中的那一行」，用户想微调前后几句时
+ * 得反复点。拖动是连续的，松手即定。
+ *
+ * 节流 120ms：每次 seek 都会让 <audio> 重新定位，几百毫秒内连发十几次
+ * 会让声音一顿一顿的，反而更难对准。
+ */
+const dragSeeking = ref(false)
+const dragHint = ref('')
+let lastSeekAt = 0
+
+function lyricLineAt(x: number, y: number): { time: number; text: string } | null {
+  const el = document.elementFromPoint(x, y)?.closest('[data-lyric-index]') as HTMLElement | null
+  if (!el) return null
+  const line = lyrics.value[Number(el.dataset.lyricIndex)]
+  return line ? { time: line.time, text: line.text } : null
+}
+
+function onLyricDragMove(e: PointerEvent): void {
+  if (!dragSeeking.value) return
+  const hit = lyricLineAt(e.clientX, e.clientY)
+  if (!hit) return
+  dragHint.value = fmt(hit.time) + '  ' + hit.text.slice(0, 24)
+  const now = Date.now()
+  if (now - lastSeekAt < 120) return
+  lastSeekAt = now
+  player.seek(hit.time)
+}
+
+function onLyricDragUp(): void {
+  if (!dragSeeking.value) return
+  dragSeeking.value = false
+  dragHint.value = ''
+  window.removeEventListener('pointermove', onLyricDragMove)
+  window.removeEventListener('pointerup', onLyricDragUp)
+}
+
+function onLyricPointerDown(e: PointerEvent): void {
+  if (isPlainLyric.value || e.button !== 0) return
+  // 拖动刮擦定位可以在设置里关掉（3.7）：有人习惯在歌词区框选文字
+  if (!prefs.lyricSeekByDrag) return
+  dragSeeking.value = true
+  lastSeekAt = 0
+  window.addEventListener('pointermove', onLyricDragMove)
+  window.addEventListener('pointerup', onLyricDragUp)
+  onLyricDragMove(e)
+}
+
 /** 点歌词跳转播放位置（进度条之外最自然的 seek 方式） */
 function seekTo(time: number): void {
   // 纯文本歌词的时间是造出来的，跳过去只会乱，直接忽略
   if (isPlainLyric.value) return
-  // 歌词行的时间是「屏幕上的时间」，加回偏移才是音频里的位置
-  player.seek(time + lyricOffset.value)
+  // 歌词时间轴已经按偏移平移过，行时间就是音频时间
+  player.seek(time)
 }
 
 const QUALITY_LABEL: Record<string, string> = {
@@ -796,6 +888,19 @@ const vinylStyle = computed(() => ({
               >+</button>
               <span class="mx-1 text-ncmd-darker">|</span>
               <button
+                type="button"
+                class="shrink-0 rounded-full px-1.5 py-[2px] transition-colors hover:bg-white/10"
+                title="歌词字号变小"
+                @click="setLyricFont(lyricFontSize - 2)"
+              >A−</button>
+              <button
+                type="button"
+                class="shrink-0 rounded-full px-1.5 py-[2px] transition-colors hover:bg-white/10"
+                title="歌词字号变大"
+                @click="setLyricFont(lyricFontSize + 2)"
+              >A+</button>
+              <span class="mx-1 text-ncmd-darker">|</span>
+              <button
                 v-for="a in ALIGNS"
                 :key="a.id"
                 type="button"
@@ -821,12 +926,23 @@ const vinylStyle = computed(() => ({
 
           <!-- 歌词区：与页签间留约 260px 空白，起始 y=573 -->
           <TabsContent value="lyric" class="mt-[24px] flex min-h-0 max-w-[620px] flex-1 flex-col pb-4">
-            <div ref="lyricBox" class="min-h-0 flex-1 overflow-y-auto pr-3" :class="alignClass">
+            <div
+              ref="lyricBox"
+              class="relative min-h-0 flex-1 overflow-y-auto pr-3"
+              :class="[alignClass, dragSeeking ? 'cursor-grabbing select-none' : '']"
+              @pointerdown="onLyricPointerDown"
+            >
+              <!-- 拖动时的位置提示：跟随手指不方便，固定在歌词区顶部更稳 -->
+              <div
+                v-if="dragHint"
+                class="pointer-events-none sticky top-0 z-10 mb-2 inline-block rounded-full bg-black/70 px-3 py-1 text-[12px] text-white backdrop-blur"
+              >{{ dragHint }}</div>
               <p v-if="!lyrics.length" class="text-[20px] leading-[32px] text-ncmd-dim">暂无歌词</p>
               <div
                 v-for="(line, i) in lyrics"
                 :key="i"
                 :data-active="i === currentLine"
+                :data-lyric-index="i"
                 class="transition-[margin]"
                 :class="[
                   isPlainLyric ? 'cursor-default' : 'cursor-pointer',
@@ -838,8 +954,9 @@ const vinylStyle = computed(() => ({
                   v-for="(t, li) in layersOf(line)"
                   :key="li"
                   class="transition-colors"
+                  :style="lineFontStyle(li !== 0)"
                   :class="[
-                    li === 0 ? 'text-[22px] leading-[30px]' : 'mt-[2px] text-[19px] leading-[26px]',
+                    li === 0 ? '' : 'mt-[2px]',
                     li === 0
                       ? (i === currentLine ? 'text-ncmd-fg' : (isPlainLyric ? 'text-ncmd-muted' : 'text-ncmd-dim'))
                       : (i === currentLine ? 'text-ncmd-muted' : 'text-ncmd-darker'),

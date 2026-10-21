@@ -3,8 +3,9 @@
  * 网易云风格桌面端外壳
  * 布局坐标来自 DESIGN.md 实测：左栏 255px / 顶栏 94px / 底栏 102px
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { useScrollMemory } from './lib/scroll-memory'
 import Sidebar from './components/layout/Sidebar.vue'
 import TopBar from './components/layout/TopBar.vue'
 import PlayBar from './components/layout/PlayBar.vue'
@@ -12,6 +13,13 @@ import AudioHost from './components/AudioHost.vue'
 import { toastText } from './lib/toast'
 
 const route = useRoute()
+
+/**
+ * 主内容区滚动容器：列表页翻到一半再回来时回到原位（PARITY 4.11）。
+ * 播放器模式和歌词窗口没有这个容器，也就自然不参与。
+ */
+const mainEl = ref<HTMLElement | null>(null)
+useScrollMemory(mainEl)
 /** 播放器模式为独立全屏界面（实测深色截图） */
 const isPlayerMode = computed(() => route.name === 'player')
 /**
@@ -45,7 +53,7 @@ const isLyricWindow = computed(() => route.name === 'lyric-window' || location.h
         <TopBar class="h-topbar shrink-0" />
 
         <!-- 主内容区：实测左内边距 49px -->
-        <main class="min-h-0 flex-1 overflow-y-auto px-[49px] pb-6">
+        <main ref="mainEl" class="min-h-0 flex-1 overflow-y-auto px-[49px] pb-6">
           <RouterView />
         </main>
       </div>

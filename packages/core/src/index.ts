@@ -22,6 +22,7 @@ export * from './download/naming'
 export * from './track'
 export * from './local'
 export * from './trial'
+export * from './text/s2t'
 
 export const CORE_VERSION = '0.2.29'
 

@@ -51,6 +51,29 @@ export interface LyricStyle {
   stroke: number
   /** 单行 / 双行 */
   lines: 1 | 2
+
+  /* ---- 以下为 PARITY 3.12–3.18 / 3.21–3.22 的可调项 ---- */
+
+  /** 歌词正文加粗（3.12） */
+  boldLines: boolean
+  /** 翻译行加粗（3.12） */
+  boldTranslation: boolean
+  /** 不允许换行，超长自动缩小而不是折行（3.14） */
+  noWrap: boolean
+  /** 行距倍数（3.15） */
+  lineHeight: number
+  /** 竖排显示（3.16） */
+  vertical: boolean
+  /** 当前行停在窗口顶部还是居中（3.17） */
+  scrollAt: 'top' | 'center'
+  /** 暂停时把歌词调淡，避免挡住桌面（3.18） */
+  dimWhenPaused: boolean
+  /** 淡出后的不透明度（3.18） */
+  dimOpacity: number
+  /** 在任务栏显示歌词窗口（3.22，录屏捕获不到时的变通） */
+  showInTaskbar: boolean
+  /** 主窗口全屏时自动隐藏（3.21） */
+  hideOnFullscreen: boolean
 }
 
 export const DEFAULT_LYRIC_STYLE: LyricStyle = {
@@ -61,6 +84,17 @@ export const DEFAULT_LYRIC_STYLE: LyricStyle = {
   fontFamily: '',
   stroke: 1,
   lines: 2,
+  // 默认加粗：原来的观感就是 700，改成 false 会让所有用户觉得「字变细了」
+  boldLines: true,
+  boldTranslation: false,
+  noWrap: false,
+  lineHeight: 1.35,
+  vertical: false,
+  scrollAt: 'center',
+  dimWhenPaused: false,
+  dimOpacity: 0.45,
+  showInTaskbar: false,
+  hideOnFullscreen: false,
 }
 
 const HEX = /^#[0-9a-f]{6}$/i
@@ -86,6 +120,12 @@ export function normalizeLyricStyle(raw: unknown, base: LyricStyle = DEFAULT_LYR
   const src = (raw ?? {}) as Partial<Record<keyof LyricStyle | 'color', unknown>>
   const stack = typeof src.fontFamily === 'string' ? src.fontFamily : ''
   const knownFont = LYRIC_FONTS.some(f => f.stack === stack)
+  const bool = (v: unknown, fb: boolean): boolean => (typeof v === 'boolean' ? v : fb)
+  const num = (v: unknown, fb: number, min: number, max: number): number => {
+    const n = typeof v === 'number' ? v : Number(v)
+    if (!Number.isFinite(n)) return fb
+    return Math.min(max, Math.max(min, Math.round(n * 100) / 100))
+  }
   return {
     fontSize: clampInt(src.fontSize, LYRIC_FONT_MIN, LYRIC_FONT_MAX, base.fontSize),
     // 旧版本只有一个 color 字段，两个色都继承它，避免升级后突然变白
@@ -94,6 +134,16 @@ export function normalizeLyricStyle(raw: unknown, base: LyricStyle = DEFAULT_LYR
     fontFamily: knownFont ? stack : base.fontFamily,
     stroke: clampInt(src.stroke, 0, 3, base.stroke),
     lines: Number(src.lines) === 1 ? 1 : Number(src.lines) === 2 ? 2 : base.lines,
+    boldLines: bool(src.boldLines, base.boldLines),
+    boldTranslation: bool(src.boldTranslation, base.boldTranslation),
+    noWrap: bool(src.noWrap, base.noWrap),
+    lineHeight: num(src.lineHeight, base.lineHeight, 1, 2.4),
+    vertical: bool(src.vertical, base.vertical),
+    scrollAt: src.scrollAt === 'top' || src.scrollAt === 'center' ? src.scrollAt : base.scrollAt,
+    dimWhenPaused: bool(src.dimWhenPaused, base.dimWhenPaused),
+    dimOpacity: num(src.dimOpacity, base.dimOpacity, 0.1, 1),
+    showInTaskbar: bool(src.showInTaskbar, base.showInTaskbar),
+    hideOnFullscreen: bool(src.hideOnFullscreen, base.hideOnFullscreen),
   }
 }
 

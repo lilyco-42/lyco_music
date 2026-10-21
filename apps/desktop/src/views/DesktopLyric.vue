@@ -11,7 +11,8 @@
  * 数据来自主窗口：主进程转发 lxmn:lyric:data，这里只负责渲染与交互。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { parseLyric, findLineIndex, type LyricLine } from '@lxmn/core'
+import { findLineIndex, type LyricLine } from '@lxmn/core'
+import { viewLyric } from '@/lib/lyric-view'
 import {
   LYRIC_COLORS,
   LYRIC_FONTS,
@@ -44,8 +45,17 @@ const api = typeof window !== 'undefined' ? window.lxmnNative?.lyric : undefined
 /** 单行 / 双行选项（模板里不能写 TS 断言，放这儿） */
 const LINE_OPTIONS = [1, 2] as const
 
+/** 行距档位（3.15） */
+const LINE_HEIGHTS = [1, 1.2, 1.35, 1.5, 1.8, 2.2] as const
+
+/** 当前行停靠位置（3.17） */
+const DOCKS = [
+  { id: 'center' as const, label: '居中' },
+  { id: 'top' as const, label: '顶部' },
+]
+
 /** 面板占的高度：主进程按这个值把窗口往下长，面板才不会被歌词挤掉 */
-const MENU_RESERVE = 198
+const MENU_RESERVE = 372
 
 /* ---------------- 三层歌词：原文 / 罗马音 / 翻译 ---------------- */
 
@@ -90,7 +100,7 @@ function toggleLayer(key: LayerKey): void {
 }
 
 const lines = computed<LyricLine[]>(
-  () => parseLyric(data.value.lyric, data.value.tlyric, data.value.romalrc).lines,
+  () => viewLyric(data.value.lyric, data.value.tlyric, data.value.romalrc).lines,
 )
 
 /** 纯文本歌词（没有任何时间戳）不能点着跳转，跳过去只会乱 */
@@ -179,6 +189,25 @@ function seekTo(time: number): void {
 /** 描边 + 阴影一次算好，模板里不用重复拼字符串 */
 const paint = computed(() => strokePaint(style.value.stroke))
 const fontStack = computed(() => style.value.fontFamily || undefined)
+
+/**
+ * 暂停时整体调淡（3.18）。
+ *
+ * 只调淡、不隐藏：桌面歌词常常压在别人的窗口上，暂停时半透明能让人
+ * 看清底下的内容，但又能一眼确认「歌词还在」。
+ */
+const bodyOpacity = computed(() =>
+  style.value.dimWhenPaused && data.value.playing === false ? style.value.dimOpacity : 1,
+)
+
+/** 当前行停在窗口顶部还是居中（3.17） */
+const dockClass = computed(() => (style.value.scrollAt === 'top' ? 'justify-start pt-1' : 'justify-center'))
+
+/** 竖排（3.16）：逐字竖排 + 从右往左排列 */
+const bodyWriting = computed(() => (style.value.vertical ? 'vertical-rl' : undefined))
+
+/** 不换行（3.14）：超长就省略，而不是把窗口撑成两行 */
+const lineWrapClass = computed(() => (style.value.noWrap ? 'whitespace-nowrap overflow-hidden text-ellipsis' : 'whitespace-pre-wrap'))
 
 let off: (() => void) | null = null
 
@@ -305,6 +334,12 @@ function onPressUp(): void {
 async function close(): Promise<void> {
   await api?.close()
 }
+
+/** 重置窗口位置（3.23）：换显示器后窗口落在不存在的坐标上时唯一的救援入口 */
+async function resetWindow(): Promise<void> {
+  await api?.resetWindow().catch(() => false)
+  closeMenu()
+}
 </script>
 
 <template>
@@ -318,7 +353,11 @@ async function close(): Promise<void> {
     @mousedown="onPressDown"
   >
     <!-- 歌词本体：占满剩余高度并垂直居中；面板展开时它自然缩到上半部分 -->
-    <div class="flex min-h-0 flex-1 flex-col items-center justify-center px-4" :class="locked ? '' : 'cursor-move'">
+    <div
+      class="flex min-h-0 flex-1 flex-col items-center px-4"
+      :class="[dockClass, locked ? '' : 'cursor-move']"
+      :style="{ opacity: bodyOpacity, writingMode: bodyWriting }"
+    >
       <p
         v-if="empty"
         class="select-none text-center"
@@ -337,14 +376,15 @@ async function close(): Promise<void> {
           v-for="(l, i) in visible"
           :key="i"
           :data-line-time="l.time"
-          class="select-none text-center leading-[1.45] transition-all"
-          :class="isPlain ? '' : 'cursor-pointer'"
+          class="select-none text-center transition-all"
+          :class="[isPlain ? '' : 'cursor-pointer', lineWrapClass]"
           :style="{
             fontSize: (i === 0 ? style.fontSize : Math.round(style.fontSize * 0.78)) + 'px',
             color: i === 0 ? style.playedColor : style.unplayedColor,
             fontFamily: fontStack,
             opacity: i === 0 ? 1 : 0.65,
-            fontWeight: i === 0 ? 700 : 400,
+            fontWeight: style.boldLines ? 700 : 400,
+            lineHeight: String(style.lineHeight),
             marginTop: i === 0 ? 0 : Math.round(style.fontSize * 0.2) + 'px',
             ...paint,
           }"
@@ -356,7 +396,7 @@ async function close(): Promise<void> {
             class="block whitespace-pre-wrap"
             :style="li === 0 ? undefined : {
               fontSize: Math.round(style.fontSize * 0.56) + 'px',
-              fontWeight: 400,
+              fontWeight: style.boldTranslation ? 700 : 400,
               opacity: 0.85,
               marginTop: '2px',
             }"
@@ -516,6 +556,93 @@ async function close(): Promise<void> {
         >
           {{ f.name }}
         </button>
+      </div>
+
+      <!-- 排版：加粗 / 不换行 / 行距 / 竖排 / 停靠 -->
+      <div class="mt-1 flex h-[26px] items-center gap-1.5">
+        <span class="w-9 shrink-0 text-[11px] text-white/45">排版</span>
+        <button
+          type="button"
+          class="rounded px-2 text-[11px]"
+          :class="style.boldLines ? 'bg-white/90 text-black' : 'bg-white/10 text-white/70 hover:bg-white/20'"
+          title="歌词正文加粗"
+          @click="patch({ boldLines: !style.boldLines })"
+        >加粗</button>
+        <button
+          type="button"
+          class="rounded px-2 text-[11px]"
+          :class="style.boldTranslation ? 'bg-white/90 text-black' : 'bg-white/10 text-white/70 hover:bg-white/20'"
+          title="翻译行加粗"
+          @click="patch({ boldTranslation: !style.boldTranslation })"
+        >译粗</button>
+        <button
+          type="button"
+          class="rounded px-2 text-[11px]"
+          :class="style.noWrap ? 'bg-white/90 text-black' : 'bg-white/10 text-white/70 hover:bg-white/20'"
+          title="超长歌词不折行，直接省略"
+          @click="patch({ noWrap: !style.noWrap })"
+        >不换行</button>
+        <button
+          type="button"
+          class="rounded px-2 text-[11px]"
+          :class="style.vertical ? 'bg-white/90 text-black' : 'bg-white/10 text-white/70 hover:bg-white/20'"
+          title="竖排显示（日式字幕）"
+          @click="patch({ vertical: !style.vertical })"
+        >竖排</button>
+      </div>
+
+      <!-- 行距 / 停靠位置 -->
+      <div class="mt-1 flex h-[26px] items-center gap-1.5">
+        <span class="w-9 shrink-0 text-[11px] text-white/45">行距</span>
+        <button
+          v-for="lh in LINE_HEIGHTS"
+          :key="lh"
+          type="button"
+          class="rounded px-2 text-[11px]"
+          :class="style.lineHeight === lh ? 'bg-white/90 text-black' : 'bg-white/10 text-white/70 hover:bg-white/20'"
+          @click="patch({ lineHeight: lh })"
+        >{{ lh.toFixed(1) }}</button>
+        <span class="ml-2 text-[11px] text-white/40">位置</span>
+        <button
+          v-for="d in DOCKS"
+          :key="d.id"
+          type="button"
+          class="rounded px-2 text-[11px]"
+          :class="style.scrollAt === d.id ? 'bg-white/90 text-black' : 'bg-white/10 text-white/70 hover:bg-white/20'"
+          @click="patch({ scrollAt: d.id })"
+        >{{ d.label }}</button>
+      </div>
+
+      <!-- 行为：暂停变淡 / 任务栏 / 全屏隐藏 / 重置窗口 -->
+      <div class="mt-1 flex h-[26px] items-center gap-1.5">
+        <span class="w-9 shrink-0 text-[11px] text-white/45">行为</span>
+        <button
+          type="button"
+          class="rounded px-2 text-[11px]"
+          :class="style.dimWhenPaused ? 'bg-white/90 text-black' : 'bg-white/10 text-white/70 hover:bg-white/20'"
+          title="暂停时把歌词调淡，避免挡住桌面"
+          @click="patch({ dimWhenPaused: !style.dimWhenPaused })"
+        >暂停变淡</button>
+        <button
+          type="button"
+          class="rounded px-2 text-[11px]"
+          :class="style.showInTaskbar ? 'bg-white/90 text-black' : 'bg-white/10 text-white/70 hover:bg-white/20'"
+          title="在任务栏显示这个窗口（录屏抓不到歌词时用）"
+          @click="patch({ showInTaskbar: !style.showInTaskbar })"
+        >任务栏</button>
+        <button
+          type="button"
+          class="rounded px-2 text-[11px]"
+          :class="style.hideOnFullscreen ? 'bg-white/90 text-black' : 'bg-white/10 text-white/70 hover:bg-white/20'"
+          title="主窗口全屏时自动隐藏（只对 Lyco 自己的全屏生效）"
+          @click="patch({ hideOnFullscreen: !style.hideOnFullscreen })"
+        >全屏隐藏</button>
+        <button
+          type="button"
+          class="ml-auto rounded px-2 text-[11px] text-white/60 hover:bg-white/15"
+          title="窗口拖到屏幕外找不回来时点这里"
+          @click="resetWindow"
+        >重置窗口</button>
       </div>
 
       <!-- 描边 -->

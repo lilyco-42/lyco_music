@@ -8,7 +8,7 @@
  */
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import {
-  Download, ListOrdered, Monitor, Music2, RotateCcw, Trash2, Volume2, FolderInput,
+  Download, ListOrdered, Monitor, Music2, RotateCcw, Trash2, Volume2, FolderInput, Type,
 } from 'lucide-vue-next'
 import {
   prefs, resetPrefs, FONT_SCALES, WINDOW_PRESETS, type ProgressStyle,
@@ -143,6 +143,20 @@ function restoreDefaults(): void {
   toast('已恢复默认设置')
 }
 
+const SCROLL_DELAYS = [
+  { value: 0, label: '不延迟' },
+  { value: 300, label: '0.3s' },
+  { value: 600, label: '0.6s' },
+  { value: 1000, label: '1s' },
+  { value: 1500, label: '1.5s' },
+] as const
+
+/** 偏移按 0.5s 步进，和播放页那两个 ± 按钮保持一致 */
+function bumpOffset(delta: number): void {
+  const next = Math.round((prefs.lyricOffset + delta) * 2) / 2
+  prefs.lyricOffset = Math.max(-5, Math.min(5, next))
+}
+
 const PROGRESS_STYLES: { id: ProgressStyle; label: string; desc: string }[] = [
   { id: 'line', label: '细线', desc: '默认，2px' },
   { id: 'thick', label: '粗条', desc: '5px，指哪打哪' },
@@ -215,6 +229,98 @@ const PROGRESS_STYLES: { id: ProgressStyle; label: string; desc: string }[] = [
               >刷新</button>
             </div>
             <p v-if="outputError" class="mt-1 text-[12px] text-red-500">读取设备列表失败：{{ outputError }}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 歌词 ============ -->
+    <div class="mt-5 rounded-2xl border border-ncm-divider bg-white p-7">
+      <div class="flex items-center gap-2">
+        <Type :size="19" class="text-ncm-accent" />
+        <h2 class="text-lg font-semibold text-ncm-fg">歌词</h2>
+      </div>
+
+      <div class="mt-4 divide-y divide-ncm-divider">
+        <label class="flex cursor-pointer items-start gap-3 py-3">
+          <input v-model="prefs.lyricS2T" type="checkbox" class="mt-0.5 size-4 accent-[var(--color-ncm-accent)]" />
+          <span class="min-w-0 flex-1">
+            <span class="block text-[14px] text-ncm-fg">歌词转繁体</span>
+            <span class="mt-0.5 block text-[12px] leading-[18px] text-ncm-faint">简体歌词按字形转成繁体（与 lx 的「简繁转换」同义）。逐字映射，不做分词，个别多音字可能不准</span>
+          </span>
+        </label>
+
+        <label class="flex cursor-pointer items-start gap-3 py-3">
+          <input v-model="prefs.lyricSeekByDrag" type="checkbox" class="mt-0.5 size-4 accent-[var(--color-ncm-accent)]" />
+          <span class="min-w-0 flex-1">
+            <span class="block text-[14px] text-ncm-fg">允许拖拽歌词调进度</span>
+            <span class="mt-0.5 block text-[12px] leading-[18px] text-ncm-faint">按住歌词区上下拖动可以刮擦定位；点某一行也能直接跳过去</span>
+          </span>
+        </label>
+
+        <!-- 偏移 -->
+        <div class="flex items-start gap-3 py-3">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <span class="text-[14px] text-ncm-fg">歌词偏移</span>
+              <span class="text-[12px] tabular-nums" :class="prefs.lyricOffset === 0 ? 'text-ncm-faint' : 'text-ncm-accent'">
+                {{ prefs.lyricOffset > 0 ? '+' : '' }}{{ prefs.lyricOffset.toFixed(1) }}s
+              </span>
+            </div>
+            <p class="mt-0.5 text-[12px] leading-[18px] text-ncm-faint">
+              人声到了歌词还没到就调正数，反过来调负数。播放页、播放栏、桌面歌词共用这一个值。
+            </p>
+            <div class="mt-2 flex items-center gap-2">
+              <button type="button" class="rounded-full border border-ncm-divider px-3 py-1 text-[12px] text-ncm-muted hover:bg-ncm-bg" @click="bumpOffset(-0.5)">−0.5s</button>
+              <button type="button" class="rounded-full border border-ncm-divider px-3 py-1 text-[12px] text-ncm-muted hover:bg-ncm-bg" @click="bumpOffset(0.5)">+0.5s</button>
+              <button
+                type="button"
+                class="rounded-full border border-ncm-divider px-3 py-1 text-[12px] text-ncm-muted hover:bg-ncm-bg disabled:opacity-40"
+                :disabled="prefs.lyricOffset === 0"
+                @click="prefs.lyricOffset = 0"
+              >归零</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 详情页字号 -->
+        <div class="flex items-start gap-3 py-3">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <span class="text-[14px] text-ncm-fg">播放页歌词字号</span>
+              <span class="text-[12px] tabular-nums text-ncm-faint">{{ prefs.playLyricFontSize }}px</span>
+            </div>
+            <input
+              type="range"
+              min="14"
+              max="34"
+              step="2"
+              :value="prefs.playLyricFontSize"
+              class="mt-2 h-1 w-full max-w-[280px] accent-[var(--color-ncm-accent)]"
+              aria-label="播放页歌词字号"
+              @input="prefs.playLyricFontSize = Number(($event.target as HTMLInputElement).value)"
+            />
+            <p class="mt-1 text-[12px] text-ncm-faint">只影响播放详情页；桌面歌词的字号在歌词窗口里右键调。</p>
+          </div>
+        </div>
+
+        <!-- 延迟滚动 -->
+        <div class="flex items-start gap-3 py-3">
+          <div class="min-w-0 flex-1">
+            <div class="text-[14px] text-ncm-fg">滚动延迟</div>
+            <p class="mt-0.5 text-[12px] leading-[18px] text-ncm-faint">
+              新的一行出现后等一会儿再滚动，长句不会刚露头就被推到中间。
+            </p>
+            <div class="mt-2 flex flex-wrap gap-2">
+              <button
+                v-for="d in SCROLL_DELAYS"
+                :key="d.value"
+                type="button"
+                class="rounded-full border px-3 py-1 text-[12px] transition-colors"
+                :class="prefs.lyricScrollDelay === d.value ? 'border-ncm-accent bg-ncm-accent/5 text-ncm-accent' : 'border-ncm-divider text-ncm-muted hover:bg-ncm-bg'"
+                @click="prefs.lyricScrollDelay = d.value"
+              >{{ d.label }}</button>
+            </div>
           </div>
         </div>
       </div>

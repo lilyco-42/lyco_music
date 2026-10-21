@@ -17,6 +17,7 @@ const fs = require('node:fs')
 const fsp = require('node:fs/promises')
 const path = require('node:path')
 const { Readable } = require('node:stream')
+const zlib = require('node:zlib')
 
 const SCHEME = 'lxmn-media'
 const PREFIX = `${SCHEME}://local/`
@@ -202,7 +203,7 @@ async function walk(dir, depth, budget) {
     }
     if (!ent.isFile()) continue
     const ext = extOf(ent.name)
-    if (!AUDIO_EXTS.has(ext) && !ENCRYPTED_EXTS.has(ext) && ext !== 'lrc') continue
+    if (!AUDIO_EXTS.has(ext) && !ENCRYPTED_EXTS.has(ext) && ext !== 'lrc' && ext !== 'krc') continue
     let st
     try {
       st = await fsp.stat(full)
@@ -211,6 +212,48 @@ async function walk(dir, depth, budget) {
     }
     budget.entries.push({ path: full, name: ent.name, size: st.size, mtime: st.mtimeMs, ext })
   }
+}
+
+/**
+ * 酷狗 .krc 歌词解码（PARITY 3.24）。
+ *
+ * 格式：base64 文本 -> 去掉开头 4 字节 -> 用固定 16 字节密钥循环异或
+ * -> zlib 解压 -> 得到 krc 文本。密钥是酷狗客户端里写死的常量，
+ * 不是「破解账号」那一类东西，只是文件格式；不涉及音频 DRM。
+ */
+const KRC_KEY = Buffer.from([
+  0x40, 0x47, 0x61, 0x77, 0x5e, 0x32, 0x74, 0x47,
+  0x51, 0x36, 0x31, 0x2d, 0xce, 0xd2, 0x6e, 0x69,
+])
+
+function decodeKrc(buf) {
+  const raw = Buffer.from(buf.toString('utf8').trim(), 'base64').subarray(4)
+  for (let i = 0; i < raw.length; i++) raw[i] ^= KRC_KEY[i % 16]
+  return zlib.inflateSync(raw).toString('utf8')
+}
+
+/**
+ * krc -> lrc。
+ *
+ * krc 的行头是 `[起始毫秒,持续毫秒]`，字级时间戳是 `<偏移,时长,0>`。
+ * 只保留行级时间、丢掉字级时间戳 —— 我们自己的逐字染色要的是 yrc 格式，
+ * 强行转换反而会算出错位的染色。文本里可能夹 HTML 实体，一并解掉。
+ */
+function krcToLrc(text) {
+  const out = []
+  for (const rawLine of String(text).replace(/\r/g, '').split('\n')) {
+    const m = /^\[(\d+),\d+\](.*)$/.exec(rawLine.trim())
+    if (!m) continue
+    const ms = Number(m[1])
+    if (!Number.isFinite(ms)) continue
+    const body = m[2].replace(/<\d+,\d+,\d+>/g, '')
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+    const mm = String(Math.floor(ms / 60000)).padStart(2, '0')
+    const ss = String(Math.floor(ms / 1000) % 60).padStart(2, '0')
+    const mmm = String(ms % 1000).padStart(3, '0')
+    out.push('[' + mm + ':' + ss + '.' + mmm + ']' + body)
+  }
+  return out.join('\n')
 }
 
 /**
@@ -235,23 +278,29 @@ async function scan(dir) {
   await walk(root, 0, budget)
   const entries = budget.entries
 
-  // 同名 .lrc 一并读进来：本地歌不需要再发请求，播放时直接用
+  // 同名 .lrc / .krc 一并读进来：本地歌不需要再发请求，播放时直接用
   const lrc = {}
   for (const e of entries) {
-    if (e.ext !== 'lrc') continue
+    if (e.ext !== 'lrc' && e.ext !== 'krc') continue
     const target = path.join(path.dirname(e.path), path.basename(e.path, path.extname(e.path)))
-    // .lrc 可能和音频同名但扩展名不同，也可能就叫 歌名.lrc
-    for (const audioExt of AUDIO_EXTS) {
-      const audioPath = `${target}.${audioExt}`
-      try {
-        lrc[audioPath] = await fsp.readFile(e.path, 'utf8')
-      } catch { /* 读不了就算了，不影响播放 */ }
+    let text = ''
+    try {
+      if (e.ext === 'lrc') {
+        text = await fsp.readFile(e.path, 'utf8')
+      } else {
+        // .krc 是酷狗的加密歌词：base64 -> 去掉 4 字节头 -> 定长异或 -> zlib
+        text = krcToLrc(decodeKrc(await fsp.readFile(e.path)))
+      }
+    } catch {
+      continue // 解码失败就当没有歌词，不影响音频导入
     }
+    // 歌词可能和音频同名但扩展名不同
+    for (const audioExt of AUDIO_EXTS) lrc[`${target}.${audioExt}`] = text
   }
 
   return {
     root,
-    entries: entries.filter(e => e.ext !== 'lrc'),
+    entries: entries.filter(e => e.ext !== 'lrc' && e.ext !== 'krc'),
     lrc,
     truncated: entries.length >= MAX_FILES,
   }

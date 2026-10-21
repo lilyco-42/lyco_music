@@ -214,6 +214,32 @@ export function parseLyric(
 }
 
 /**
+ * 歌词偏移（PARITY 3.5）。
+ *
+ * `offset` 为正表示「歌词整体**延后** offset 秒」—— 播放到 t 秒时，
+ * 显示的是原本属于 t-offset 的那一行。用户听到人声了、字幕还没到，
+ * 就把它往正数调。
+ *
+ * 只平移时间，不动文本；同一常数加在所有行上，顺序不变，不需要重排。
+ * 结果夹到 0 以上：负时间会让 findLineIndex 的第一行判断失效，
+ * 表现为「前奏里就高亮了第一句」。
+ */
+export function shiftLyric(parsed: ParsedLyric, offset: number): ParsedLyric {
+  if (!offset || !Number.isFinite(offset)) return parsed
+  const shift = (t: number): number => Math.max(0, t + offset)
+  return {
+    ...parsed,
+    lines: parsed.lines.map(line => ({
+      ...line,
+      time: shift(line.time),
+      words: line.words
+        ? line.words.map(w => ({ ...w, time: shift(w.time) }))
+        : undefined,
+    })),
+  }
+}
+
+/**
  * 解析逐字歌词（网易 yrc）。
  *
  * 格式长这样（每个字一个 `(起始ms,时长ms,0)`，行首是 `[起始ms,时长ms,0]`）：
