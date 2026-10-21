@@ -91,12 +91,12 @@ function fmtTime(t: number): string {
     <!-- 确实没有会员：引导去开通 -->
     <div v-if="!me && !busy && denied" class="mt-10 flex flex-col items-center rounded-nav bg-ncm-surface p-10">
       <img :src="'./art/avatar-default.jpg'" alt="" class="w-[120px] rounded-full opacity-90" />
-      <p class="mt-5 text-[16px] text-ncm-fg">好友功能需要音乐会员</p>
-      <p class="mt-2 text-[14px] text-ncm-faint">开通后用好友码加好友，同步歌单、看在线状态</p>
+      <p class="mt-5 text-[16px] text-ncm-fg">{{ t('fr.needVip', '好友功能需要音乐会员') }}</p>
+      <p class="mt-2 text-[14px] text-ncm-faint">{{ t('fr.needVipDesc', '开通后用好友码加好友，同步歌单、看在线状态') }}</p>
       <RouterLink
         to="/membership"
         class="mt-5 rounded-pill bg-ncm-accent px-6 py-2.5 text-[15px] text-white transition-opacity hover:opacity-90"
-      >去开通</RouterLink>
+      >{{ t('fr.goActivate', '去开通') }}</RouterLink>
     </div>
 
     <!--
@@ -105,13 +105,13 @@ function fmtTime(t: number): string {
       「好友功能需要音乐会员」—— 明明有 VIP 也像是掉了。
     -->
     <div v-else-if="!me && !busy && loadError" class="mt-10 flex flex-col items-center rounded-nav bg-ncm-surface p-10">
-      <p class="text-[16px] text-ncm-fg">好友列表加载失败</p>
+      <p class="text-[16px] text-ncm-fg">{{ t('fr.loadFail', '好友列表加载失败') }}</p>
       <p class="mt-2 max-w-[460px] text-center text-[14px] text-ncm-faint">{{ loadError }}</p>
       <button
         type="button"
         class="mt-5 rounded-pill border border-ncm-divider px-6 py-2.5 text-[15px] text-ncm-muted hover:bg-black/5"
         @click="() => { void refresh(true) }"
-      >重新加载</button>
+      >{{ t('fr.reload', '重新加载') }}</button>
     </div>
 
     <template v-else-if="me">
@@ -122,7 +122,7 @@ function fmtTime(t: number): string {
           type="button"
           class="shrink-0 rounded-pill border border-ncm-divider px-4 py-1.5 text-[13px] text-ncm-muted hover:bg-black/5"
           @click="() => { void refresh(true) }"
-        >重试</button>
+        >{{ t('fr.retry', '重试') }}</button>
       </div>
 
       <!-- 我的身份卡 -->
@@ -134,7 +134,7 @@ function fmtTime(t: number): string {
             <span class="rounded-full bg-ncm-accent/10 px-2.5 py-0.5 text-[12px] text-ncm-accent">{{ me.online ? '在线' : '离线' }}</span>
           </div>
           <div class="mt-1.5 flex items-center gap-2">
-            <span class="text-[13px] text-ncm-faint">好友码</span>
+            <span class="text-[13px] text-ncm-faint">{{ t('fr.code', '好友码') }}</span>
             <code class="rounded bg-ncm-bg px-2 py-0.5 font-mono text-[15px] tracking-widest text-ncm-fg">{{ me.friendCode }}</code>
             <button
               type="button"
@@ -147,7 +147,7 @@ function fmtTime(t: number): string {
           type="button"
           class="rounded-pill border border-ncm-divider px-4 py-1.5 text-[13px] text-ncm-muted hover:bg-black/5"
           @click="editingNick = !editingNick"
-        >改昵称</button>
+        >{{ t('fr.rename', '改昵称') }}</button>
       </div>
 
       <div v-if="editingNick" class="mt-3 flex gap-2">
@@ -162,7 +162,7 @@ function fmtTime(t: number): string {
 
       <!-- 好友动态 -->
       <div v-if="feed.length" class="mt-5 rounded-nav bg-ncm-surface p-5">
-        <p class="text-[15px] font-semibold text-ncm-fg">好友动态</p>
+        <p class="text-[15px] font-semibold text-ncm-fg">{{ t('fr.feed', '好友动态') }}</p>
         <ul class="mt-3 flex flex-col gap-2.5">
           <li v-for="(item, i) in feed" :key="i" class="flex items-center gap-3">
             <span class="min-w-0 flex-1 truncate text-[14px] text-ncm-fg">
@@ -183,7 +183,7 @@ function fmtTime(t: number): string {
 
     <!-- 加好友 -->
       <div class="mt-5 rounded-nav bg-ncm-surface p-5">
-        <p class="text-[15px] font-semibold text-ncm-fg">添加好友</p>
+        <p class="text-[15px] font-semibold text-ncm-fg">{{ t('fr.add', '添加好友') }}</p>
         <div class="mt-3 flex gap-2">
           <input
             v-model="codeInput"

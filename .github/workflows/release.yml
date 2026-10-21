@@ -362,6 +362,20 @@ jobs:
           mkdir -p release-files
           find dist-all -type f -exec cp -n {} release-files/ \;
           ls -la release-files || true
+
+      # 五个构建任务都是 continue-on-error，并且 release 任务写成 if: always() ——
+      # 这样「全平台都构建失败」时发布步骤照样会跑，结果是一个**零资产 Release**。
+      # 实测踩过：一个空的 v0.2.42 就这么发出去的，比没发还糟（它会占住 Latest）。
+      # 所以这里要求至少有一个产物，否则直接失败，让 Release 保持不存在。
+      - name: Refuse to publish an empty release
+        shell: bash
+        run: |
+          count=$(find release-files -type f | wc -l)
+          echo "collected artifacts: $count"
+          if [ "$count" -lt 1 ]; then
+            echo "::error::没有任何构建产物（五个平台可能都失败了），拒绝发布空 Release"
+            exit 1
+          fi
       # 同一天重复发布时 tag 相同（v0.1.0-YYYYMMDD），而 action-gh-release
       # 在 tag 已存在时是**追加**资产而不是重建，上一轮的文件会残留
       # （实测残留了旧命名的 app-release.apk / LX-Music-unsigned.ipa，
