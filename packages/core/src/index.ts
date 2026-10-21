@@ -20,7 +20,7 @@ export * from './download'
 export * from './download/types'
 export * from './download/naming'
 
-export const CORE_VERSION = '0.2.26'
+export const CORE_VERSION = '0.2.27'
 
 /**
  * 应用对外版本号。与根 package.json 同源 —— 发版时两处一起改，
