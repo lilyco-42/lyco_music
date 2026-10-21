@@ -24,7 +24,7 @@ export * from './local'
 export * from './trial'
 export * from './text/s2t'
 
-export const CORE_VERSION = '0.2.37'
+export const CORE_VERSION = '0.2.38'
 
 /**
  * 应用对外版本号。与根 package.json 同源 —— 发版时两处一起改，
