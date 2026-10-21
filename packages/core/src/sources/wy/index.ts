@@ -271,7 +271,7 @@ export const wySource: MusicSource = {
    * R_SO_4_ 表示「单曲」。第 1 页额外返回 hotComments，把它拼在最前面，
    * 和网易云客户端的观感一致。
    */
-  async getComments(songInfo: MusicItem, page = 1, limit = 20): Promise<CommentResult> {
+  async getComments(songInfo: MusicItem, page = 1, limit = 20, sort: 'hot' | 'new' = 'hot'): Promise<CommentResult> {
     const offset = Math.max(0, (page - 1) * limit)
     const { body } = await eapiRequest('/api/v1/resource/comments/R_SO_4_' + String(songInfo.songmid), {
       rid: songInfo.songmid,
@@ -312,7 +312,8 @@ export const wySource: MusicSource = {
       }
     }
 
-    const hot = page === 1
+    // 「最新」只看时间序：把热门混进第一页会让用户以为"最新"里出现了旧评论
+    const hot = page === 1 && sort === 'hot'
       ? (parsed.hotComments ?? []).map(raw => ({ ...map(raw), hot: true }))
       : []
     const normal = (parsed.comments ?? []).map(map)

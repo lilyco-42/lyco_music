@@ -555,6 +555,8 @@ const commentPage = ref(1)
 const commentLoading = ref(false)
 const commentError = ref('')
 const commentMore = ref(true)
+/** 评论排序（9.1）：热门第一页带热评，最新只按时间倒序 */
+const commentSort = ref<'hot' | 'new'>('hot')
 
 async function loadComments(reset = false): Promise<void> {
   const target = commentTarget.value
@@ -569,7 +571,7 @@ async function loadComments(reset = false): Promise<void> {
   }
   commentLoading.value = true
   try {
-    const res = await getSource(target.source).getComments!(target.item, commentPage.value, 20)
+    const res = await getSource(target.source).getComments!(target.item, commentPage.value, 20, commentSort.value)
     comments.value = commentPage.value === 1 ? res.list : [...comments.value, ...res.list]
     commentTotal.value = res.total
     commentMore.value = res.more && res.list.length > 0
@@ -990,7 +992,16 @@ const vinylStyle = computed(() => ({
 
           <TabsContent value="comment" class="mt-[16px] flex min-h-0 max-w-[680px] flex-1 flex-col pb-4">
             <div class="mb-2 flex items-baseline gap-2 text-[13px] text-ncmd-muted">
-              <span>评论</span>
+              <div class="mr-2 flex items-center gap-1">
+                <button
+                  v-for="s in [{ id: 'hot' as const, label: '热门' }, { id: 'new' as const, label: '最新' }]"
+                  :key="s.id"
+                  type="button"
+                  class="rounded-full px-2.5 py-[2px] text-[12px] transition-colors"
+                  :class="commentSort === s.id ? 'bg-white/15 text-ncmd-fg' : 'hover:bg-white/10 text-ncmd-dim'"
+                  @click="commentSort = s.id; void loadComments(true)"
+                >{{ s.label }}</button>
+              </div>
               <span v-if="commentTotal">{{ fmtLikes(commentTotal) }}</span>
               <span v-if="commentResolving" class="text-ncmd-dim">正在找这首歌的评论…</span>
               <span v-else-if="!commentSource" class="text-ncmd-dim">这首歌暂时没有可用的评论</span>

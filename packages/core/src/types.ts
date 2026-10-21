@@ -118,8 +118,13 @@ export interface MusicSource {
 
   /** 搜索（可选：部分音源仅支持榜单/歌单） */
   musicSearch?(keyword: string, page: number, limit: number): Promise<SearchResult>
-  /** 评论（可选：目前只有网易云有公开接口） */
-  getComments?(item: MusicItem, page: number, limit: number): Promise<CommentResult>
+  /**
+   * 评论（可选：目前只有网易云有公开接口）。
+   *
+   * `sort`：'hot' 第一页带上热门评论；'new' 只按时间倒序。缺省等价 'hot'，
+   * 老调用方（移动端）不用改。
+   */
+  getComments?(item: MusicItem, page: number, limit: number, sort?: 'hot' | 'new'): Promise<CommentResult>
   /** 歌曲详情页地址（可选） */
   getMusicDetailPageUrl?(item: MusicItem): string
   /** 初始化（可选） */
