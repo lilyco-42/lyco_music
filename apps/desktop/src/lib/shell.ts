@@ -13,6 +13,7 @@ import { watch } from 'vue'
 import { restoreQueue, usePlayer } from './player'
 import { prefs, WINDOW_PRESETS } from './prefs'
 import { library, useSync } from './sync'
+import { useUpdater } from './update'
 
 function native(): Window['lxmnNative'] | undefined {
   return typeof window === 'undefined' ? undefined : window.lxmnNative
@@ -130,6 +131,9 @@ export function installShellIntegration(): void {
    * 关着的时候不恢复：一个「没点过播放却自己出声」的应用比什么都吓人。
    * 但队列本身仍然在 play() 之后被持久化，下次手动点播放还是接得上。
    */
+  // 静默检查更新（6.9）：不弹窗、不自动下载，只在有新版本时提示一下
+  useUpdater().maybeAutoCheck()
+
   if (prefs.autoPlayOnStart && restoreQueue()) {
     const item = player.state.queue[player.state.index]
     if (item) void player.play(item)

@@ -28,6 +28,8 @@ export interface DesktopPrefs {
   taskbarProgress: boolean
   /** 播放时阻止系统休眠（2.10） */
   preventSleep: boolean
+  /** 启动后静默检查更新（6.9） */
+  autoCheckUpdate: boolean
 
   /* ---- 播放 ---- */
   /** 启动后自动接着播上次的队列（2.12） */
@@ -126,6 +128,7 @@ function defaults(): DesktopPrefs {
     startHidden: false,
     taskbarProgress: true,
     preventSleep: true,
+    autoCheckUpdate: true,
     autoPlayOnStart: false,
     rememberProgress: true,
     outputDevice: '',
@@ -181,6 +184,7 @@ function merge(raw: unknown): DesktopPrefs {
     startHidden: bool(src.startHidden, base.startHidden),
     taskbarProgress: bool(src.taskbarProgress, base.taskbarProgress),
     preventSleep: bool(src.preventSleep, base.preventSleep),
+    autoCheckUpdate: bool(src.autoCheckUpdate, base.autoCheckUpdate),
     autoPlayOnStart: bool(src.autoPlayOnStart, base.autoPlayOnStart),
     rememberProgress: bool(src.rememberProgress, base.rememberProgress),
     outputDevice: str(src.outputDevice, base.outputDevice),

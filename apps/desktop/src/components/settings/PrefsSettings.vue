@@ -8,7 +8,7 @@
  */
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import {
-  Download, ListOrdered, Monitor, Music2, RotateCcw, Trash2, Volume2, FolderInput, Type, Globe, Link2, Copy,
+  Download, ListOrdered, Monitor, Music2, RotateCcw, Trash2, Volume2, FolderInput, Type, Globe, Link2, Copy, RefreshCw, ExternalLink, Info,
 } from 'lucide-vue-next'
 import {
   prefs, resetPrefs, FONT_SCALES, WINDOW_PRESETS, type ProgressStyle,
@@ -16,9 +16,11 @@ import {
 import { clearResumePositions, shuffleQueue, usePlayer } from '@/lib/player'
 import { library, useSync } from '@/lib/sync'
 import { toast } from '@/lib/toast'
+import { useUpdater } from '@/lib/update'
 
 const player = usePlayer()
 const { favorites, history, playlists, trial } = useSync()
+const updater = useUpdater()
 
 /* ---------------- 系统集成（6.5 / 6.6 / 6.8） ---------------- */
 
@@ -577,6 +579,53 @@ const PROGRESS_STYLES: { id: ProgressStyle; label: string; desc: string }[] = [
         <RotateCcw :size="13" />
         {{ pending === 'reset' ? '再点一次恢复默认' : '恢复默认设置' }}
       </button>
+    </div>
+
+    <!-- ============ 关于与更新（6.9 / 6.10） ============ -->
+    <div class="mt-5 rounded-2xl border border-ncm-divider bg-white p-7">
+      <div class="flex items-center gap-2">
+        <Info :size="19" class="text-ncm-accent" />
+        <h2 class="text-lg font-semibold text-ncm-fg">关于与更新</h2>
+        <span class="ml-1 text-[12px] text-ncm-faint">v{{ updater.current }}</span>
+      </div>
+
+      <div class="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          class="flex items-center gap-1.5 rounded-full border border-ncm-divider px-3.5 py-1.5 text-[12px] text-ncm-muted transition-colors hover:bg-ncm-bg disabled:opacity-40"
+          :disabled="updater.checking.value"
+          @click="updater.check()"
+        >
+          <RefreshCw :size="13" :class="updater.checking.value ? 'animate-spin' : ''" />
+          {{ updater.checking.value ? '检查中…' : '检查更新' }}
+        </button>
+        <button
+          type="button"
+          class="flex items-center gap-1.5 rounded-full border border-ncm-divider px-3.5 py-1.5 text-[12px] text-ncm-muted transition-colors hover:bg-ncm-bg"
+          @click="updater.openDownload()"
+        >
+          <ExternalLink :size="13" />打开下载页
+        </button>
+        <label class="ml-2 flex cursor-pointer items-center gap-2 text-[12px] text-ncm-muted">
+          <input v-model="prefs.autoCheckUpdate" type="checkbox" class="size-3.5 accent-[var(--color-ncm-accent)]" />
+          启动时自动检查
+        </label>
+      </div>
+
+      <p v-if="updater.error.value" class="mt-3 text-[12px] text-red-500">检查失败：{{ updater.error.value }}</p>
+      <p v-else-if="updater.hasUpdate.value && updater.latest.value" class="mt-3 text-[12px] text-emerald-600">
+        有新版本 v{{ updater.latest.value.version }}（当前 v{{ updater.current }}）
+      </p>
+      <p v-else-if="updater.lastCheckedAt.value" class="mt-3 text-[12px] text-ncm-faint">已经是最新版本。</p>
+
+      <details v-if="updater.latest.value?.notes" class="mt-3 rounded-xl border border-ncm-divider">
+        <summary class="cursor-pointer px-3 py-2 text-[12px] text-ncm-muted">更新日志（v{{ updater.latest.value.version }}）</summary>
+        <pre class="max-h-[240px] overflow-auto whitespace-pre-wrap px-3 pb-3 text-[12px] leading-[18px] text-ncm-faint">{{ updater.latest.value.notes }}</pre>
+      </details>
+
+      <p class="mt-3 text-[12px] leading-[18px] text-ncm-faint">
+        安装包未签名，所以不做静默自动更新：检查到新版本后由你决定什么时候装。
+      </p>
     </div>
   </div>
 </template>
