@@ -88,6 +88,14 @@ export interface DownloadManagerOptions {
   nameFormat: () => string
   /** 并发数，默认 2 */
   concurrency?: () => number
+  /**
+   * 按歌单名分目录。默认关。
+   *
+   * lx 有这个开关：从「某个歌单」批量下载时，文件落到 `<下载目录>/<歌单名>/`，
+   * 而不是把几十首歌平铺在下载目录里。任务本身记着 listName，
+   * 即使歌单后来改名也不影响已入队的任务。
+   */
+  subdirPerList?: () => boolean
   /** 本地持久化键，默认 lxmn.downloads */
   storageKey?: string
 }

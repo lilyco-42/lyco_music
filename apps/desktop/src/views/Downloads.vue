@@ -65,6 +65,10 @@ async function onFormatChange(e: Event): Promise<void> {
 async function onConcurrencyChange(e: Event): Promise<void> {
   await saveSettings({ concurrency: Number((e.target as HTMLSelectElement).value) || 2 })
 }
+
+async function onSubdirChange(e: Event): Promise<void> {
+  await saveSettings({ subdirPerList: (e.target as HTMLInputElement).checked })
+}
 </script>
 
 <template>
@@ -126,6 +130,16 @@ async function onConcurrencyChange(e: Event): Promise<void> {
         >
           <option v-for="f in formats" :key="f.id" :value="f.id">{{ f.label }}</option>
         </select>
+      </label>
+
+      <label class="flex cursor-pointer items-center gap-2" title="从歌单批量下载时，文件落到「歌单名」子目录里">
+        <input
+          type="checkbox"
+          class="size-[14px] accent-ncm-accent"
+          :checked="settings.subdirPerList"
+          @change="onSubdirChange"
+        />
+        <span class="shrink-0 text-[13px] text-ncm-faint">按歌单分目录</span>
       </label>
 
       <label class="flex items-center gap-2">

@@ -15,7 +15,7 @@
  */
 import { getPlatform } from '../registry'
 import type { MusicItem, Quality } from '../types'
-import { buildFileName, extForQuality } from './naming'
+import { buildFileName, extForQuality, sanitizeFileName } from './naming'
 import type {
   DownloadEvent,
   DownloadManagerOptions,
@@ -337,7 +337,7 @@ export class DownloadManager {
     this.emit()
 
     try {
-      const dir = this.options.directory()
+      const dir = this.targetDir(task)
       const ok = await this.options.transport.ensureDir(dir)
       if (!ok) {
         this.fail(task, { type: 'error', message: '下载目录不可写，请到设置里换一个位置', fatal: true })
@@ -382,6 +382,21 @@ export class DownloadManager {
       // 任务可能已经被删掉了，此时不必再推
       this.pump()
     }
+  }
+
+  /**
+   * 落盘目录。
+   *
+   * 分目录只在「从歌单批量下载」时有意义：单曲下载没有 listName，
+   * 落到根目录才不会让用户在一堆歌单文件夹里找不到刚下的那首。
+   */
+  private targetDir(task: DownloadTask): string {
+    const base = this.options.directory()
+    if (!this.options.subdirPerList?.()) return base
+    const name = sanitizeFileName(task.listName ?? '')
+    if (!name || name === '.' || name === '..') return base
+    // 用 / 拼接：Windows 的 fs 与 Linux/macOS 都认，path.join 在内核里没有平台对象
+    return base.replace(/[\\/]+$/, '') + '/' + name
   }
 
   private onEvent(task: DownloadTask, event: DownloadEvent): void {

@@ -57,6 +57,8 @@ const song = (id: string, name: string, singer = '某歌手'): MusicItem => ({
 class FakeTransport implements DownloadTransport {
   /** 已启动的任务 id，按启动顺序 */
   readonly started: string[] = []
+  /** 完整的启动请求（要断言目录/文件名时用） */
+  readonly requests: DownloadRequest[] = []
   readonly paused: string[] = []
   readonly removed: string[] = []
   readonly pending = new Map<string, (event: DownloadEvent) => void>()
@@ -70,6 +72,7 @@ class FakeTransport implements DownloadTransport {
 
   start(request: DownloadRequest, emit: (event: DownloadEvent) => void): Promise<void> {
     this.started.push(request.id)
+    this.requests.push(request)
     this.pending.set(request.id, emit)
     emit({ type: 'start' })
     return new Promise<void>(resolve => {
@@ -338,6 +341,32 @@ describe('下载队列', () => {
     await second.load()
     expect(second.snapshot()).toHaveLength(1)
     expect(second.snapshot()[0]!.item.name).toBe('A')
+  })
+
+  it('开启「按歌单分目录」后，批量下载落到 <目录>/<歌单名>/', async () => {
+    const { manager, transport } = makeManager({ subdirPerList: () => true })
+    await manager.add([song('1', 'A')], '320k', { listName: '我喜欢的音乐' })
+    await tick()
+    expect(transport.requests[0]!.dir).toBe('C:/Music/我喜欢的音乐')
+  })
+
+  it('分目录开关关掉时，即使有歌单名也落在根目录', async () => {
+    const { manager, transport } = makeManager({ subdirPerList: () => false })
+    await manager.add([song('1', 'A')], '320k', { listName: '我喜欢的音乐' })
+    await tick()
+    expect(transport.requests[0]!.dir).toBe('C:/Music')
+  })
+
+  it('歌单名里的斜杠不会把目录写穿', async () => {
+    const { manager, transport } = makeManager({ subdirPerList: () => true })
+    await manager.add([song('1', 'A')], '320k', { listName: '../../etc' })
+    await tick()
+    // 斜杠被替换成下划线：子目录只有一段，无法穿越到下载目录之外
+    const dir = transport.requests[0]!.dir
+    expect(dir.startsWith('C:/Music/')).toBe(true)
+    const sub = dir.slice('C:/Music/'.length)
+    expect(sub).not.toMatch(/[\\/]/)
+    expect(sub).not.toBe('..')
   })
 
   it('清空已完成只移除完成的任务', async () => {

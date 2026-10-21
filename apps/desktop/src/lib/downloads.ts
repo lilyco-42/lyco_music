@@ -94,9 +94,11 @@ interface DownloadSettings {
   dir: string
   nameFormat: string
   concurrency: number
+  /** 从歌单批量下载时，落到 `<目录>/<歌单名>/` 里 */
+  subdirPerList: boolean
 }
 
-const settings = ref<DownloadSettings>({ dir: '', nameFormat: 'title-artist', concurrency: 2 })
+const settings = ref<DownloadSettings>({ dir: '', nameFormat: 'title-artist', concurrency: 2, subdirPerList: false })
 
 async function loadSettings(): Promise<void> {
   try {
@@ -107,6 +109,7 @@ async function loadSettings(): Promise<void> {
         dir: typeof parsed.dir === 'string' ? parsed.dir : '',
         nameFormat: typeof parsed.nameFormat === 'string' ? parsed.nameFormat : 'title-artist',
         concurrency: Math.min(6, Math.max(1, Number(parsed.concurrency) || 2)),
+        subdirPerList: parsed.subdirPerList === true,
       }
     }
   } catch {
@@ -134,6 +137,7 @@ const manager = new DownloadManager({
   directory: () => settings.value.dir,
   nameFormat: () => settings.value.nameFormat,
   concurrency: () => settings.value.concurrency,
+  subdirPerList: () => settings.value.subdirPerList,
   /**
    * 取流。源可能降级（flac 无权限给 mp3），把实际音质带回去，
    * 内核据此改文件扩展名 —— 否则会写出后缀是 .flac 的 mp3。
