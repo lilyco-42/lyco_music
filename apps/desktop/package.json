@@ -1,6 +1,6 @@
 {
   "name": "@lxmn/app-desktop",
-  "version": "0.2.32",
+  "version": "0.2.33",
   "private": true,
   "description": "Lyco Music 桌面端 — 网易云风格 UI（Vue3 + Electron）",
   "type": "module",
