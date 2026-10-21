@@ -13,6 +13,7 @@
  */
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { setPlaybackHandler, setSeekHandler, usePlayer } from '@/lib/player'
+import { bindAudioElement, useEqualizer } from '@/lib/equalizer'
 
 const player = usePlayer()
 const el = ref<HTMLAudioElement | null>(null)
@@ -46,6 +47,15 @@ function armWatchdog(): void {
     void player.recoverStreamError()
   }, LOAD_TIMEOUT_MS)
 }
+
+const eq = useEqualizer()
+
+onMounted(() => {
+  // 音效图需要一个真实的 <audio> 元素；只有用户开过音效才会真正接上
+  bindAudioElement(el.value)
+  // 启动时若音效是开的，建图失败要能反映到设置界面
+  if (eq.enabled.value) eq.setEnabled(true)
+})
 
 onMounted(() => {
   // 把「播放这个地址」的能力注入内核侧的状态机

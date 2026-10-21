@@ -16,12 +16,14 @@ import QualityMenu from '@/components/layout/QualityMenu.vue'
 import { saveUrl, safeFileName, audioExt } from '@/lib/download'
 import { enqueueDownload } from '@/lib/downloads'
 import { useSleepTimer } from '@/lib/sleep-timer'
+import { useEqualizer } from '@/lib/equalizer'
 import { toast } from '@/lib/toast'
 
 const router = useRouter()
 const player = usePlayer()
 const { library, playlists, dislikes, isDisliked, dislike, undislike } = useSync()
 const sleep = useSleepTimer()
+const eq = useEqualizer()
 
 const track = computed(() => player.current.value)
 
@@ -166,7 +168,7 @@ const seekHint = computed(() => {
 /* ---------------- 右侧「…」菜单与播放队列 ---------------- */
 
 /** 面板互斥：同时只开一个，避免两层浮层叠在一起 */
-const openPanel = ref<'none' | 'more' | 'queue' | 'addto' | 'rate' | 'sleep'>('none')
+const openPanel = ref<'none' | 'more' | 'queue' | 'addto' | 'rate' | 'sleep' | 'eq'>('none')
 
 /** 0.5 → "0.5×"；1 → "1×"（不要 1.00× 那种零） */
 function fmtRate(r: number): string {
@@ -205,6 +207,7 @@ const moreItems = computed(() => {
       : { key: 'dislike', label: '不喜欢这首歌', hint: '加入屏蔽规则，之后自动跳过' },
     { key: 'lyric', label: lyricActive.value ? '关闭桌面歌词' : '打开桌面歌词', hint: '' },
     { key: 'rate', label: '播放速度', hint: fmtRate(player.state.rate) },
+    { key: 'eq', label: '音效 / 均衡器', hint: eq.enabled.value ? eq.currentPreset.value.name : '关闭' },
     sleep.active.value
       ? { key: 'sleep', label: '定时暂停', hint: `${sleep.label.value} 后暂停` }
       : { key: 'sleep', label: '定时暂停', hint: '到时自动暂停' },
@@ -339,6 +342,10 @@ async function onMore(key: string): Promise<void> {
   }
   if (key === 'sleep') {
     openPanel.value = 'sleep'
+    return
+  }
+  if (key === 'eq') {
+    openPanel.value = 'eq'
     return
   }
   if (key === 'queue') {
@@ -573,6 +580,64 @@ const error = computed(() => player.state.error)
           :disabled="addBusy"
         >创建并加入</button>
       </form>
+    </div>
+
+    <!-- 音效 / 均衡器 -->
+    <div
+      v-if="openPanel === 'eq'"
+      class="absolute bottom-[112px] right-[28px] z-50 w-[430px] rounded-2xl border border-ncm-divider bg-white p-4 shadow-[0_12px_32px_rgba(0,0,0,.14)]"
+    >
+      <div class="flex items-center justify-between">
+        <span class="text-[14px] text-ncm-fg">音效 / 均衡器</span>
+        <button
+          type="button"
+          class="rounded-full px-3 py-1 text-[12px] transition-colors"
+          :class="eq.enabled.value ? 'bg-ncm-accent text-white' : 'border border-ncm-divider text-ncm-muted hover:bg-ncm-bg'"
+          @click="eq.setEnabled(!eq.enabled.value)"
+        >{{ eq.enabled.value ? '已开启' : '开启' }}</button>
+      </div>
+      <p v-if="!eq.available.value" class="mt-2 text-[12px] text-red-500">当前环境不支持 Web Audio，音效不可用。</p>
+
+      <div class="mt-3 flex flex-wrap gap-1.5">
+        <button
+          v-for="p in eq.presets"
+          :key="p.id"
+          type="button"
+          class="rounded-full px-2.5 py-1 text-[12px] transition-colors"
+          :class="eq.presetId.value === p.id ? 'bg-ncm-accent/10 text-ncm-accent' : 'text-ncm-muted hover:bg-ncm-bg'"
+          :disabled="!eq.enabled.value"
+          @click="eq.setPreset(p.id)"
+        >{{ p.name }}</button>
+      </div>
+
+      <div class="mt-3 flex items-end justify-between gap-1">
+        <div v-for="(band, i) in eq.bands" :key="band" class="flex flex-1 flex-col items-center gap-1">
+          <span class="text-[10px] tabular-nums text-ncm-fainter">{{ (eq.gains.value[i] ?? 0) > 0 ? '+' : '' }}{{ eq.gains.value[i] ?? 0 }}</span>
+          <input
+            type="range"
+            min="-12"
+            max="12"
+            step="0.5"
+            :value="eq.gains.value[i] ?? 0"
+            :disabled="!eq.enabled.value"
+            class="h-[104px] w-3 accent-ncm-accent disabled:opacity-40"
+            style="writing-mode: vertical-lr; direction: rtl;"
+            :aria-label="band + 'Hz 增益'"
+            @input="eq.setBand(i, Number(($event.target as HTMLInputElement).value))"
+          />
+          <span class="text-[10px] text-ncm-fainter">{{ band >= 1000 ? band / 1000 + 'k' : band }}</span>
+        </div>
+      </div>
+
+      <div class="mt-2 flex items-center justify-between">
+        <span class="text-[11px] text-ncm-fainter">拉任意一段会切到「自定义」</span>
+        <button
+          type="button"
+          class="rounded-full border border-ncm-divider px-3 py-1 text-[12px] text-ncm-muted hover:bg-ncm-bg disabled:opacity-40"
+          :disabled="!eq.enabled.value"
+          @click="eq.reset()"
+        >重置</button>
+      </div>
     </div>
 
     <!-- 定时暂停 -->
