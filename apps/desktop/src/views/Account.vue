@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useI18n } from '@/lib/i18n'
+
+const { t } = useI18n()
 import { onMounted } from 'vue'
 import { UserRound, ExternalLink, LogOut, ShieldCheck, Globe } from 'lucide-vue-next'
 import { useAccount } from '@/lib/auth'
@@ -12,7 +15,7 @@ onMounted(() => void account.restore())
     <div class="mb-7 flex items-center gap-3">
       <UserRound :size="29" class="text-ncm-accent" />
       <div>
-        <h1 class="text-[28px] font-bold text-ncm-fg">我的账户</h1>
+        <h1 class="text-[28px] font-bold text-ncm-fg">{{ t('page.account', '我的账户') }}</h1>
         <p class="text-sm text-ncm-faint">使用 lain42.top 账号登录，同步识别真实购买权益。</p>
       </div>
     </div>

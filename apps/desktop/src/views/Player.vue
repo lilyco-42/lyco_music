@@ -22,6 +22,7 @@ import { buildLrc } from '@/lib/lrc-export'
 import { saveText, safeFileName } from '@/lib/download'
 import { toast } from '@/lib/toast'
 import { useSync } from '@/lib/sync'
+import { useI18n } from '@/lib/i18n'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { usePlayer } from '@/lib/player'
 import WindowControls from '@/components/layout/WindowControls.vue'
@@ -31,13 +32,14 @@ import { Download, ListMusic, Maximize2, Pause, Play, Repeat, Repeat1, Shuffle, 
 
 const router = useRouter()
 const player = usePlayer()
+const { t } = useI18n()
 
 const activeTab = ref('lyric')
 const tabs = [
-  { key: 'lyric', label: '歌词' },
-  { key: 'comment', label: '评论' },
-  { key: 'wiki', label: '百科' },
-  { key: 'similar', label: '相似推荐' },
+  { key: 'lyric', label: t('player.tab.lyric', '歌词') },
+  { key: 'comment', label: t('player.tab.comment', '评论') },
+  { key: 'wiki', label: t('player.tab.wiki', '百科') },
+  { key: 'similar', label: t('player.tab.similar', '相似推荐') },
 ] as const
 
 const current = computed(() => player.current.value)

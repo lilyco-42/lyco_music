@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useI18n } from '@/lib/i18n'
+
+const { t } = useI18n()
 /**
  * 云同步页（桌面端）
  *
@@ -133,7 +136,7 @@ onMounted(async () => {
 
 <template>
   <div class="mx-auto max-w-[1000px] py-2">
-    <h1 class="text-[30px] font-bold leading-40 text-ncm-fg">云同步</h1>
+    <h1 class="text-[30px] font-bold leading-40 text-ncm-fg">{{ t('page.sync', '云同步') }}</h1>
     <p class="mt-2 text-[15px] text-ncm-faint">
       收藏、歌单、播放记录在桌面端与移动端之间自动同步
     </p>

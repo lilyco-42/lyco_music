@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useI18n } from '@/lib/i18n'
+
+const { t } = useI18n()
 /**
  * 会员页（桌面端）
  *
@@ -48,7 +51,7 @@ onMounted(restore)
 
 <template>
   <div class="mx-auto max-w-[1000px] py-2">
-    <h1 class="text-[30px] font-bold leading-10 text-ncm-fg">音乐会员</h1>
+    <h1 class="text-[30px] font-bold leading-10 text-ncm-fg">{{ t('page.membership', '音乐会员') }}</h1>
     <p class="mt-2 text-[15px] text-ncm-faint">
       <template v-if="autoBound()">会员已通过 lain42.top 账号自动接通，无需任何操作</template>
       <template v-else>购买后可用 lain42.top 账号登录自动接通，也可以手动粘贴订阅链接</template>

@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useI18n } from '@/lib/i18n'
+
+const { t } = useI18n()
 /**
  * 导入本地音乐（从网易云下载目录一键同步）
  *
@@ -61,7 +64,7 @@ onMounted(() => { void imp.detect() })
 
 <template>
   <div class="pt-2">
-    <h1 class="text-[30px] font-bold leading-10 text-ncm-fg">导入本地音乐</h1>
+    <h1 class="text-[30px] font-bold leading-10 text-ncm-fg">{{ t('page.import', '导入本地音乐') }}</h1>
     <p class="mt-1.5 text-[13.5px] text-ncm-faint">
       直接读本机网易云的下载目录 —— 不需要登录，也不会动你的账号。
     </p>

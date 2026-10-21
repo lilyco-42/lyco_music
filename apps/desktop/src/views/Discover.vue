@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useI18n } from '@/lib/i18n'
+
+const { t } = useI18n()
 /**
  * 发现音乐：排行榜 + 歌单搜索（PARITY 1.8 / 1.9）。
  *
@@ -222,7 +225,7 @@ const tabs = computed(() => ([
     <!-- ============ 列表：排行榜 / 歌单搜索 ============ -->
     <template v-else>
       <div class="mb-5 flex flex-wrap items-center gap-3">
-        <h1 class="text-[26px] font-bold text-ncm-fg">发现音乐</h1>
+        <h1 class="text-[26px] font-bold text-ncm-fg">{{ t('page.discover', '发现音乐') }}</h1>
         <div class="flex items-center gap-1 rounded-full border border-ncm-divider p-0.5">
           <button
             v-for="t in tabs"

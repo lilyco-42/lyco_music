@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useI18n } from '@/lib/i18n'
+
+const { t } = useI18n()
 /**
  * 好友页 —— 加好友 / 处理请求 / 看谁在线。
  *
@@ -83,7 +86,7 @@ function fmtTime(t: number): string {
 
 <template>
   <div class="mx-auto w-full max-w-[980px] px-8 py-6">
-    <h1 class="text-[26px] font-bold text-ncm-fg">好友</h1>
+    <h1 class="text-[26px] font-bold text-ncm-fg">{{ t('page.friends', '好友') }}</h1>
 
     <!-- 确实没有会员：引导去开通 -->
     <div v-if="!me && !busy && denied" class="mt-10 flex flex-col items-center rounded-nav bg-ncm-surface p-10">

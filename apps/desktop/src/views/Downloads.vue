@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useI18n } from '@/lib/i18n'
+
+const { t } = useI18n()
 /**
  * 下载管理（桌面端）
  *
@@ -97,7 +100,7 @@ async function onLyricEncodingChange(e: Event): Promise<void> {
   <div class="mx-auto w-full max-w-[980px] px-8 pb-16 pt-6">
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 class="text-[26px] font-bold text-ncm-fg">下载管理</h1>
+        <h1 class="text-[26px] font-bold text-ncm-fg">{{ t('page.downloads', '下载管理') }}</h1>
         <p class="mt-1 text-[13px] text-ncm-faint">
           共 {{ tasks.length }} 首 · 进行中 {{ activeCount }} · 等待 {{ waitingCount }} · 已完成 {{ completedCount }}
         </p>
