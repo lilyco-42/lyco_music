@@ -12,7 +12,7 @@
  */
 import { getPlatform } from '../registry'
 import { parseLooseHttpUrl } from '../util/url'
-import { emptyPayload, type SyncClientOptions, type SyncDocument, type SyncOutcome, type SyncPayload } from './types'
+import { emptyPayload, type SyncClientOptions, type SyncDevice, type SyncDocument, type SyncOutcome, type SyncPayload } from './types'
 import { mergePayload, payloadSize } from './merge'
 
 /**
@@ -35,6 +35,45 @@ interface CachedState {
   /** 上次同步时间，毫秒 */
   syncedAt: number
   payload: SyncPayload
+  /**
+   * 本机的稳定设备标识（8.3）。
+   *
+   * 不能拿设备名当 id：两台「LX Music」就没法分别撤销了。
+   * 首次同步时随机生成并随缓存持久化 —— 换设备/清缓存会变成一台新设备，
+   * 这是对的：那本来就不是同一台机器。
+   */
+  deviceId?: string
+}
+
+/** 生成设备标识：优先 crypto.randomUUID，Hermes 上没有就用随机串 */
+function newDeviceId(): string {
+  try {
+    const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto
+    if (c?.randomUUID) return c.randomUUID()
+  } catch {
+    // ignore
+  }
+  let s = ''
+  for (let i = 0; i < 32; i++) s += Math.floor(Math.random() * 16).toString(16)
+  return s
+}
+
+/**
+ * 局域网/本机地址。
+ *
+ * 自建同步服务器（8.2）默认跑在 http 上 —— 家里那台机器没有证书，
+ * 让用户为了同步去申请 TLS 是不现实的。所以只对**私有网段**放行 http：
+ * 公网地址仍然强制 https，否则收藏和歌单会在链路上裸奔。
+ */
+function isPrivateHost(host: string): boolean {
+  const h = host.toLowerCase()
+  if (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]') return true
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return true
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(h)) return true
+  if (/^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(h)) return true
+  // mDNS 名字（xxx.local）在局域网里等同于私有地址
+  if (/\.local$/.test(h)) return true
+  return false
 }
 
 function normalizeBase(input: string | undefined): string {
@@ -45,8 +84,8 @@ function normalizeBase(input: string | undefined): string {
   // 没有实现 protocol getter，访问即抛错，会把整个模块带崩（见 util/url.ts）。
   const url = parseLooseHttpUrl(raw)
   if (!url) return DEFAULT_SYNC_BASE
-  if (url.protocol !== 'https:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
-    throw new Error('[lxmn/sync] 同步服务器必须使用 https')
+  if (url.protocol !== 'https:' && !isPrivateHost(url.hostname)) {
+    throw new Error('[lxmn/sync] 同步服务器必须使用 https（局域网地址可用 http）')
   }
   // 去掉尾部斜杠；已经带了 /studio 就不重复加
   let base = url.origin + url.pathname.replace(/\/+$/, '')
@@ -126,6 +165,7 @@ export class SyncClient {
         baseUrl: normalizeBase(parsed.baseUrl),
         revision: Number(parsed.revision) || 0,
         syncedAt: Number(parsed.syncedAt) || 0,
+        deviceId: typeof parsed.deviceId === 'string' && parsed.deviceId ? parsed.deviceId : undefined,
         payload: {
           settings: parsed.payload?.settings ?? {},
           favorites: parsed.payload?.favorites ?? [],
@@ -165,6 +205,7 @@ export class SyncClient {
       baseUrl: normalizeBase(baseUrl ?? this.baseUrl),
       revision: 0,
       syncedAt: 0,
+      deviceId: this.cache?.deviceId ?? newDeviceId(),
       payload: this.cache?.payload ?? emptyPayload(),
     }
     await this.persist()
@@ -191,21 +232,56 @@ export class SyncClient {
     body?: unknown,
     baseUrlOverride?: string,
   ): Promise<{ statusCode: number; json: unknown }> {
+    return this.request(method, '/api/sync/data', body, baseUrlOverride)
+  }
+
+  /**
+   * 发一次请求。
+   *
+   * 除了 Authorization，还固定带两个设备头（8.3）：服务端据此登记
+   * 「哪台机器在用这份同步」，用户才能在设备列表里认出并撤销某一台。
+   * 老服务端不认这两个头，忽略即可 —— 不会因为多带了头就失败。
+   */
+  private async request(
+    method: 'GET' | 'POST' | 'DELETE',
+    path: string,
+    body?: unknown,
+    baseUrlOverride?: string,
+  ): Promise<{ statusCode: number; json: unknown }> {
     if (!this.cache) await this.restore()
     const state = this.cache
     if (!state?.token) throw new Error('[lxmn/sync] 尚未配置同步令牌')
     const base = normalizeBase(baseUrlOverride ?? state.baseUrl)
     const { http } = getPlatform()
-    const res = await http.request({
-      url: `${base}/api/sync/data`,
+    const send = () => http.request({
+      url: `${base}${path}`,
       method,
       headers: {
         Authorization: `Bearer ${state.token}`,
         'Content-Type': 'application/json',
+        'X-Device-Id': state.deviceId ?? '',
+        'X-Device-Name': encodeURIComponent(this.deviceName),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
       timeout: 20000,
     })
+    let res
+    try {
+      res = await send()
+    } catch (e) {
+      /**
+       * 连接层失败重试一次。
+       *
+       * 两种情况都会走到这里，而且都不是「用户操作有问题」：
+       *   1. 手机切网（WiFi ↔ 4G）时旧连接已经死了；
+       *   2. 自建服务器刚重启过，客户端连接池里还留着一条指向旧进程的 socket
+       *      （端口没变，socket 已经没了）—— 第一次必然 ECONNRESET。
+       * 立刻重试一次基本都能成，比让用户看到「同步失败」再去点一次好。
+       */
+      await new Promise<void>(resolve => { setTimeout(resolve, 150) })
+      res = await send()
+      void e
+    }
     let json: unknown = null
     try {
       json = JSON.parse(res.body)
@@ -213,6 +289,37 @@ export class SyncClient {
       json = null
     }
     return { statusCode: res.statusCode, json }
+  }
+
+  /**
+   * 已认证设备列表（8.3）。
+   *
+   * 服务端不支持（404 / 非数组）时返回空数组而不是抛错：这是可选能力，
+   * 缺了不该让整个同步页面报红。
+   */
+  async listDevices(): Promise<SyncDevice[]> {
+    const r = await this.request('GET', '/api/sync/devices')
+    if (r.statusCode !== 200) return []
+    const raw = r.json as { devices?: unknown } | null
+    if (!raw || !Array.isArray(raw.devices)) return []
+    return raw.devices
+      .filter((d): d is Record<string, unknown> => Boolean(d) && typeof d === 'object')
+      .map(d => ({
+        id: String(d.id ?? ''),
+        name: String(d.name ?? '未知设备'),
+        lastSeenAt: String(d.lastSeenAt ?? d.last_seen_at ?? ''),
+        revision: Number(d.revision) || 0,
+        revoked: d.revoked === true,
+      }))
+      .filter(d => d.id)
+  }
+
+  /** 撤销一台设备：它之后的同步请求会被服务端拒绝（403） */
+  async revokeDevice(id: string): Promise<boolean> {
+    const target = String(id ?? '').trim()
+    if (!target) return false
+    const r = await this.request('DELETE', `/api/sync/devices/${encodeURIComponent(target)}`)
+    return r.statusCode === 200
   }
 
   /**

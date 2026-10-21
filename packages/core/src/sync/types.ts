@@ -100,9 +100,26 @@ export interface SyncDocument {
   device?: string
 }
 
+/**
+ * 一台已认证的设备（PARITY 8.3）。
+ *
+ * 客户端每次请求都带 `X-Device-Id` / `X-Device-Name`，服务端据此登记。
+ * 撤销一台设备后，它再同步会被 403 —— 这才是「设备管理」的意义：
+ * 手机丢了，不用改密码把所有设备踢下线，只踢那一台。
+ */
+export interface SyncDevice {
+  id: string
+  name: string
+  /** 最后一次同步时间，ISO8601 */
+  lastSeenAt: string
+  /** 该设备最后一次写入的版本号 */
+  revision: number
+  /** 已撤销：该设备之后的同步请求会被拒绝 */
+  revoked: boolean
+}
+
 /** 同步结果 */
-export type SyncOutcome =
-  | { state: 'ok'; document: SyncDocument; pushed: boolean }
+export type SyncOutcome =  | { state: 'ok'; document: SyncDocument; pushed: boolean }
   | { state: 'conflict'; document: SyncDocument; merged: SyncPayload }
   | { state: 'disabled'; reason: string }
   | { state: 'error'; reason: string }

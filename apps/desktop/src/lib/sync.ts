@@ -8,7 +8,7 @@
  * 也允许手动填自建地址：那时用独立的同步令牌。
  */
 import { computed, ref } from 'vue'
-import { Library, DEFAULT_SYNC_BASE, type SyncOutcome, type DislikeTarget } from '@lxmn/core'
+import { Library, DEFAULT_SYNC_BASE, type SyncOutcome, type SyncDevice, type DislikeTarget } from '@lxmn/core'
 import { subscription } from './subscription'
 
 const library = new Library()
@@ -162,11 +162,43 @@ export function useSync() {
     pull()
   }
 
+  /* ---------------- 已认证设备（8.3） ---------------- */
+
+  const devices = ref<SyncDevice[]>([])
+  const devicesError = ref('')
+
+  async function loadDevices(): Promise<void> {
+    if (!configured.value) {
+      devices.value = []
+      return
+    }
+    devicesError.value = ''
+    try {
+      devices.value = await library.syncDevices()
+    } catch (e) {
+      devicesError.value = e instanceof Error ? e.message : String(e)
+      devices.value = []
+    }
+  }
+
+  /**
+   * 撤销一台设备。
+   *
+   * 撤销后它再同步会被服务端拒绝 —— 这是「手机丢了」时唯一有用的动作：
+   * 不用改令牌把所有设备踢下线，只踢那一台。
+   */
+  async function revokeDevice(id: string): Promise<boolean> {
+    const ok = await library.revokeSyncDevice(id)
+    await loadDevices()
+    return ok
+  }
+
   return {
     library, favorites, playlists, history, trial, dislikes,
     configured, tokenMask, baseUrl, busy, error, lastSyncedAt, lastMessage, server,
     restore, connect, connectWithMembership, disconnect, syncNow, pull,
     dislike, undislike,
+    devices, devicesError, loadDevices, revokeDevice,
     isDisliked: (t: DislikeTarget | null | undefined): boolean => library.isDisliked(t),
     setDislikeRules: async (text: string) => { await library.setDislikeRules(text); pull() },
     clearDislikes: async () => { await library.clearDislikes(); pull() },

@@ -145,6 +145,23 @@ interface LxmnLyricApi {
   onData: (cb: (payload: LxmnLyricPayload) => void) => () => void
 }
 
+interface LxmnSyncServerStatus {
+  enabled: boolean
+  running: boolean
+  port: number
+  urls: string[]
+  devices: number
+  revision: number
+  token: string
+  error: string
+}
+
+interface LxmnSyncServerApi {
+  status: () => Promise<LxmnSyncServerStatus>
+  start: (opts: { port?: number; token?: string }) => Promise<LxmnSyncServerStatus>
+  stop: () => Promise<LxmnSyncServerStatus>
+}
+
 interface Window {
   lxmnNative?: {
     lyric?: LxmnLyricApi
@@ -155,6 +172,7 @@ interface Window {
     scheme?: LxmnSchemeApi
     taskbar?: LxmnTaskbarApi
     power?: LxmnPowerApi
+    syncServer?: LxmnSyncServerApi
     openExternal?: (url: string) => Promise<boolean>
     openFile?: (options?: { title?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<LxmnOpenFileResult>
     saveFile?: (payload: { filename: string; content?: string; url?: string; dir?: string }) => Promise<{ ok?: boolean; canceled?: boolean; path?: string; size?: number; error?: string }>

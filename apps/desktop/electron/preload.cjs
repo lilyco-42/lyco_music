@@ -43,6 +43,12 @@ contextBridge.exposeInMainWorld('lxmnNative', {
       return () => ipcRenderer.removeListener('lxmn:win:maximized', handler)
     },
   },
+  /** 自建同步服务器（PARITY 8.2 / 8.3）：本机变服务器给局域网设备用 */
+  syncServer: {
+    status: () => ipcRenderer.invoke('lxmn:syncserver:status'),
+    start: (opts) => ipcRenderer.invoke('lxmn:syncserver:start', opts),
+    stop: () => ipcRenderer.invoke('lxmn:syncserver:stop'),
+  },
   /** 托盘：关闭行为 + 菜单状态 + 菜单命令回传 */
   tray: {
     setCloseToTray: (on) => ipcRenderer.invoke('lxmn:tray:set-close-to-tray', on),

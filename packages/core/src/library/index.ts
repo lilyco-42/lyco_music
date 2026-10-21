@@ -36,6 +36,7 @@ import {
 } from '../dislike'
 import {
   emptyPayload,
+  type SyncDevice,
   type SyncFavorite,
   type SyncHistoryEntry,
   type SyncOutcome,
@@ -635,6 +636,16 @@ export class Library {
   /** 当前同步令牌（用于界面掩码展示） */
   async syncToken(): Promise<string> {
     return this.sync.token()
+  }
+
+  /** 已认证设备列表（8.3）；服务端不支持时返回空数组 */
+  async syncDevices(): Promise<SyncDevice[]> {
+    return this.sync.listDevices()
+  }
+
+  /** 撤销一台设备（8.3）：它之后的同步会被服务端拒绝 */
+  async revokeSyncDevice(id: string): Promise<boolean> {
+    return this.sync.revokeDevice(id)
   }
 }
 

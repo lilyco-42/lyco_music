@@ -11,6 +11,8 @@ const {
 const path = require('node:path')
 const fs = require('node:fs/promises')
 const fsSync = require('node:fs')
+const crypto = require('node:crypto')
+const syncServer = require('./sync-server.cjs')
 const { startLoginFlow } = require('./oauth.cjs')
 const download = require('./download.cjs')
 const local = require('./local.cjs')
@@ -150,6 +152,107 @@ function writeRoundedFrame(rounded) {
     return false
   }
 }
+
+/* ---------- 自建同步服务器（8.2 / 8.3） ---------- */
+
+/**
+ * 「把客户端本身变成一台同步服务器」。
+ *
+ * 配置同样落在 userData（不是 localStorage）：服务器要在窗口创建之前就起来，
+ * 那时渲染进程还没加载。开关打开后每次启动自动拉起，用户不用每天手动点。
+ */
+function syncServerFile() {
+  return path.join(app.getPath('userData'), 'sync-server.json')
+}
+
+function readSyncServerConfig() {
+  try {
+    const d = JSON.parse(fsSync.readFileSync(syncServerFile(), 'utf8'))
+    return {
+      enabled: d.enabled === true,
+      port: Number(d.port) || 23331,
+      token: String(d.token ?? ''),
+    }
+  } catch {
+    return { enabled: false, port: 23331, token: '' }
+  }
+}
+
+function writeSyncServerConfig(c) {
+  try {
+    fsSync.writeFileSync(syncServerFile(), JSON.stringify(c))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** 运行中的服务器句柄；null = 没在跑 */
+let syncSrv = null
+let syncSrvError = ''
+let syncSrvConfig = { enabled: false, port: 23331, token: '' }
+
+function syncServerStatus() {
+  return {
+    enabled: syncSrvConfig.enabled,
+    running: Boolean(syncSrv),
+    port: syncSrv?.port ?? syncSrvConfig.port,
+    urls: syncSrv?.urls ?? [],
+    devices: syncSrv?.devices ?? 0,
+    revision: syncSrv?.revision ?? 0,
+    token: syncSrvConfig.token,
+    error: syncSrvError,
+  }
+}
+
+async function startSyncServer() {
+  if (syncSrv) return syncServerStatus()
+  syncSrvError = ''
+  try {
+    syncSrv = await syncServer.start({
+      port: syncSrvConfig.port,
+      token: syncSrvConfig.token,
+      dir: path.join(app.getPath('userData'), 'sync-server'),
+      name: 'Lyco Music',
+    })
+  } catch (e) {
+    syncSrv = null
+    // 端口被占用是最常见的失败，原样带给界面（它已经写成人话了）
+    syncSrvError = e instanceof Error ? e.message : String(e)
+  }
+  return syncServerStatus()
+}
+
+async function stopSyncServer() {
+  if (syncSrv) {
+    try {
+      await syncSrv.stop()
+    } catch {
+      // 关不掉也当关掉了：进程退出时端口自然会释放
+    }
+    syncSrv = null
+  }
+  return syncServerStatus()
+}
+
+ipcMain.handle('lxmn:syncserver:status', () => syncServerStatus())
+
+ipcMain.handle('lxmn:syncserver:start', async (_e, opts) => {
+  const port = Number(opts && opts.port) || syncSrvConfig.port || 23331
+  const token = String((opts && opts.token) ?? '').trim() || crypto.randomBytes(12).toString('base64url')
+  syncSrvConfig = { enabled: true, port, token }
+  writeSyncServerConfig(syncSrvConfig)
+  // 端口/令牌可能都变了，先停再起（stop 是幂等的）
+  await stopSyncServer()
+  return startSyncServer()
+})
+
+ipcMain.handle('lxmn:syncserver:stop', async () => {
+  syncSrvConfig = { ...syncSrvConfig, enabled: false }
+  writeSyncServerConfig(syncSrvConfig)
+  return stopSyncServer()
+})
+
 
 
 /** 本次运行实际用的外框模式（配置改了但没重启时，两者会不一样） */
@@ -484,6 +587,11 @@ app.whenReady().then(() => {
   sys.registerSchemeClient()
   // 冷启动就带着 scheme 链接的情况（Windows）
   sys.consumeArgv(process.argv)
+
+  // 自建同步服务器（8.2）：上次开着就自动起来，端口被占用会在设置页如实显示
+  syncSrvConfig = readSyncServerConfig()
+  if (syncSrvConfig.enabled && syncSrvConfig.token) void startSyncServer()
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

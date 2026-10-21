@@ -6,7 +6,8 @@
  * 会员用户直接点「用会员订阅开通」即可，同步令牌复用订阅令牌。
  * 也支持自建服务器（填地址 + 令牌）。
  */
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { Monitor, RefreshCw } from 'lucide-vue-next'
 import { useSync } from '../lib/sync'
 import { useMembership } from '../lib/membership'
 
@@ -14,6 +15,7 @@ const {
   favorites, playlists, history,
   configured, tokenMask, baseUrl, busy, error, lastSyncedAt, lastMessage, server,
   restore, connect, connectWithMembership, disconnect, syncNow,
+  devices, devicesError, loadDevices, revokeDevice,
 } = useSync()
 
 const { isActive } = useMembership()
@@ -29,12 +31,104 @@ function fmtTime(ms: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
+/** 服务端给的是 ISO 时间串，这里只显示到分钟 */
+function fmtIso(iso: string): string {
+  if (!iso) return '未知'
+  const t = Date.parse(iso)
+  return Number.isFinite(t) ? fmtTime(t) : iso
+}
+
 async function onConnect() {
   await connect(token.value, showCustom.value ? customBase.value : undefined)
   if (!error.value) token.value = ''
+  await loadDevices()
 }
 
-onMounted(restore)
+/* ---------------- 已认证设备（8.3） ---------------- */
+
+/**
+ * 撤销要按两次。
+ *
+ * 撤销是单向的：那台设备之后会被服务端拒绝，只能重新配对。
+ * 一次点击就生效的话，手滑点一下手机就得重配。
+ */
+const armRevoke = ref('')
+const revoking = ref('')
+
+async function onRevoke(id: string): Promise<void> {
+  if (armRevoke.value !== id) {
+    armRevoke.value = id
+    return
+  }
+  armRevoke.value = ''
+  revoking.value = id
+  await revokeDevice(id)
+  revoking.value = ''
+}
+
+/* ---------------- 自建同步服务器（8.2） ---------------- */
+
+const srv = ref<LxmnSyncServerStatus | null>(null)
+const srvPort = ref(23331)
+const srvBusy = ref(false)
+const srvMsg = ref('')
+const srvErr = ref('')
+
+const srvAvailable = computed(() => typeof window !== 'undefined' && Boolean(window.lxmnNative?.syncServer))
+
+async function refreshSrv(): Promise<void> {
+  const api = window.lxmnNative?.syncServer
+  if (!api) return
+  try {
+    srv.value = await api.status()
+    srvPort.value = srv.value.port || srvPort.value
+  } catch (e) {
+    srvErr.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+async function toggleSrv(on: boolean): Promise<void> {
+  const api = window.lxmnNative?.syncServer
+  if (!api || srvBusy.value) return
+  srvBusy.value = true
+  srvMsg.value = ''
+  srvErr.value = ''
+  try {
+    srv.value = on ? await api.start({ port: srvPort.value }) : await api.stop()
+    if (on && !srv.value.running) srvErr.value = srv.value.error || '启动失败'
+    else srvMsg.value = on ? '服务器已启动' : '已停止'
+  } catch (e) {
+    srvErr.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    srvBusy.value = false
+  }
+}
+
+/** 把本机接到自己这台服务器上：地址用 127.0.0.1，不走局域网绕一圈 */
+async function useLocalServer(): Promise<void> {
+  const s = srv.value
+  if (!s?.running) return
+  await connect(s.token, `http://127.0.0.1:${s.port}`)
+  await loadDevices()
+}
+
+const copied = ref('')
+async function copyText(text: string, tag: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text)
+    copied.value = tag
+    setTimeout(() => { if (copied.value === tag) copied.value = '' }, 1600)
+  } catch {
+    copied.value = ''
+  }
+}
+
+onMounted(async () => {
+  await restore()
+  await loadDevices()
+  await refreshSrv()
+})
+
 </script>
 
 <template>
@@ -137,6 +231,121 @@ onMounted(restore)
 
       <p v-if="error" class="mt-3 text-[14px] text-ncm-accent">{{ error }}</p>
       <p v-else-if="lastMessage" class="mt-3 text-[14px] text-ncm-faint">{{ lastMessage }}</p>
+    </section>
+
+    <!-- 已认证设备（8.3） -->
+    <section v-if="configured" class="mt-6 rounded-banner border border-ncm-divider bg-white p-7">
+      <div class="flex items-center justify-between">
+        <h2 class="text-[19px] font-semibold text-ncm-fg">已认证设备</h2>
+        <button
+          type="button"
+          class="flex items-center gap-1.5 rounded-full border border-ncm-divider px-3 py-1 text-[12px] text-ncm-muted hover:bg-ncm-bg"
+          @click="loadDevices"
+        >
+          <RefreshCw :size="13" aria-hidden="true" />刷新
+        </button>
+      </div>
+      <p class="mt-1.5 text-[13px] leading-[19px] text-ncm-faint">
+        每台设备第一次同步时自动登记。撤销之后那台设备再也读不到同步数据，需要重新配对才能用 ——
+        手机丢了就撤销那一台，不用把所有设备踢下线。
+      </p>
+
+      <p v-if="devicesError" class="mt-3 text-[13px] text-ncm-accent">{{ devicesError }}</p>
+      <p v-else-if="!devices.length" class="mt-3 text-[13px] text-ncm-fainter">
+        还没有设备记录（当前服务器可能不支持设备列表）
+      </p>
+      <ul v-else class="mt-4 divide-y divide-ncm-divider">
+        <li v-for="d in devices" :key="d.id" class="flex items-center gap-3 py-3">
+          <Monitor :size="16" class="shrink-0 text-ncm-faint" aria-hidden="true" />
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-[14px]" :class="d.revoked ? 'text-ncm-fainter line-through' : 'text-ncm-fg'">{{ d.name }}</p>
+            <p class="mt-0.5 text-[12px] text-ncm-faint">最近同步 {{ fmtIso(d.lastSeenAt) }} · 版本 {{ d.revision }}</p>
+          </div>
+          <span v-if="d.revoked" class="shrink-0 rounded-pill bg-ncm-bg px-2.5 py-1 text-[12px] text-ncm-fainter">已撤销</span>
+          <button
+            v-else
+            type="button"
+            class="shrink-0 rounded-pill border px-3 py-1 text-[12px] transition-colors"
+            :class="armRevoke === d.id ? 'border-ncm-accent bg-ncm-accent/5 text-ncm-accent' : 'border-ncm-divider text-ncm-muted hover:bg-ncm-bg'"
+            :disabled="revoking === d.id"
+            @click="onRevoke(d.id)"
+          >{{ revoking === d.id ? '撤销中…' : armRevoke === d.id ? '再点一次确认' : '撤销' }}</button>
+        </li>
+      </ul>
+    </section>
+
+    <!-- 自建同步服务器（8.2） -->
+    <section v-if="srvAvailable" class="mt-6 rounded-banner border border-ncm-divider bg-white p-7">
+      <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <h2 class="text-[19px] font-semibold text-ncm-fg">把这台电脑变成同步服务器</h2>
+          <p class="mt-1.5 text-[13px] leading-[19px] text-ncm-faint">
+            局域网里的手机、另一台电脑填下面的地址和令牌就能同步。数据只存在本机的
+            <span class="font-mono text-[12px]">userData/sync-server</span> 目录，不经过任何第三方服务器。
+          </p>
+        </div>
+        <span
+          class="shrink-0 rounded-pill px-3.5 py-1.5 text-[13px]"
+          :class="srv?.running ? 'bg-[#e8f6ec] text-[#2f7d47]' : 'bg-ncm-bg text-ncm-faint'"
+        >{{ srv?.running ? '运行中' : '未启动' }}</span>
+      </div>
+
+      <div class="mt-5 flex flex-wrap items-center gap-3">
+        <label class="text-[13px] text-ncm-faint" for="srv-port">端口</label>
+        <input
+          id="srv-port"
+          v-model.number="srvPort"
+          type="number"
+          min="1024"
+          max="65535"
+          :disabled="srv?.running"
+          class="w-[110px] rounded-[8px] border border-ncm-divider bg-ncm-bg px-2.5 py-1.5 text-[13px] text-ncm-fg outline-none focus:border-ncm-accent disabled:opacity-60"
+        />
+        <button
+          type="button"
+          class="rounded-pill bg-ncm-accent px-4 py-1.5 text-[13px] text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+          :disabled="srvBusy"
+          @click="toggleSrv(!srv?.running)"
+        >{{ srvBusy ? '处理中…' : srv?.running ? '停止服务器' : '启动服务器' }}</button>
+        <button
+          v-if="srv?.running"
+          type="button"
+          class="rounded-pill border border-ncm-divider px-4 py-1.5 text-[13px] text-ncm-muted hover:bg-ncm-bg"
+          @click="useLocalServer"
+        >让本机连它</button>
+      </div>
+
+      <div v-if="srv?.running" class="mt-4 rounded-channel bg-ncm-bg p-4">
+        <p class="text-[13px] text-ncm-faint">局域网地址（手机/其他电脑填这个）</p>
+        <ul v-if="srv.urls.length" class="mt-1.5 space-y-1">
+          <li v-for="u in srv.urls" :key="u" class="flex items-center gap-2">
+            <span class="font-mono text-[14px] text-ncm-fg">{{ u }}</span>
+            <button
+              type="button"
+              class="rounded-full border border-ncm-divider px-2 py-0.5 text-[11px] text-ncm-muted hover:bg-white"
+              @click="copyText(u, u)"
+            >{{ copied === u ? '已复制' : '复制' }}</button>
+          </li>
+        </ul>
+        <p v-else class="mt-1.5 text-[13px] text-ncm-fainter">
+          没检测到局域网地址（可能没连网络）。本机可以用 http://127.0.0.1:{{ srv.port }}
+        </p>
+
+        <div class="mt-3">
+          <p class="text-[13px] text-ncm-faint">访问令牌</p>
+          <div class="mt-1 flex items-center gap-2">
+            <span class="font-mono text-[14px] text-ncm-fg">{{ srv.token }}</span>
+            <button
+              type="button"
+              class="rounded-full border border-ncm-divider px-2 py-0.5 text-[11px] text-ncm-muted hover:bg-white"
+              @click="copyText(srv.token, 'tok')"
+            >{{ copied === 'tok' ? '已复制' : '复制' }}</button>
+          </div>
+        </div>
+      </div>
+
+      <p v-if="srvErr" class="mt-3 text-[13px] text-ncm-accent">{{ srvErr }}</p>
+      <p v-else-if="srvMsg" class="mt-3 text-[13px] text-ncm-faint">{{ srvMsg }}</p>
     </section>
 
     <!-- 本地数据概览 -->
