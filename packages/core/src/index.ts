@@ -23,6 +23,7 @@ export * from './track'
 export * from './local'
 export * from './trial'
 export * from './text/s2t'
+export * from './text/comment'
 
 export const CORE_VERSION = '0.2.38'
 

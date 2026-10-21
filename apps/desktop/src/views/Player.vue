@@ -13,7 +13,7 @@
  */
 import { computed, onBeforeUnmount, ref, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { findLineIndex, getSource, hasSource, type MusicComment, type MusicItem, type SourceId } from '@lxmn/core'
+import { findLineIndex, getSource, hasSource, parseCommentContent, type MusicComment, type MusicItem, type SourceId } from '@lxmn/core'
 import { viewLyric } from '@/lib/lyric-view'
 import { prefs } from '@/lib/prefs'
 import { findSameSong } from '@/lib/same-song'
@@ -558,6 +558,33 @@ const commentMore = ref(true)
 /** 评论排序（9.1）：热门第一页带热评，最新只按时间倒序 */
 const commentSort = ref<'hot' | 'new'>('hot')
 
+/**
+ * 评论正文切片（9.1 图片/表情）。
+ *
+ * 结果缓存起来：评论列表滚动时模板会反复求值，每次都重新解析正则
+ * 在几十条长评论上就是肉眼可见的卡顿。
+ */
+const segmentCache = new Map<string, ReturnType<typeof parseCommentContent>>()
+
+function commentSegments(content: string): ReturnType<typeof parseCommentContent> {
+  const key = content ?? ''
+  const hit = segmentCache.get(key)
+  if (hit) return hit
+  const parsed = parseCommentContent(key)
+  // 评论会一直翻页，别让缓存无限长
+  if (segmentCache.size > 400) segmentCache.clear()
+  segmentCache.set(key, parsed)
+  return parsed
+}
+
+/** 点评论里的图片：交给系统看图程序，不在应用里塞一个灯箱 */
+function openCommentImage(url: string): void {
+  if (!url) return
+  const api = window.lxmnNative?.openExternal
+  if (typeof api === 'function') void api(url)
+  else window.open(url, '_blank', 'noopener')
+}
+
 async function loadComments(reset = false): Promise<void> {
   const target = commentTarget.value
   if (!target) return
@@ -1028,7 +1055,21 @@ const vinylStyle = computed(() => ({
                     <span class="truncate text-ncmd-muted">{{ c.userName || '匿名用户' }}</span>
                     <span v-if="c.hot" class="shrink-0 rounded-[3px] border border-ncmd-muted px-1 text-[10px] leading-[15px] text-ncmd-muted">热评</span>
                   </div>
-                  <p class="mt-1 whitespace-pre-wrap break-words text-[15px] leading-[24px] text-ncmd-fg/90">{{ c.content }}</p>
+                  <div class="mt-1 whitespace-pre-wrap break-words text-[15px] leading-[24px] text-ncmd-fg/90">
+                    <template v-for="(seg, si) in commentSegments(c.content)" :key="si">
+                      <img
+                        v-if="seg.type === 'image'"
+                        :src="seg.url"
+                        alt=""
+                        class="my-1.5 max-h-40 max-w-full cursor-zoom-in rounded-[6px] object-contain"
+                        referrerpolicy="no-referrer"
+                        loading="lazy"
+                        @click="openCommentImage(seg.url)"
+                      />
+                      <span v-else-if="seg.type === 'emoji'" class="align-middle text-[17px]">{{ seg.char }}</span>
+                      <span v-else>{{ seg.text }}</span>
+                    </template>
+                  </div>
                   <div class="mt-1 flex items-center gap-3 text-[12px] text-ncmd-dim">
                     <span>{{ fmtCommentTime(c.time) }}</span>
                     <span class="flex items-center gap-1">

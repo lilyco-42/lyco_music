@@ -31,7 +31,7 @@ import {
   currentItem, cycleMode, cycleQuality, modeLabel, next, play, prev, seek, setRate, toggle,
   RATES, useLyricLines, usePlayerState, useProgressState,
 } from '../player'
-import { getSource, hasSource, type MusicComment } from '@lxmn/core'
+import { getSource, hasSource, parseCommentContent, type MusicComment } from '@lxmn/core'
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const DEFAULT_COVER = require('../assets/art/cover-default.jpg') as number
@@ -750,7 +750,22 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
                             <Text style={{ color: colors.accent, fontSize: 10, borderWidth: 1, borderColor: colors.accent, borderRadius: 3, paddingHorizontal: 3 }}>热评</Text>
                           ) : null}
                         </View>
-                        <Text style={{ color: colors.fg, fontSize: 14, lineHeight: 21, marginTop: 4 }}>{cm.content}</Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 4 }}>
+                          {parseCommentContent(cm.content).map((seg, si) =>
+                            seg.type === 'image' ? (
+                              <Image
+                                key={si}
+                                source={{ uri: seg.url }}
+                                style={{ width: 132, height: 132, borderRadius: 6, marginVertical: 4, marginRight: 4, backgroundColor: colors.elevated }}
+                                resizeMode="cover"
+                              />
+                            ) : (
+                              <Text key={si} style={{ color: colors.fg, fontSize: seg.type === 'emoji' ? 16 : 14, lineHeight: 21 }}>
+                                {seg.type === 'emoji' ? seg.char : seg.text}
+                              </Text>
+                            ),
+                          )}
+                        </View>
                         <Text style={{ color: colors.fainter, fontSize: 11, marginTop: 5 }}>赞 {cm.likedCount}</Text>
                       </View>
                     </View>

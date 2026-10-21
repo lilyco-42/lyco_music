@@ -19,6 +19,7 @@ import { toast } from '@/lib/toast'
 import { useUpdater } from '@/lib/update'
 import { exportBackup, importBackup } from '@/lib/backup'
 import { outputChannelInfo } from '@/lib/audio-graph'
+import { t, LOCALES } from '@/lib/i18n'
 import HotkeySettings from './HotkeySettings.vue'
 
 const player = usePlayer()
@@ -603,6 +604,25 @@ const PROGRESS_STYLES: { id: ProgressStyle; label: string; desc: string }[] = [
         </div>
         <p class="mt-2 text-[12px] text-ncm-faint">
           整体等比缩放（文字和控件一起变），不是只放大字。1080p 带 125% 系统缩放时用「小」会更清爽。
+        </p>
+      </div>
+
+      <!-- 界面语言（7.4） -->
+      <div class="mt-5">
+        <div class="text-[14px] text-ncm-fg">{{ t('settings.language') }}</div>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <button
+            v-for="l in LOCALES"
+            :key="l.id"
+            type="button"
+            class="rounded-full border px-3 py-1 text-[12px] transition-colors"
+            :class="prefs.locale === l.id ? 'border-ncm-accent bg-ncm-accent/5 text-ncm-accent' : 'border-ncm-divider text-ncm-muted hover:bg-ncm-bg'"
+            :lang="l.id"
+            @click="prefs.locale = l.id"
+          >{{ l.native }}</button>
+        </div>
+        <p class="mt-2 text-[12px] leading-[18px] text-ncm-faint">
+          {{ t('settings.languageNote') }}
         </p>
       </div>
 

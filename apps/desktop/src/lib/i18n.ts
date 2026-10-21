@@ -1,0 +1,223 @@
+/**
+ * 多语言（PARITY 7.4）
+ *
+ * 现状与边界（说实话，别让下一个人以为是全量的）：
+ *   - 已接入：**界面框架** —— 侧栏导航、顶栏、设置页的分区标题与语言选择器；
+ *   - 未接入：各页面内部的具体文案（列表表头、空状态提示、报错等），仍是中文。
+ *   这不是偷懒，是分批做：几百条文案一次性铺开，改动面太大、回归风险高，
+ *   先把框架和「切了能看见变化」的部分做出来，再逐页补。
+ *
+ * 四种语言的做法不一样，成本差很多：
+ *   - zh-CN 是源语言，字典手写；
+ *   - **zh-TW 由 zh-CN 逐字转换**（复用内核的 toTraditional，和「歌词转繁体」同一张表）。
+ *     人工再写一份繁体字典，两边必然逐渐不一致；转换表反而是唯一真相。
+ *   - en-US / ko-KR 手写，只覆盖框架文案。
+ *
+ * 查不到 key 时回退到 zh-CN，再回退到 key 本身 —— 界面上永远不会出现空白，
+ * 最差也是显示一个 key，一眼能看出漏了哪条。
+ */
+import { computed } from 'vue'
+import { toTraditional } from '@lxmn/core'
+import { prefs } from './prefs'
+
+export type Locale = 'zh-CN' | 'zh-TW' | 'en-US' | 'ko-KR'
+
+export const LOCALES: { id: Locale; label: string; native: string }[] = [
+  { id: 'zh-CN', label: '简体中文', native: '简体中文' },
+  { id: 'zh-TW', label: '繁體中文', native: '繁體中文' },
+  { id: 'en-US', label: 'English', native: 'English' },
+  { id: 'ko-KR', label: '한국어', native: '한국어' },
+]
+
+type Dict = Record<string, string>
+
+const ZH_CN: Dict = {
+  'app.name': 'Lyco Music',
+
+  'nav.recommend': '推荐',
+  'nav.featured': '精选',
+  'nav.podcast': '播客',
+  'nav.roam': '漫游',
+  'nav.discover': '发现',
+  'nav.follow': '关注',
+  'nav.membership': '音乐会员',
+  'nav.sync': '云同步',
+  'nav.friends': '好友',
+  'nav.settings': '设置',
+  'nav.account': '我的账户',
+  'nav.trial': '试听列表',
+  'nav.like': '我喜欢的音乐',
+  'nav.recent': '最近播放',
+  'nav.download': '下载管理',
+  'nav.import': '导入本地音乐',
+  'nav.more': '更多',
+
+  'sidebar.group.discover': '发现音乐',
+  'sidebar.group.service': '账户与服务',
+  'sidebar.group.mine': '我的音乐',
+  'sidebar.playlists': '本机歌单',
+  'sidebar.newPlaylist': '新建歌单',
+  'sidebar.empty': '还没有创建歌单',
+
+  'topbar.search': '搜索歌曲、歌手',
+  'topbar.login': '登录 / 注册',
+  'topbar.vip': 'VIP',
+
+  'common.refresh': '刷新',
+  'common.copy': '复制',
+  'common.copied': '已复制',
+  'common.close': '关闭',
+  'common.cancel': '取消',
+  'common.confirm': '确定',
+  'common.on': '开',
+  'common.off': '关',
+
+  'settings.title': '设置',
+  'settings.appearance': '外观',
+  'settings.language': '界面语言',
+  'settings.languageNote': '英文 / 韩文目前只覆盖界面框架，页面内的具体文案仍是中文，会逐步补齐。',
+}
+
+const EN_US: Dict = {
+  'app.name': 'Lyco Music',
+
+  'nav.recommend': 'For You',
+  'nav.featured': 'Featured',
+  'nav.podcast': 'Podcasts',
+  'nav.roam': 'Roam',
+  'nav.discover': 'Discover',
+  'nav.follow': 'Following',
+  'nav.membership': 'Membership',
+  'nav.sync': 'Cloud Sync',
+  'nav.friends': 'Friends',
+  'nav.settings': 'Settings',
+  'nav.account': 'My Account',
+  'nav.trial': 'Play Queue',
+  'nav.like': 'Liked Songs',
+  'nav.recent': 'Recently Played',
+  'nav.download': 'Downloads',
+  'nav.import': 'Import Local Music',
+  'nav.more': 'More',
+
+  'sidebar.group.discover': 'Discover',
+  'sidebar.group.service': 'Account & Services',
+  'sidebar.group.mine': 'My Music',
+  'sidebar.playlists': 'Local Playlists',
+  'sidebar.newPlaylist': 'New playlist',
+  'sidebar.empty': 'No playlists yet',
+
+  'topbar.search': 'Search songs, artists',
+  'topbar.login': 'Sign in / Sign up',
+  'topbar.vip': 'VIP',
+
+  'common.refresh': 'Refresh',
+  'common.copy': 'Copy',
+  'common.copied': 'Copied',
+  'common.close': 'Close',
+  'common.cancel': 'Cancel',
+  'common.confirm': 'OK',
+  'common.on': 'On',
+  'common.off': 'Off',
+
+  'settings.title': 'Settings',
+  'settings.appearance': 'Appearance',
+  'settings.language': 'Language',
+  'settings.languageNote': 'English and Korean currently cover the app shell only; page content is still Chinese and will be translated gradually.',
+}
+
+const KO_KR: Dict = {
+  'app.name': 'Lyco Music',
+
+  'nav.recommend': '추천',
+  'nav.featured': '선곡',
+  'nav.podcast': '팟캐스트',
+  'nav.roam': '탐색',
+  'nav.discover': '발견',
+  'nav.follow': '팔로잉',
+  'nav.membership': '멤버십',
+  'nav.sync': '클라우드 동기화',
+  'nav.friends': '친구',
+  'nav.settings': '설정',
+  'nav.account': '내 계정',
+  'nav.trial': '재생 목록',
+  'nav.like': '좋아하는 음악',
+  'nav.recent': '최근 재생',
+  'nav.download': '다운로드 관리',
+  'nav.import': '로컬 음악 가져오기',
+  'nav.more': '더보기',
+
+  'sidebar.group.discover': '음악 발견',
+  'sidebar.group.service': '계정 및 서비스',
+  'sidebar.group.mine': '내 음악',
+  'sidebar.playlists': '내 플레이리스트',
+  'sidebar.newPlaylist': '새 플레이리스트',
+  'sidebar.empty': '아직 플레이리스트가 없습니다',
+
+  'topbar.search': '곡, 아티스트 검색',
+  'topbar.login': '로그인 / 가입',
+  'topbar.vip': 'VIP',
+
+  'common.refresh': '새로고침',
+  'common.copy': '복사',
+  'common.copied': '복사됨',
+  'common.close': '닫기',
+  'common.cancel': '취소',
+  'common.confirm': '확인',
+  'common.on': '켜기',
+  'common.off': '끄기',
+
+  'settings.title': '설정',
+  'settings.appearance': '모양',
+  'settings.language': '언어',
+  'settings.languageNote': '영어와 한국어는 현재 앱 프레임만 지원하며, 페이지 내부 문구는 아직 중국어입니다.',
+}
+
+const RAW: Record<Locale, Dict> = {
+  'zh-CN': ZH_CN,
+  'zh-TW': {},
+  'en-US': EN_US,
+  'ko-KR': KO_KR,
+}
+
+/** 繁体中文字典：由简体逐字转换，构建一次后缓存 */
+let twCache: Dict | null = null
+function traditionalDict(): Dict {
+  if (twCache) return twCache
+  const out: Dict = {}
+  for (const k of Object.keys(ZH_CN)) out[k] = toTraditional(ZH_CN[k]!)
+  twCache = out
+  return out
+}
+
+function dictFor(locale: Locale): Dict {
+  if (locale === 'zh-TW') return traditionalDict()
+  return RAW[locale] ?? ZH_CN
+}
+
+/** 当前语言（响应式，改设置立刻换） */
+export const locale = computed<Locale>(() => (prefs.locale as Locale) || 'zh-CN')
+
+/**
+ * 取一条文案。
+ *
+ * 传了 fallback 就用 fallback 兜底（页面里现成的中文），
+ * 这样「字典还没收这条」的界面不会退化成显示 key。
+ *
+ * 第三个参数只给测试用：临时按某个语言取一条，不依赖 prefs。
+ */
+export function t(key: string, fallback?: string, loc?: Locale): string {
+  const dict = dictFor(loc ?? locale.value)
+  const hit = dict[key]
+  if (hit) return hit
+  const zh = ZH_CN[key]
+  if (zh) return zh
+  return fallback ?? key
+}
+
+/** 源语言里定义的全部 key —— 用例据此检查各语言有没有漏译 */
+export const TRANSLATION_KEYS: readonly string[] = Object.keys(ZH_CN)
+
+/** 组件里用：`const { t, locale } = useI18n()` */
+export function useI18n() {
+  return { t, locale, locales: LOCALES }
+}

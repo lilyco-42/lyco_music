@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ChevronLeft, Search, Mic, UserRound, LogIn, Crown } from 'lucide-vue-next'
 import { useAccount } from '@/lib/auth'
 import { useTheme } from '@/lib/theme'
+import { t } from '@/lib/i18n'
 import Menu from '@/components/ui/Menu.vue'
 import { Palette } from 'lucide-vue-next'
 import WindowControls from './WindowControls.vue'
@@ -39,7 +40,7 @@ function search() {
 
     <div class="flex h-11 min-w-[160px] max-w-[430px] flex-1 items-center gap-3 rounded-xl border border-ncm-divider bg-white px-4 focus-within:border-ncm-accent [app-region:no-drag]">
       <Search :size="18" :stroke-width="1.8" class="shrink-0 text-ncm-faint" aria-hidden="true" />
-      <input v-model="keyword" type="search" placeholder="搜索歌曲、歌手" class="w-full min-w-0 bg-transparent text-[15px] text-ncm-fg outline-none placeholder:text-ncm-fainter" @keyup.enter="search" />
+      <input v-model="keyword" type="search" :placeholder="t('topbar.search')" class="w-full min-w-0 bg-transparent text-[15px] text-ncm-fg outline-none placeholder:text-ncm-fainter" @keyup.enter="search" />
     </div>
 
     <button
@@ -66,7 +67,7 @@ function search() {
         <UserRound v-else-if="account.signedIn.value" :size="20" :stroke-width="1.8" aria-hidden="true" />
         <LogIn v-else :size="20" :stroke-width="1.8" aria-hidden="true" />
       </span>
-      <span class="max-w-[160px] truncate text-sm font-medium">{{ account.profile.value?.username || '登录 / 注册' }}</span>
+      <span class="max-w-[160px] truncate text-sm font-medium">{{ account.profile.value?.username || t('topbar.login') }}</span>
       <span v-if="account.vip.value" class="flex items-center gap-1 rounded-full border border-ncm-accent px-2 py-0.5 text-xs text-ncm-accent">
         <Crown :size="14" :stroke-width="1.8" aria-hidden="true" /> VIP
       </span>

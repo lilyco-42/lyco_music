@@ -47,6 +47,22 @@ export function installShellIntegration(): void {
   applyScale()
   watch(() => prefs.fontScale, applyScale)
 
+  /* ---------------- 界面语言（7.4） ---------------- */
+
+  /**
+   * 只改 `<html lang>`。
+   *
+   * 文案本身由 i18n 的 t() 在组件里取，这里管的是**浏览器层面**的两件事：
+   *   - 断行规则：`zh-CN` 与 `en-US` 的行内换行差异很大（英文按词断，中文按字断）；
+   *   - 朗读/翻译插件的语言识别。
+   * 两者都只认这个属性，不认我们的字典。
+   */
+  const applyLocale = (): void => {
+    document.documentElement.lang = prefs.locale || 'zh-CN'
+  }
+  applyLocale()
+  watch(() => prefs.locale, applyLocale)
+
   /* ---------------- 窗口尺寸预设（7.5） ---------------- */
 
   const applyWindow = (): void => {

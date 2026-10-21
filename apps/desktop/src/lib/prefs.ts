@@ -50,6 +50,8 @@ export interface DesktopPrefs {
   /* ---- 外观 ---- */
   /** 界面字体缩放（7.3），1 = 原始 */
   fontScale: number
+  /** 界面语言（7.4）：zh-CN / zh-TW / en-US / ko-KR */
+  locale: string
   /** 播放栏进度条样式（7.6） */
   progressStyle: ProgressStyle
   /** 窗口尺寸预设 id（7.5） */
@@ -142,6 +144,7 @@ function defaults(): DesktopPrefs {
     maxOutputChannels: false,
     shuffleSeed: 0,
     fontScale: 1,
+    locale: 'zh-CN',
     progressStyle: 'line',
     windowPreset: 'standard',
     roundedWindow: false,
@@ -201,6 +204,8 @@ function merge(raw: unknown): DesktopPrefs {
     maxOutputChannels: bool(src.maxOutputChannels, base.maxOutputChannels),
     shuffleSeed: num(src.shuffleSeed, 0, 0, Number.MAX_SAFE_INTEGER),
     fontScale: num(src.fontScale, base.fontScale, 0.75, 1.6),
+    // 白名单：localStorage 里可能是任意字符串，写进 HTML lang 会变成脏数据
+    locale: ['zh-CN', 'zh-TW', 'en-US', 'ko-KR'].includes(String(src.locale)) ? String(src.locale) : base.locale,
     progressStyle: style === 'thick' || style === 'dot' ? style : 'line',
     windowPreset: str(src.windowPreset, base.windowPreset),
     roundedWindow: bool(src.roundedWindow, base.roundedWindow),
