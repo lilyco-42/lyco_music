@@ -118,3 +118,110 @@ export async function fetchWyPlaylist(id: string): Promise<WyPlaylist> {
     tracks,
   }
 }
+
+/* ---------------- 排行榜（1.9） ---------------- */
+
+/**
+ * 网易云的官方榜。
+ *
+ * 为什么写死这张表而不是调 `/weapi/toplist`：那个端点要 weapi 加密
+ * （lx 也是这么处理的），而且返回的榜单 id 常年不变。写死换来的是
+ * 「打开就能点」，代价是新增榜单要发一次版 —— 对一张几十项的静态表来说值得。
+ *
+ * id 就是歌单 id，取详情走 fetchWyPlaylist（同一套逻辑，不重复实现）。
+ */
+export interface WyBoard {
+  /** 歌单 id（榜单本质上就是一个歌单） */
+  id: string
+  name: string
+  /** 一句话说明，卡片上用 */
+  desc: string
+}
+
+export const WY_BOARDS: readonly WyBoard[] = [
+  { id: '3778678', name: '热歌榜', desc: '此刻最多人在听' },
+  { id: '19723756', name: '飙升榜', desc: '24 小时播放涨幅' },
+  { id: '3779629', name: '新歌榜', desc: '最新上架' },
+  { id: '2884035', name: '原创榜', desc: '独立音乐人' },
+  { id: '991319590', name: '说唱榜', desc: '中文说唱' },
+  { id: '5059642708', name: '国风榜', desc: '国风新声' },
+  { id: '71385702', name: 'ACG 榜', desc: '动画游戏音乐' },
+  { id: '1978921795', name: '电音榜', desc: '电子舞曲' },
+  { id: '71384707', name: '古典榜', desc: '古典与跨界' },
+  { id: '745956260', name: '韩语榜', desc: 'K-POP' },
+  { id: '5059644681', name: '日语榜', desc: 'J-POP' },
+  { id: '2809513713', name: '欧美热歌榜', desc: '欧美流行' },
+  { id: '60198', name: '美国 Billboard 榜', desc: 'Billboard Hot 100' },
+  { id: '180106', name: 'UK 排行榜周榜', desc: '英国单曲榜' },
+  { id: '60131', name: '日本 Oricon 榜', desc: 'Oricon 周榜' },
+  { id: '5059633707', name: '摇滚榜', desc: '摇滚与另类' },
+  { id: '5059661515', name: '民谣榜', desc: '民谣与弹唱' },
+  { id: '6723173524', name: '网络热歌榜', desc: '短视频热歌' },
+]
+
+/* ---------------- 歌单搜索（1.8） ---------------- */
+
+export interface WyPlaylistBrief {
+  id: string
+  name: string
+  cover: string
+  /** 曲目数 */
+  trackCount: number
+  /** 创建者昵称 */
+  creator: string
+  /** 播放量（原始数字，界面上自己换算成万/亿） */
+  playCount: number
+}
+
+/**
+ * 按关键词搜歌单（不是搜单曲）。
+ *
+ * 走 `/api/cloudsearch/pc` 的 `type=1000`：单曲是 1、专辑 10、歌手 100，
+ * 歌单是 1000。这个端点不需要登录态，返回里 `result.playlists` 是列表。
+ */
+export async function searchWyPlaylists(
+  keyword: string,
+  page = 1,
+  limit = 24,
+): Promise<{ total: number; list: WyPlaylistBrief[] }> {
+  const text = String(keyword ?? '').trim()
+  if (!text) return { total: 0, list: [] }
+  const p = Math.max(1, Math.floor(page))
+  const n = Math.min(50, Math.max(1, Math.floor(limit)))
+  const { body } = await eapiRequest('/api/cloudsearch/pc', {
+    s: text,
+    type: 1000,
+    limit: n,
+    total: p === 1,
+    offset: n * (p - 1),
+  })
+  const parsed = JSON.parse(body) as {
+    code?: number
+    result?: {
+      playlistCount?: number
+      playlists?: Array<{
+        id?: number
+        name?: string
+        coverImgUrl?: string
+        trackCount?: number
+        playCount?: number
+        creator?: { nickname?: string }
+      }>
+    }
+  }
+  if (parsed.code && parsed.code !== 200) throw new Error('网易云返回 code=' + parsed.code)
+  const raw = parsed.result?.playlists ?? []
+  const list: WyPlaylistBrief[] = []
+  for (const item of raw) {
+    if (item.id == null) continue
+    list.push({
+      id: String(item.id),
+      name: String(item.name ?? '未命名歌单'),
+      cover: String(item.coverImgUrl ?? ''),
+      trackCount: Number(item.trackCount ?? 0) || 0,
+      creator: String(item.creator?.nickname ?? ''),
+      playCount: Number(item.playCount ?? 0) || 0,
+    })
+  }
+  return { total: Number(parsed.result?.playlistCount ?? list.length) || list.length, list }
+}

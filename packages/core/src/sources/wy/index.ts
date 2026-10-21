@@ -351,4 +351,7 @@ export function installWySource(): void {
 export { WY_SONG_URL, WY_SEARCH_URL, WY_LEVEL, defaultGetMusicUrl, handleSearchItem, fallbackChain }
 export { eapi, linuxapi, weapi, eapiDecrypt, WY_CONSTANTS } from './crypto'
 export { eapiRequest, EAPI_BATCH_URL, EAPI_UA } from './utils'
-export { parsePlaylistId, fetchWyPlaylist, type WyPlaylist } from './playlist'
+export {
+  parsePlaylistId, fetchWyPlaylist, searchWyPlaylists, WY_BOARDS,
+  type WyPlaylist, type WyPlaylistBrief, type WyBoard,
+} from './playlist'

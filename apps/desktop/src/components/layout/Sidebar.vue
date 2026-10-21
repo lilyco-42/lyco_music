@@ -2,7 +2,7 @@
 import { onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  Disc3, Music2, Sparkles, Podcast, Compass, UsersRound,
+  Disc3, Music2, Sparkles, Podcast, Compass, UsersRound, Trophy,
   Heart, History, Download, Ellipsis, Crown, Cloud, UserRound,
   ListMusic, ListOrdered, FolderInput, Plus, Settings2,
 } from 'lucide-vue-next'
@@ -18,6 +18,7 @@ const navMain = [
   { key: 'featured', label: '精选', icon: Sparkles, query: '精选' },
   { key: 'podcast', label: '播客', icon: Podcast, query: '播客' },
   { key: 'roam', label: '漫游', icon: Compass, query: '轻音乐' },
+  { key: 'discover', label: '发现', icon: Trophy, route: '/discover' },
   { key: 'follow', label: '关注', icon: UsersRound, route: '/friends' },
 ]
 const navServices = [
