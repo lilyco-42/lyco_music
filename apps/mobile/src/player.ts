@@ -43,6 +43,8 @@ export interface MobilePlayerState {
   tlyric: string
   picUrl: string
   mode: PlayMode
+  /** 播放速率（2.3），1 = 原速 */
+  rate: number
 }
 
 let state: MobilePlayerState = {
@@ -56,7 +58,11 @@ let state: MobilePlayerState = {
   tlyric: '',
   picUrl: '',
   mode: 'loop',
+  rate: 1,
 }
+
+/** 播放速率档位，与桌面端底栏的 7 档保持一致（2.3） */
+export const RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const
 
 const listeners = new Set<() => void>()
 
@@ -207,6 +213,8 @@ async function resolveAndPlay(item: MusicItem): Promise<void> {
       artwork: toSecureUrl(played.picUrl ?? '') || undefined,
     })
     await TrackPlayer.play()
+    // reset + add 会把速率打回 1，这里补回用户选的倍速
+    await applyRate()
     state.playing = true
     // 播放记录：只有真的出流了才记，避免把取流失败的歌也算进「最近播放」。
     // 失败不影响播放本身。
@@ -400,6 +408,40 @@ export function cycleQuality(): void {
   const at = QUALITY_ORDER.indexOf(state.quality)
   const nextQ = QUALITY_ORDER[(at + 1) % QUALITY_ORDER.length]
   if (nextQ) void setQuality(nextQ)
+}
+
+/* ---------------- 播放速率（2.3） ---------------- */
+
+/**
+ * 设置播放速率。
+ *
+ * RNTP 的 `setRate` 走的是 ExoPlayer 的 `PlaybackParameters`，**音调不变**
+ * （Android 侧默认 `pitch = 1`），所以这里不需要桌面端那套
+ * `preservesPitch` 的处理。
+ *
+ * 两件事容易漏：
+ *   1. `TrackPlayer.reset()` + `add()` 换曲之后速率会被重置成 1 —— 所以
+ *      `resolveAndPlay` 播完要再调一次 `applyRate()`；
+ *   2. 原生播放器还没 setup 时调 `setRate` 会抛异常 —— 状态先记下，
+ *      等真的播起来再补。
+ */
+export async function setRate(rate: number): Promise<void> {
+  const v = Math.max(0.5, Math.min(2, Number.isFinite(rate) ? rate : 1))
+  state.rate = v
+  emit()
+  await applyRate()
+}
+
+async function applyRate(): Promise<void> {
+  if (!nativePlayerReady) return
+  await safePlayerAction('调整播放速度', () => TrackPlayer.setRate(state.rate))
+}
+
+/** 在 7 个档位里循环，长按/连点用（界面主入口是选择面板） */
+export async function cycleRate(): Promise<void> {
+  const at = RATES.indexOf(state.rate as (typeof RATES)[number])
+  const nextRate = RATES[(at + 1) % RATES.length] ?? 1
+  await setRate(nextRate)
 }
 
 /**

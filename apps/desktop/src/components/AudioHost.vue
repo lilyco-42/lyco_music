@@ -14,6 +14,7 @@
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { setPlaybackHandler, setSeekHandler, takePendingResume, usePlayer } from '@/lib/player'
 import { bindAudioElement, useEqualizer } from '@/lib/equalizer'
+import { setMaxChannels, setOutputDevice } from '@/lib/audio-graph'
 import { useSoundEffect } from '@/lib/sound-effect'
 import { prefs } from '@/lib/prefs'
 
@@ -165,20 +166,47 @@ function onMeta(): void {
  * setSinkId 在 Chromium 里是 <audio> 上的标准方法，但设备 id 会随
  * 「默认设备变更/拔出耳机」失效 —— 失败时静默回落到系统默认，
  * 不要让用户看到一条红色报错却仍然听得到声音。
+ *
+ * 注意还有一条**并行的路径**：只要开过音效/频谱/最大声道数，声音就被
+ * 抽进了 Web Audio 图，`<audio>.setSinkId()` 从此不起作用。那条路径由
+ * audio-graph 的 `setOutputDevice()` 负责（改 AudioContext.setSinkId）。
+ * 两边都设，用户不用为了换耳机去关音效。
  */
 async function applySink(): Promise<void> {
+  const id = prefs.outputDevice
+  // 先登记：图可能还没建，建图那一刻会自动补上
+  setOutputDevice(id)
   const a = el.value
   if (!a || typeof a.setSinkId !== 'function') return
-  const id = prefs.outputDevice
   try {
     await a.setSinkId(id || '')
   } catch {
     prefs.outputDevice = ''
+    setOutputDevice('')
   }
 }
 
-onMounted(() => { void applySink() })
+/**
+ * 最大声道数输出（2.6）。
+ *
+ * 只对「声卡真有 2 声道以上」的机器有意义（外置 DAC、家庭影院、HDMI 接功放）。
+ * 做不到时把开关弹回去，而不是留一个开着却没效果的假开关。
+ */
+function applyChannels(): void {
+  if (!prefs.maxOutputChannels) {
+    setMaxChannels(false)
+    return
+  }
+  if (!setMaxChannels(true)) prefs.maxOutputChannels = false
+}
+
+onMounted(() => {
+  void applySink()
+  applyChannels()
+})
 watch(() => prefs.outputDevice, () => { void applySink() })
+watch(() => prefs.maxOutputChannels, () => applyChannels())
+
 function onReady(): void {
   clearWatchdog()
 }

@@ -28,8 +28,8 @@ import { library } from '../sync'
 import { safe } from '../lib/safe'
 import Ambient, { useCoverColor } from '../components/Ambient'
 import {
-  currentItem, cycleMode, cycleQuality, modeLabel, next, play, prev, seek, toggle,
-  useLyricLines, usePlayerState, useProgressState,
+  currentItem, cycleMode, cycleQuality, modeLabel, next, play, prev, seek, setRate, toggle,
+  RATES, useLyricLines, usePlayerState, useProgressState,
 } from '../player'
 import { getSource, hasSource, type MusicComment } from '@lxmn/core'
 
@@ -43,8 +43,12 @@ function fmt(t: number): string {
   return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0')
 }
 
-function isFav(item: { source?: string; songmid?: unknown } | null): boolean {
-  if (!item) return false
+/** 速率显示：1 → "1×"，1.25 → "1.25×"（去掉无意义的尾零） */
+function fmtRate(v: number): string {
+  return v.toFixed(2).replace(/0+$/, '').replace(/\.$/, '') + '×'
+}
+
+function isFav(item: { source?: string; songmid?: unknown } | null): boolean {  if (!item) return false
   return library.snapshot().favorites.some(
     f => f.source === item.source && String(f.songmid) === String(item.songmid),
   )
@@ -224,6 +228,8 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
   const [commentError, setCommentError] = useState('')
   const [commentMore, setCommentMore] = useState(false)
   const [queueOpen, setQueueOpen] = useState(false)
+  // 倍速面板（2.3）：档位多，不适合像音质那样循环点
+  const [rateOpen, setRateOpen] = useState(false)
 
   const canComment = !!item && hasSource(item.source) && Boolean(getSource(item.source).getComments)
 
@@ -352,9 +358,20 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
               {item?.singer ?? '—'}
             </Text>
           </View>
-          <Pressable hitSlop={14} onPress={safe('切换音质', () => cycleQuality())} accessibilityLabel={'音质 ' + st.quality}>
-            <Text style={{ color: colors.muted, fontSize: 11.5 }}>{st.quality}</Text>
-          </Pressable>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <Pressable
+              hitSlop={12}
+              onPress={() => setRateOpen(true)}
+              accessibilityLabel={`播放速度 ${fmtRate(st.rate)}`}
+            >
+              <Text style={{ color: st.rate === 1 ? colors.muted : colors.accent, fontSize: 11.5, fontWeight: st.rate === 1 ? '400' : '700' }}>
+                {fmtRate(st.rate)}
+              </Text>
+            </Pressable>
+            <Pressable hitSlop={14} onPress={safe('切换音质', () => cycleQuality())} accessibilityLabel={'音质 ' + st.quality}>
+              <Text style={{ color: colors.muted, fontSize: 11.5 }}>{st.quality}</Text>
+            </Pressable>
+          </View>
         </View>
 
         {/* 两页：封面 / 歌词，横向分页 */}
@@ -751,6 +768,47 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
                   }
                 />
               )}
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        {/* 倍速面板（2.3） */}
+        <Modal visible={rateOpen} animationType="slide" transparent onRequestClose={() => setRateOpen(false)}>
+          <Pressable style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }} onPress={() => setRateOpen(false)}>
+            <Pressable
+              style={{ backgroundColor: colors.surface, borderTopLeftRadius: 18, borderTopRightRadius: 18, paddingBottom: 26 }}
+              onPress={() => undefined}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16 }}>
+                <Text style={{ color: colors.fg, fontSize: 15.5, fontWeight: '600' }}>播放速度</Text>
+                <Pressable onPress={() => setRateOpen(false)} hitSlop={10}>
+                  <Text style={{ color: colors.muted, fontSize: 14 }}>关闭</Text>
+                </Pressable>
+              </View>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 20 }}>
+                {RATES.map(r => {
+                  const active = Math.abs(st.rate - r) < 0.001
+                  return (
+                    <Pressable
+                      key={r}
+                      onPress={safe('调整播放速度', async () => { setRateOpen(false); await setRate(r) })}
+                      accessibilityLabel={`${fmtRate(r)} 播放`}
+                      accessibilityState={{ selected: active }}
+                      style={{
+                        minWidth: 66, paddingVertical: 10, borderRadius: 12, alignItems: 'center',
+                        backgroundColor: active ? colors.accent : colors.elevated,
+                      }}
+                    >
+                      <Text style={{ color: active ? '#fff' : colors.fg, fontSize: 14, fontWeight: active ? '700' : '400' }}>
+                        {fmtRate(r)}
+                      </Text>
+                    </Pressable>
+                  )
+                })}
+              </View>
+              <Text style={{ color: colors.fainter, fontSize: 12, paddingHorizontal: 20, paddingTop: 12, lineHeight: 18 }}>
+                变速不变调（ExoPlayer 的 PlaybackParameters 默认 pitch=1）。听播客/有声书时 1.25–1.5 倍最自然。
+              </Text>
             </Pressable>
           </Pressable>
         </Modal>

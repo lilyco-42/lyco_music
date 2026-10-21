@@ -6,7 +6,7 @@
  * 而且这几项都写在本机偏好里（prefs.ts），和云同步的字段不是一回事，
  * 放在一起容易让人以为改了会同步到另一台设备。
  */
-import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import {
   Download, ListOrdered, Monitor, Music2, RotateCcw, Trash2, Volume2, FolderInput, Type, Globe, Link2, Copy, RefreshCw, ExternalLink, Info, Archive,
 } from 'lucide-vue-next'
@@ -18,11 +18,28 @@ import { library, useSync } from '@/lib/sync'
 import { toast } from '@/lib/toast'
 import { useUpdater } from '@/lib/update'
 import { exportBackup, importBackup } from '@/lib/backup'
+import { outputChannelInfo } from '@/lib/audio-graph'
 import HotkeySettings from './HotkeySettings.vue'
 
 const player = usePlayer()
 const { favorites, history, playlists, trial } = useSync()
 const updater = useUpdater()
+
+/* ---------------- 最大声道数（2.6） ---------------- */
+
+/**
+ * 只有建过 Web Audio 图才知道声卡能吃几声道，所以这里是「事后读数」：
+ * 开关一拨，AudioHost 会去建图，隔一拍再回来读。
+ */
+const channelHint = ref('')
+
+function refreshChannelHint(): void {
+  const info = outputChannelInfo()
+  channelHint.value = info ? `本机最多 ${info.max} 声道，当前按 ${info.current} 声道输出。` : ''
+}
+
+onMounted(() => { setTimeout(refreshChannelHint, 120) })
+watch(() => prefs.maxOutputChannels, () => { setTimeout(refreshChannelHint, 120) })
 
 /* ---------------- 备份与恢复（4.10） ---------------- */
 
@@ -291,6 +308,19 @@ const PROGRESS_STYLES: { id: ProgressStyle; label: string; desc: string }[] = [
             <p v-if="outputError" class="mt-1 text-[12px] text-red-500">读取设备列表失败：{{ outputError }}</p>
           </div>
         </div>
+
+        <!-- 最大声道数（2.6） -->
+        <label class="flex cursor-pointer items-start gap-3 py-3">
+          <input v-model="prefs.maxOutputChannels" type="checkbox" class="mt-0.5 size-4 accent-[var(--color-ncm-accent)]" />
+          <span class="min-w-0 flex-1">
+            <span class="block text-[14px] text-ncm-fg">使用设备能处理的最大声道数</span>
+            <span class="mt-0.5 block text-[12px] leading-[18px] text-ncm-faint">
+              让 Chromium 按声卡真实能力输出（5.1 / 7.1 声卡、HDMI 接功放才有区别）。
+              普通耳机/音箱本来就是双声道，开了不会有变化，也不会有副作用。
+              <span v-if="channelHint" class="text-ncm-muted">{{ channelHint }}</span>
+            </span>
+          </span>
+        </label>
       </div>
     </div>
 

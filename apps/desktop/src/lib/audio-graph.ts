@@ -32,11 +32,23 @@ export interface AudioGraph {
   lfo: OscillatorNode | null
   lfoDepth: GainNode | null
   analyser: AnalyserNode
+  /** 建图时 destination 的原始声道数，关掉「最大声道数」时要还原回去（2.6） */
+  defaultChannelCount: number
 }
 
 let graph: AudioGraph | null = null
 let failed = false
 let boundEl: HTMLAudioElement | null = null
+
+/**
+ * 用户希望的声道模式与输出设备。
+ *
+ * 为什么要单独存一份：这两项都可能**先于建图**被设置（用户上次开过，
+ * 这次启动就自动开）。图是懒建的，建图那一刻得把这两个意愿补上，
+ * 否则「设置里显示开着、实际没生效」。
+ */
+let wantMaxChannels = false
+let wantSinkId = ''
 
 /** 建图失败的原因（界面上如实显示，而不是假装开着） */
 const failure = ref('')
@@ -95,8 +107,11 @@ export function ensureGraph(): AudioGraph | null {
     panner.connect(analyser)
     analyser.connect(ctx.destination)
 
-    graph = { ctx, source, filters, eqTail, dry, wet, convolver: null, panner, lfo: null, lfoDepth: null, analyser }
+    graph = { ctx, source, filters, eqTail, dry, wet, convolver: null, panner, lfo: null, lfoDepth: null, analyser, defaultChannelCount: ctx.destination.channelCount }
     void ctx.resume()
+    // 建图之前就设过的意愿，现在补上
+    applyChannelMode(graph)
+    if (wantSinkId) applyGraphSink(graph, wantSinkId)
     return graph
   } catch (e) {
     failed = true
@@ -201,4 +216,80 @@ export function setPanner(amount: number, speed: number): boolean {
   g.lfo.frequency.setTargetAtTime(hz, g.ctx.currentTime, 0.1)
   g.lfoDepth?.gain.setTargetAtTime(depth, g.ctx.currentTime, 0.1)
   return true
+}
+
+/* ---------------- 最大声道数输出（2.6） ---------------- */
+
+/**
+ * 把 destination 切到「设备能处理的最大声道数」。
+ *
+ * lx 在 v2.8.0 做的就是这件事：`channelCountMode = 'max'` +
+ * `channelCount = maxChannelCount`。原理是让 Chromium 按声卡的实际能力
+ * 输出（5.1/7.1 声卡上，多声道源才不会被提前下混成双声道）。
+ *
+ * 规范里 AudioDestinationNode 的 channelCountMode 固定为 `explicit`，
+ * 某些实现设成 `max` 会抛 InvalidStateError —— 所以这里分两步做，
+ * 第二步失败也不影响第一步：单靠 `channelCount = maxChannelCount` 已经
+ * 能让 destination 按 N 声道输出。
+ */
+function applyChannelMode(g: AudioGraph): boolean {
+  const dest = g.ctx.destination
+  const max = Math.max(1, dest.maxChannelCount || 2)
+  try {
+    if (wantMaxChannels) {
+      dest.channelCount = max
+      try { dest.channelCountMode = 'max' } catch { /* 固定 explicit 的实现 */ }
+    } else {
+      try { dest.channelCountMode = 'explicit' } catch { /* 同上 */ }
+      dest.channelCount = Math.min(2, max)
+    }
+    return true
+  } catch (e) {
+    // 声卡报了个不认识的声道数时不要连累播放，只把原因留给界面
+    failure.value = e instanceof Error ? e.message : String(e)
+    return false
+  }
+}
+
+/**
+ * 开关「最大声道数输出」。
+ *
+ * 返回 false 表示这台机器上做不到（没有 Web Audio 或声卡拒绝），
+ * 调用方据此把开关弹回去并说明原因 —— 不要留下一个「显示开着但不生效」。
+ */
+export function setMaxChannels(enable: boolean): boolean {
+  wantMaxChannels = enable
+  const g = ensureGraph()
+  if (!g) return false
+  return applyChannelMode(g)
+}
+
+/** 当前 destination 的声道情况，界面上如实显示 */
+export function outputChannelInfo(): { max: number; current: number } | null {
+  if (!graph) return null
+  const dest = graph.ctx.destination
+  return { max: Math.max(1, dest.maxChannelCount || 2), current: dest.channelCount }
+}
+
+/* ---------------- 输出设备（2.5 与上面的图共存） ---------------- */
+
+/**
+ * 换输出设备。
+ *
+ * 一旦建了 Web Audio 图，`<audio>.setSinkId()` 就**不再生效**了 ——
+ * 声音已经被 createMediaElementSource 抽进图里，元素自己的输出端是空的。
+ * 所以走图的时候必须改 `AudioContext.setSinkId()`（Chromium 110+）。
+ * lx 遇到这个冲突是直接禁用设备选择并提示重启；我们两边都设，
+ * 用户不用为了换耳机去关音效。
+ */
+function applyGraphSink(g: AudioGraph, deviceId: string): void {
+  const ctx = g.ctx as AudioContext & { setSinkId?: (id: string) => Promise<void> }
+  if (typeof ctx.setSinkId !== 'function') return
+  void ctx.setSinkId(deviceId || '').catch(() => { /* 设备失效，回落系统默认 */ })
+}
+
+/** 记录并应用输出设备；图还没建时只记录，等建图时补上 */
+export function setOutputDevice(deviceId: string): void {
+  wantSinkId = deviceId || ''
+  if (graph) applyGraphSink(graph, wantSinkId)
 }

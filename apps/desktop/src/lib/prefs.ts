@@ -40,6 +40,8 @@ export interface DesktopPrefs {
   rememberProgress: boolean
   /** 音频输出设备 deviceId，空串 = 系统默认（2.5） */
   outputDevice: string
+  /** 按设备能处理的最大声道数输出（2.6） */
+  maxOutputChannels: boolean
 
   /* ---- 列表 ---- */
   /** 列表内随机乱序（4.6）：每次点都换一个种子 */
@@ -135,6 +137,7 @@ function defaults(): DesktopPrefs {
     autoPlayOnStart: false,
     rememberProgress: true,
     outputDevice: '',
+    maxOutputChannels: false,
     shuffleSeed: 0,
     fontScale: 1,
     progressStyle: 'line',
@@ -192,6 +195,7 @@ function merge(raw: unknown): DesktopPrefs {
     autoPlayOnStart: bool(src.autoPlayOnStart, base.autoPlayOnStart),
     rememberProgress: bool(src.rememberProgress, base.rememberProgress),
     outputDevice: str(src.outputDevice, base.outputDevice),
+    maxOutputChannels: bool(src.maxOutputChannels, base.maxOutputChannels),
     shuffleSeed: num(src.shuffleSeed, 0, 0, Number.MAX_SAFE_INTEGER),
     fontScale: num(src.fontScale, base.fontScale, 0.75, 1.6),
     progressStyle: style === 'thick' || style === 'dot' ? style : 'line',
