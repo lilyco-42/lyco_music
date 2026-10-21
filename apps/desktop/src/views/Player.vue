@@ -843,7 +843,7 @@ const vinylStyle = computed(() => ({
           </div>
 
           <!-- 歌词控件：单独一行。挤在页签右边会超出 600px 的列宽，被窗口裁掉 -->
-          <div v-if="activeTab === 'lyric'" class="mt-2 flex flex-wrap items-center gap-1 text-[12px] text-ncmd-dim">
+          <div v-if="activeTab === 'lyric'" class="mt-2 flex flex-nowrap items-center gap-1 overflow-x-auto pb-1 text-[12px] text-ncmd-dim [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <!-- 字幕层级：原文 / 罗马音 / 翻译 各自可关 -->
               <button
                 v-for="o in LAYER_OPTIONS"
