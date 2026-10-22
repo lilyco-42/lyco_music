@@ -95,8 +95,8 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         // CI 从根 package.json 注入（见 release.yml 的 Resolve version 步骤）；
         // 本地手动构建时退回这里的默认值，保持与 package.json 一致。
-        versionCode(System.getenv("LXMN_VERSION_CODE") ? System.getenv("LXMN_VERSION_CODE").toInteger() : 2045)
-        versionName(System.getenv("LXMN_VERSION_NAME") ?: "0.2.45")
+        versionCode(System.getenv("LXMN_VERSION_CODE") ? System.getenv("LXMN_VERSION_CODE").toInteger() : 2046)
+        versionName(System.getenv("LXMN_VERSION_NAME") ?: "0.2.46")
     }
     signingConfigs {
         debug {
