@@ -454,22 +454,35 @@ async function loadLyric(item: MusicItem): Promise<void> {
   let romalrc = ''
   let ylyric = ''
 
+  const ownSource = getSource(target.source)
   try {
-    const info = await getSource(target.source).getLyric(target)
-    lyric = info.lyric ?? ''
-    tlyric = info.tlyric ?? ''
-    romalrc = info.romalrc ?? ''
-    ylyric = info.ylyric ?? ''
+    // 酷我/酷狗/咪咕没有歌词接口：直接调会抛 TypeError，先判断再调
+    if (ownSource.getLyric) {
+      const info = await ownSource.getLyric(target)
+      lyric = info.lyric ?? ''
+      tlyric = info.tlyric ?? ''
+      romalrc = info.romalrc ?? ''
+      ylyric = info.ylyric ?? ''
+    }
   } catch {
     // 原音源没词或接口失败，都继续往下找
   }
 
-  // 第一层补全：整首词都没有，换一家拿词
+  /**
+   * 第一层补全：整首词都没有，去**网易云**借。
+   *
+   * 之前这里调的是 findSameSong(target)（不限音源），于是从酷我播的歌
+   * 很有可能"匹配到"酷狗/咪咕的同名曲 —— 而这两家根本没有歌词接口，
+   * 拿回来还是空的。表现就是「部分歌源永远没有歌词」。只有 wy 有公开歌词，
+   * 所以先点名找 wy，再退回其他实现了 getLyric 的源。
+   */
   if (!lyric.trim()) {
-    const alt = await findSameSong(target)
-    if (alt) {
+    const wyItem = target.source === 'wy' ? null : await findSameSong(target, 'wy')
+    const alt = wyItem ?? await findSameSong(target)
+    const altSource = alt ? getSource(alt.source) : null
+    if (alt && altSource?.getLyric) {
       try {
-        const info = await getSource(alt.source).getLyric(alt)
+        const info = await altSource.getLyric(alt)
         lyric = info.lyric ?? ''
         tlyric = tlyric || (info.tlyric ?? '')
         romalrc = romalrc || (info.romalrc ?? '')

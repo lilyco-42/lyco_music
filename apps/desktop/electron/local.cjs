@@ -19,6 +19,7 @@ const path = require('node:path')
 const { Readable } = require('node:stream')
 const zlib = require('node:zlib')
 const tags = require('./tags.cjs')
+const { decodeNcm } = require('./ncm.cjs')
 
 const SCHEME = 'lxmn-media'
 const PREFIX = `${SCHEME}://local/`
@@ -316,6 +317,68 @@ function krcToLrc(text) {
 }
 
 /**
+ * 把 .ncm 就地解密成 mp3/flac（见 ncm.cjs）。
+ *
+ * 解出来的文件写在 userData/ncm-cache 下，按「原文件名 + mtime + size」命名：
+ * 同一个文件重复扫描直接命中缓存，源文件更新会自动换新的。
+ * 失败不阻断扫描，只在条目上留 decodeError，由界面如实告诉用户。
+ */
+async function decodeNcmEntries(entries) {
+  const targets = entries.filter(e => e.ext === 'ncm')
+  if (!targets.length) return
+  const outDir = path.join(app.getPath('userData'), 'ncm-cache')
+  try {
+    await fsp.mkdir(outDir, { recursive: true })
+  } catch {
+    for (const e of targets) e.decodeError = '无法创建解密缓存目录'
+    return
+  }
+  let cursor = 0
+  const workers = new Array(Math.min(4, targets.length)).fill(0).map(async () => {
+    for (;;) {
+      const i = cursor++
+      if (i >= targets.length) return
+      const e = targets[i]
+      const stamp = e.mtime + '-' + e.size
+      const base = path.join(outDir, path.basename(e.name, path.extname(e.name)) + '.' + stamp)
+      const cached = ['mp3', 'flac', 'm4a', 'wav', 'ogg'].map(ext => base + '.' + ext).find(p => fs.existsSync(p))
+      if (cached) {
+        e.path = cached
+        e.ext = path.extname(cached).slice(1)
+        e.decodedFrom = 'ncm'
+        continue
+      }
+      try {
+        const res = decodeNcm(await fsp.readFile(e.path))
+        if (!res.ok) {
+          e.decodeError = res.error
+          continue
+        }
+        const out = base + '.' + res.format
+        await fsp.writeFile(out, res.audio)
+        e.path = out
+        e.ext = res.format
+        // 名字也换成解密后的扩展名：渲染层用文件名判断「能不能播」，
+        // 不改名会一直算在「加密文件、跳过」里
+        e.name = path.basename(e.name, path.extname(e.name)) + '.' + res.format
+        e.size = res.audio.length
+        e.decodedFrom = 'ncm'
+        if (res.meta && res.meta.musicName) e.title = String(res.meta.musicName)
+        if (res.meta && Array.isArray(res.meta.artist)) {
+          const names = res.meta.artist.map(a => (Array.isArray(a) ? a[0] : a)).filter(Boolean)
+          if (names.length) e.artist = names.join('/')
+        }
+        if (res.meta && res.meta.album) e.album = String(res.meta.album)
+        if (res.cover && res.cover.length) e.hasCover = true
+      } catch (error) {
+        e.decodeError = error && error.message ? error.message : '解密失败'
+      }
+    }
+  })
+  await Promise.all(workers)
+}
+
+/**
  * 给音频文件补上内嵌标签与「有没有封面」（PARITY 4.8）。
  *
  * 并发 4：全部串行会让一千首的目录扫上半分钟；并发再高，
@@ -386,6 +449,10 @@ async function scan(dir) {
   }
 
   const audioEntries = entries.filter(e => e.ext !== 'lrc' && e.ext !== 'krc')
+
+  // .ncm 在扫描阶段就解密成普通音频：用户选目录时就能看到「已解密 17 首」，
+  // 而不是等点了导入才发现一半放不了。缓存按 mtime+size 命名，源文件变了会重新解。
+  await decodeNcmEntries(audioEntries)
   await attachTags(audioEntries)
 
   return {

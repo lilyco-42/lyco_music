@@ -15,7 +15,7 @@ const { t } = useI18n()
  *      这里如实统计并说明，而不是假装能导。
  */
 import { computed, onMounted, ref } from 'vue'
-import { FolderOpen, Import, Loader2, Music4, TriangleAlert } from 'lucide-vue-next'
+import { CheckCircle2, FolderOpen, Import, Loader2, Music4, TriangleAlert } from 'lucide-vue-next'
 import { useLocalImport, type ImportGroup } from '@/lib/local-import'
 
 const imp = useLocalImport()
@@ -127,7 +127,8 @@ onMounted(() => { void imp.detect() })
         <h2 class="text-[16px] font-semibold text-ncm-fg">{{ t('imp.result', '扫描结果') }}</h2>
         <span class="text-[13px] text-ncm-faint">
           可导入 {{ imp.totalTracks.value }} 首
-          <template v-if="imp.totalEncrypted.value">· 跳过 {{ imp.totalEncrypted.value }} 个加密文件</template>
+          <template v-if="imp.totalDecoded.value">· 已解密 {{ imp.totalDecoded.value }} 首 .ncm</template>
+          <template v-if="imp.totalEncrypted.value">· 仍有 {{ imp.totalEncrypted.value }} 个加密文件解不开</template>
         </span>
       </div>
 
@@ -136,18 +137,26 @@ onMounted(() => { void imp.detect() })
         <span>{{ t('imp.tooMany', '目录里的文件太多，只扫描了前一部分。建议把目录选得更具体一些。') }}</span>
       </p>
 
-      <!-- 加密文件的说明：不给解释的话，用户会以为我们漏了 -->
+      <!-- 解密结果：成功了要说清「不是跳过，是解开了」；失败也要说清原因 -->
+      <div v-if="imp.totalDecoded.value" class="mt-3 flex items-start gap-2 rounded-nav border border-emerald-200 bg-emerald-50/60 p-4 text-[13px] leading-5 text-emerald-900">
+        <CheckCircle2 :size="15" class="mt-0.5 shrink-0" aria-hidden="true" />
+        <span>
+          已就地把 {{ imp.totalDecoded.value }} 首 .ncm 解密成 mp3/flac 再导入（只处理本机文件，不上传、不联网）。
+          解密结果缓存在应用数据目录，源文件不变，重复导入不会再解一遍。
+        </span>
+      </div>
+
       <div v-if="imp.totalEncrypted.value" class="mt-3 rounded-nav border border-ncm-divider p-4">
         <p class="flex items-center gap-2 text-[13.5px] font-medium text-ncm-fg">
           <TriangleAlert :size="15" class="text-amber-600" aria-hidden="true" />
-          有 {{ imp.totalEncrypted.value }} 首是加密格式，无法导入
+          还有 {{ imp.totalEncrypted.value }} 首解不开
         </p>
         <p class="mt-1.5 text-[13px] leading-5 text-ncm-muted">
           <template v-for="(n, ext) in imp.lastSummary.value.encryptedByExt" :key="ext">
             <code class="rounded bg-black/5 px-1 py-0.5 text-[12px]">.{{ ext }}</code> {{ n }} 个&nbsp;
           </template>
-          —— 这是平台方的 DRM 封装（网易云的 .ncm 等），官方说明写明「拷贝至其他播放器可能无法正常播放」。
-          要拿到可播放的版本，只能在该平台单曲购买后重新下载；我们不做解密。
+          —— .ncm 会解密，解不开通常是文件损坏或换了新的封装版本；
+          酷狗（.kgm）、QQ 音乐（.qmc/.mflac/.mgg）等格式暂未支持，需要先在对应客户端里导出为普通音频。
         </p>
       </div>
 

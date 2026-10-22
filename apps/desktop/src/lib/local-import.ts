@@ -70,6 +70,8 @@ const lastSummary = ref(summarizeScan([]))
 export function useLocalImport() {
   const totalTracks = computed(() => groups.value.reduce((n, g) => n + g.tracks.length, 0))
   const totalEncrypted = computed(() => groups.value.reduce((n, g) => n + g.encrypted, 0))
+  /** 已就地解密的文件数（.ncm -> mp3/flac），用于告诉用户「不是跳过了，是解开了」 */
+  const totalDecoded = computed(() => lastSummary.value.decoded)
 
   /** 探测网易云目录（绿色安装/自定义下载路径都能找到） */
   async function detect(): Promise<string[]> {
@@ -196,7 +198,7 @@ export function useLocalImport() {
   return {
     detecting, scanning, importing, error, truncated,
     foundDirs, clientDirs, currentDir, groups,
-    totalTracks, totalEncrypted, lastSummary,
+    totalTracks, totalEncrypted, totalDecoded, lastSummary,
     detect, scan, pickDir, importGroups, reset,
   }
 }

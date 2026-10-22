@@ -177,7 +177,19 @@ describe('summarizeScan', () => {
   })
 
   it('空列表全是 0', () => {
-    expect(summarizeScan([])).toEqual({ playable: 0, encrypted: 0, ignored: 0, encryptedByExt: {} })
+    expect(summarizeScan([])).toEqual({ playable: 0, encrypted: 0, ignored: 0, encryptedByExt: {}, decoded: 0 })
+  })
+
+  it('已解密的 .ncm 算可导入，并单独计数', () => {
+    // 主进程把 .ncm 解成 mp3 之后，文件名也换成 .mp3 —— 这里模拟那种条目
+    const s = summarizeScan([
+      { name: 'a.mp3' },
+      { name: 'b.mp3', decodedFrom: 'ncm' },
+      { name: 'c.ncm' },
+    ])
+    expect(s.playable).toBe(2)
+    expect(s.decoded).toBe(1)
+    expect(s.encrypted).toBe(1)
   })
 })
 

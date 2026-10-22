@@ -34,16 +34,24 @@ const router = useRouter()
 const covers = reactive<Record<string, string>>({})
 const loaded = ref(false)
 
+async function fillCover(key: string): Promise<void> {
+  const url = await coverFor(key).catch(() => '')
+  if (url) covers[key] = url
+}
+
+/**
+ * 分两批取封面：先顶部 7 张频道卡（首屏就看得见），再下面那排歌单。
+ *
+ * 之前是一次性 Promise.all 全部 16 个关键词、全都回来才 loaded=true ——
+ * 网慢的时候首屏要等两秒多才有图。现在顶部先到先渲染，下面一行后台补上；
+ * 封面本身有 localStorage 缓存（见 lib/covers.ts），第二次打开几乎是瞬时的。
+ */
 onMounted(async () => {
-  const keywords = [...channels.value.map(c => c.keyword), ...playlists.map(p => p.title)]
-  const unique = [...new Set(keywords)]
-  await Promise.all(
-    unique.map(async k => {
-      const url = await coverFor(k).catch(() => '')
-      if (url) covers[k] = url
-    }),
-  )
+  const channelKeys = [...new Set(channels.value.map(c => c.keyword))]
+  const rest = [...new Set(playlists.map(p => p.title))].filter(k => !channelKeys.includes(k))
+  await Promise.all(channelKeys.map(fillCover))
   loaded.value = true
+  void Promise.all(rest.map(fillCover))
 })
 
 function picFor(keyword: string, fallback: string): string {

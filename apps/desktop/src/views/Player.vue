@@ -276,7 +276,20 @@ const LAYER_OPTIONS = [
   { key: 'translation' as const, label: '译', name: '翻译' },
 ]
 
+/**
+ * 这一首歌词里到底有没有罗马音 / 翻译。
+ *
+ * 没有的话按钮要**变灰并说明**：之前点了没反应，用户会以为功能坏了；
+ * 实际上只是《晴天》这种中文歌本来就没有罗马音。
+ */
+const layerAvail = computed(() => ({
+  original: lyrics.value.length > 0,
+  romaji: lyrics.value.some(l => Boolean(l.romaji)),
+  translation: lyrics.value.some(l => Boolean(l.translation)),
+}))
+
 function toggleLayer(key: 'original' | 'romaji' | 'translation'): void {
+  if (!layerAvail.value[key]) return
   layers.value = { ...layers.value, [key]: !layers.value[key] }
   try {
     localStorage.setItem(LAYER_KEY, JSON.stringify(layers.value))
@@ -879,8 +892,12 @@ const vinylStyle = computed(() => ({
                 :key="o.key"
                 type="button"
                 class="shrink-0 rounded-full px-2 py-[2px] transition-colors"
-                :class="layers[o.key] ? 'bg-white/15 text-ncmd-fg' : 'hover:bg-white/10 hover:text-ncmd-muted'"
-                :title="layers[o.key] ? `隐藏${o.name}` : `显示${o.name}`"
+                :class="[
+                  layers[o.key] ? 'bg-white/15 text-ncmd-fg' : 'hover:bg-white/10 hover:text-ncmd-muted',
+                  !layerAvail[o.key] ? 'cursor-not-allowed opacity-35 hover:bg-transparent' : '',
+                ]"
+                :disabled="!layerAvail[o.key]"
+                :title="!layerAvail[o.key] ? `这首歌没有${o.name}` : layers[o.key] ? `隐藏${o.name}` : `显示${o.name}`"
                 @click="toggleLayer(o.key)"
               >
                 {{ o.label }}

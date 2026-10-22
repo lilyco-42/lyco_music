@@ -23,6 +23,7 @@ import {
   parseLyric,
   findLineIndex,
   resolveWithFallback,
+  type LyricInfo,
   type LyricLine,
   type MusicItem,
   type Quality,
@@ -228,17 +229,66 @@ async function resolveAndPlay(item: MusicItem): Promise<void> {
   }
 }
 
-/** 歌词与封面：失败都不阻断播放 */
+/**
+ * 找同一首歌在网易云上的版本（只有它有公开歌词接口）。
+ *
+ * 只按「歌名完全相同 + 歌手有交集」匹配：放宽到包含匹配会串到翻唱，
+ * 歌词对不上比没有歌词更糟。
+ */
+async function findOnWy(item: MusicItem): Promise<MusicItem | null> {
+  if (item.source === 'wy') return null
+  const wy = getSource('wy')
+  if (!wy.musicSearch) return null
+  const keyword = (item.name + ' ' + (item.singer || '')).trim()
+  if (!keyword) return null
+  try {
+    const res = await wy.musicSearch(keyword, 1, 10)
+    const norm = (s: string) => String(s || '').toLowerCase().replace(/\s+/g, '')
+    const name = norm(item.name)
+    const singer = norm(item.singer)
+    const hit = res.list.find(x => {
+      if (norm(x.name) !== name) return false
+      if (!singer) return true
+      const xs = norm(x.singer)
+      return xs.includes(singer.split('/')[0] ?? '') || singer.includes(xs)
+    })
+    return hit ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 歌词与封面：失败都不阻断播放。
+ *
+ * 酷我/酷狗/咪咕没有歌词接口，直接调会抛异常 —— 所以先看有没有实现，
+ * 空词时再去网易云借一份（与桌面端同一套兜底顺序）。
+ */
 async function loadMeta(item: MusicItem): Promise<void> {
   state.lyric = ''
   state.tlyric = ''
   state.picUrl = item.picUrl ?? ''
-  try {
-    const info = await getSource(item.source).getLyric(item)
+  const pick = (info: LyricInfo | null | undefined): void => {
+    if (!info) return
     state.lyric = info.lyric ?? ''
     state.tlyric = info.tlyric ?? ''
+  }
+  try {
+    const own = getSource(item.source)
+    if (own.getLyric) pick(await own.getLyric(item))
   } catch {
     // 没有歌词也应该能听
+  }
+  if (!state.lyric.trim()) {
+    const wyItem = await findOnWy(item)
+    const wy = getSource('wy')
+    if (wyItem && wy.getLyric) {
+      try {
+        pick(await wy.getLyric(wyItem))
+      } catch {
+        // 网易云也没有
+      }
+    }
   }
   emit()
 }

@@ -9,9 +9,10 @@
  *   - 下载目录是用户自己机器上的既成事实，不需要任何授权
  *   - 网易云下载的文件名规则就是 `歌手 - 歌名.ext`，信息够用
  *
- * 不做什么：**不碰 .ncm**。那是网易云的加密格式，官方文档写得很清楚
- * 「拷贝至其他播放器可能无法正常播放」。解密属于绕过 DRM，不做。
- * 但会在扫描结果里如实统计，并告诉用户为什么跳过。
+ * 加密封装（.ncm 等）不在内核里解密：内核不能碰 fs，也不该依赖 Node 的 crypto。
+ * 解密发生在**桌面端主进程**（electron/ncm.cjs），扫目录时就把 .ncm 还原成
+ * mp3/flac 写进缓存目录，再把结果当作普通音频交给这里。所以这一层看到的
+ * 永远是「能播的文件」；解不开的会保留原扩展名，由 summarizeScan 如实统计。
  */
 import type { MusicItem } from '../types'
 
@@ -258,17 +259,21 @@ export interface LocalScanSummary {
   ignored: number
   /** 加密文件按扩展名统计，用于给用户解释 */
   encryptedByExt: Record<string, number>
+  /** 已就地解密的文件数（目前是 .ncm，由桌面端主进程解出 mp3/flac） */
+  decoded: number
 }
 
 /** 统计一次扫描结果，用于界面上的「扫到 N 首，跳过 M 个加密文件」 */
-export function summarizeScan(entries: readonly { name: string }[]): LocalScanSummary {
+export function summarizeScan(entries: readonly { name: string; decodedFrom?: string }[]): LocalScanSummary {
   let playable = 0
   let encrypted = 0
   let ignored = 0
+  let decoded = 0
   const encryptedByExt: Record<string, number> = {}
   for (const e of entries) {
     if (isAudioFile(e.name)) {
       playable++
+      if (e.decodedFrom) decoded++
       continue
     }
     if (isEncryptedFile(e.name)) {
@@ -279,5 +284,5 @@ export function summarizeScan(entries: readonly { name: string }[]): LocalScanSu
     }
     ignored++
   }
-  return { playable, encrypted, ignored, encryptedByExt }
+  return { playable, encrypted, ignored, encryptedByExt, decoded }
 }
