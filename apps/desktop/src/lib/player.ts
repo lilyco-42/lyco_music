@@ -266,6 +266,32 @@ export function setPlaybackHandler(fn: ((url: string) => Promise<void>) | null):
   playUrl = fn
 }
 
+/**
+ * 「立刻停声」的方式，同样由组件注入。
+ *
+ * 必须和 playUrl 分开：playUrl 只负责「播这一条」，管不了「现在把声音停掉」。
+ * 没有这个通道时，切歌失败只能把 state.playing 置 false，
+ * 而 <audio> 压根不知道，于是上一首继续唱 —— 用户看到的是
+ * 「点了《不将就》，界面在转圈，耳朵里还是《罗生门》」。
+ */
+let stopAudio: (() => void) | null = null
+
+export function setStopHandler(fn: (() => void) | null): void {
+  stopAudio = fn
+}
+
+/**
+ * 立即停止出声并卸载当前音源。
+ *
+ * 切歌开始时、以及取流彻底失败时都要调 —— 这是「宁可静音，也不要放错的歌」
+ * 的落地：旧歌继续唱比报错更让人困惑，因为它伪装成「新歌加载中」。
+ */
+function stopPlayback(): void {
+  state.playing = false
+  state.url = ''
+  stopAudio?.()
+}
+
 /** 跳转播放位置的方式同样由组件注入（内核不认识 <audio>） */
 let seekHandler: ((time: number) => void) | null = null
 export function setSeekHandler(fn: ((time: number) => void) | null): void {
@@ -351,8 +377,11 @@ async function resolveAndPlay(item: MusicItem, from = 0): Promise<void> {
     }
   }
 
+  // 彻底失败：必须把声音停掉。
+  // 只置 state.playing = false 是不够的 —— <audio> 不知道这件事，
+  // 上一首会继续唱，用户以为「新歌在加载」，其实听到的是旧歌。
   state.error = describePlayError(lastErr)
-  state.playing = false
+  stopPlayback()
   state.loading = false
 }
 
@@ -595,6 +624,10 @@ export function usePlayer() {
     state.trialRetried = false
     streamAttempt = 0
     badSources.clear()
+    // 先把上一首停掉再取流。
+    // 取流要几百毫秒到几秒，这期间若还放着旧歌，用户听到的就是
+    // 「点了新歌，耳朵里还是上一首」—— 加载失败时更是永远停不下来。
+    stopPlayback()
     // 上次听到哪就从哪接着播（2.8）。放在 resolveAndPlay 之前，
     // 由 AudioHost 在 loadedmetadata 时消费 —— 那时 seek 才是确定的。
     pendingResume = resumeAt(item)

@@ -139,15 +139,36 @@ async function coverResponse(url) {
   const key = filePath + '|' + mtime
   const hit = coverCache.get(key)
   if (hit) return coverResponseFrom(hit)
-  const info = await tags.readTags(filePath)
-  if (!info?.picture?.data?.length) return new Response('no cover', { status: 404 })
-  const entry = { mime: info.picture.mime, data: info.picture.data }
+  /**
+   * 两条来源，顺序不能反：
+   *   1. 独立封面文件 —— ncm 解出来的图存在 <同名>.cover 里，
+   *      它自己不是音频，readTags 读不了，必须先认这个后缀；
+   *   2. 音频内嵌图 —— mp3/flac 自带的那种。
+   */
+  let entry = null
+  if (/\.cover$/i.test(filePath)) {
+    const data = await fsp.readFile(filePath)
+    if (data.length) entry = { mime: sniffImageMime(data), data }
+  } else {
+    const info = await tags.readTags(filePath)
+    if (info?.picture?.data?.length) entry = { mime: info.picture.mime, data: info.picture.data }
+  }
+  if (!entry) return new Response('no cover', { status: 404 })
   coverCache.set(key, entry)
   if (coverCache.size > COVER_CACHE_MAX) {
     const oldest = coverCache.keys().next().value
     if (oldest) coverCache.delete(oldest)
   }
   return coverResponseFrom(entry)
+}
+
+/** 按文件头猜图片类型：ncm 只存原始字节，不带 mime */
+function sniffImageMime(buf) {
+  if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png'
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg'
+  if (buf.length >= 6 && buf.toString('ascii', 0, 3) === 'GIF') return 'image/gif'
+  if (buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp'
+  return 'image/jpeg'
 }
 
 function coverResponseFrom(entry) {
@@ -422,7 +443,26 @@ async function decodeNcmEntries(entries) {
           if (names.length) e.artist = names.join('/')
         }
         if (res.meta && res.meta.album) e.album = String(res.meta.album)
-        if (res.cover && res.cover.length) e.hasCover = true
+        /**
+         * 封面单独落盘。
+         *
+         * ncm 把封面存在文件头里，解出来的音频**不带内嵌图** ——
+         * 之前这里只把 hasCover 置 true，而封面协议是去读音频内嵌标签的，
+         * 于是界面显示「有封面」却拿不到图，导入页一片空白。
+         *
+         * 存成 <同名>.cover 放在缓存目录，并把绝对路径写回 e.coverPath，
+         * 渲染层就能直接拿它拼 cover:// 地址。
+         */
+        if (res.cover && res.cover.length) {
+          e.hasCover = true
+          try {
+            const coverPath = base + '.cover'
+            await fsp.writeFile(coverPath, res.cover)
+            e.coverPath = coverPath
+          } catch {
+            // 写不进缓存目录不影响播放，只是没封面
+          }
+        }
       } catch (error) {
         e.decodeError = error && error.message ? error.message : '解密失败'
       }

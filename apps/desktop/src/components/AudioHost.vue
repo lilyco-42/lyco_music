@@ -12,7 +12,7 @@
  *      否则界面会永远卡在加载态，用户只能自己去切歌。
  */
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
-import { setPlaybackHandler, setSeekHandler, takePendingResume, usePlayer } from '@/lib/player'
+import { setPlaybackHandler, setSeekHandler, setStopHandler, takePendingResume, usePlayer } from '@/lib/player'
 import { bindAudioElement, useEqualizer } from '@/lib/equalizer'
 import { setMaxChannels, setOutputDevice } from '@/lib/audio-graph'
 import { useSoundEffect } from '@/lib/sound-effect'
@@ -107,10 +107,32 @@ onMounted(() => {
   })
 })
 
+onMounted(() => {
+  /**
+   * 立即停声并卸载当前音源。
+   *
+   * 三件事都要做，少一件都会留下「界面说没播、耳朵里有声」的错位：
+   *   pause()           —— 真的停下出声；
+   *   removeAttribute() —— 断开 src，避免它继续缓冲；
+   *   load()            —— 让 Chromium 真正执行卸载（只删 src 不调 load 是空动作）。
+   *
+   * 看门狗也要清掉，否则 15 秒后会对着一个空音源触发「重试」。
+   */
+  setStopHandler(() => {
+    clearWatchdog()
+    const a = el.value
+    if (!a) return
+    a.pause()
+    a.removeAttribute('src')
+    a.load()
+  })
+})
+
 onBeforeUnmount(() => {
   clearWatchdog()
   setPlaybackHandler(null)
   setSeekHandler(null)
+  setStopHandler(null)
 })
 
 watch(() => player.state.playing, p => {

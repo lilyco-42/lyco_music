@@ -102,8 +102,15 @@ export interface LocalFileEntry {
   artist?: string
   /** 内嵌标签里的专辑 */
   album?: string
-  /** 有没有内嵌封面（有的话封面走 lxmn-media://cover/ 按需读） */
+  /** 有没有封面（有的话封面走 lxmn-media://cover/ 按需读） */
   hasCover?: boolean
+  /**
+   * 独立封面文件的绝对路径。
+   *
+   * ncm 的封面存在文件头里，解出来的音频不带内嵌图，所以解密时会另存
+   * 一个 <同名>.cover。有这个字段就用它，否则回落到音频本身的内嵌图。
+   */
+  coverPath?: string
 }
 
 /** 按所在目录分好组的扫描结果 */
@@ -190,7 +197,12 @@ export function buildLocalTracks(files: readonly LocalFileEntry[], options: Buil
       size: file.size,
       mtime: file.mtime,
       ...(file.album ? { albumName: String(file.album) } : {}),
-      ...(file.hasCover ? { picUrl: localCoverUrl(file.path) } : {}),
+      // 优先用独立封面文件（ncm 解出来的那种），否则读音频内嵌图
+      ...(file.coverPath
+        ? { picUrl: localCoverUrl(file.coverPath) }
+        : file.hasCover
+          ? { picUrl: localCoverUrl(file.path) }
+          : {}),
       // 歌词在导入时就一并带进来：本地文件不需要再发请求，
       // 播放时内核的 getLyric 直接返回它，省一次 IO 往返
       ...(lyrics[file.path] ? { lyric: lyrics[file.path] } : {}),
