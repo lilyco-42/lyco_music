@@ -43,9 +43,28 @@ const MAX_FILES = 20000
 const AUDIO_EXTS = new Set([
   'mp3', 'flac', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'wav', 'wma', 'ape', 'aiff', 'aif',
 ])
+/**
+ * 加密封装：扫描时必须放行，否则文件在「进解码器之前」就被丢掉了。
+ *
+ * 这份清单要和下面的 DECODERS 一一对应 —— 之前少了 vpr / mflac2 / mggl /
+ * bkc* 这些，用户把文件放进去，导入页连「解不开」都不显示，因为压根没进扫描结果。
+ * 腾讯系（tm0/tm2/tm3/tm6）和小米（xm）已停用，保留在清单里只是为了让界面
+ * 能如实说「暂不支持」，而不是让文件凭空消失。
+ */
 const ENCRYPTED_EXTS = new Set([
-  'ncm', 'kgm', 'kgma', 'qmc0', 'qmc2', 'qmc3', 'qmcflac', 'qmcogg',
-  'mflac', 'mflac0', 'mgg', 'mgg1', 'tm0', 'tm2', 'tm3', 'tm6', 'xm',
+  // 网易云
+  'ncm',
+  // 酷狗
+  'kgm', 'kgma', 'vpr',
+  // QQ 音乐 静态（v1）
+  'qmc0', 'qmc3', 'qmcflac', 'qmcogg',
+  'bkc', 'bkcmp3', 'bkcflac', 'bkcogg',
+  // QQ 音乐 逐文件密钥（v2）
+  'qmc2', 'qmcflac2',
+  'mflac', 'mflac0', 'mflac2', 'mflac4',
+  'mgg', 'mgg0', 'mgg1', 'mgg2', 'mgg4', 'mggl',
+  // 已停用：只用于提示「暂不支持」
+  'tm0', 'tm2', 'tm3', 'tm6', 'xm',
 ])
 
 const MIME = {
