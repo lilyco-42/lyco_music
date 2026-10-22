@@ -45,6 +45,8 @@ export interface PlayerState {
   error: string
   /** 当前曲目的歌词行（原始 LRC） */
   lyric: string
+  /** 歌词是否正在取：空歌词 + loading 时界面显示「正在加载」而不是「暂无歌词」 */
+  lyricLoading: boolean
   tlyric: string
   /** 罗马音歌词（日文歌用；只有网易云提供） */
   romalrc: string
@@ -92,6 +94,7 @@ const state = reactive<PlayerState>({
   loading: false,
   error: '',
   lyric: '',
+  lyricLoading: false,
   tlyric: '',
   romalrc: '',
   ylyric: '',
@@ -433,6 +436,7 @@ let lyricToken = 0
  */
 async function loadLyric(item: MusicItem): Promise<void> {
   const token = ++lyricToken
+  state.lyricLoading = true
   state.lyric = ''
   state.tlyric = ''
   state.romalrc = ''
@@ -509,6 +513,7 @@ async function loadLyric(item: MusicItem): Promise<void> {
   }
 
   commit(lyric, tlyric, romalrc, ylyric)
+  if (token === lyricToken) state.lyricLoading = false
 }
 
 /** 取封面（同样不阻断） */

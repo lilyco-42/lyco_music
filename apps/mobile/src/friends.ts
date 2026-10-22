@@ -86,6 +86,18 @@ function normalize(raw: unknown): FriendsState {
   }
 }
 
+export interface ChatMessage {
+  id: number
+  mine: boolean
+  kind: 'text' | 'share'
+  text: string
+  shareCode: string
+  shareName: string
+  shareCount: number
+  createdAt: number
+  readAt: number
+}
+
 export function useFriendsApi() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -143,5 +155,15 @@ export function useFriendsApi() {
     decline: (id: number) => run(() => api('POST', '/requests/' + id + '/decline')),
     remove: (code: string) => run(() => api('DELETE', '/' + code)),
     rename: (nickname: string) => run(() => api('POST', '/nickname', { nickname })),
+
+    /* ---------------- 聊天 ---------------- */
+    /** 拉一段历史；after 传「我已有的最大 id」就是增量 */
+    messages: (code: string, after = 0) =>
+      run(() => api<{ messages: ChatMessage[] }>('GET', '/' + code + '/messages?after=' + after + '&limit=200')),
+    sendText: (code: string, text: string) =>
+      run(() => api('POST', '/' + code + '/messages', { text })),
+    sendShare: (code: string, share: { shareCode: string; shareName: string; shareCount: number }) =>
+      run(() => api('POST', '/' + code + '/messages', share)),
+    unread: () => run(() => api<{ total: number; byCode: Record<string, number> }>('GET', '/chat/unread')),
   }
 }

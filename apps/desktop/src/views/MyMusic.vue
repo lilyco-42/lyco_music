@@ -23,7 +23,7 @@ import { trackKey, type MusicItem, type SourceId } from '@lxmn/core'
 const { t } = useI18n()
 const { library, favorites, history, playlists, trial } = useSync()
 const player = usePlayer()
-const { getShared } = useSharing()
+const { getShared, share: sharePlaylist, shareBusy } = useSharing()
 const route = useRoute()
 const router = useRouter()
 
@@ -33,6 +33,42 @@ const tab = ref<Tab>('trial')
 /** 当前打开的歌单 id；null = 停在歌单列表 */
 const openId = ref<string | null>(null)
 const opened = computed(() => (openId.value ? playlists.value.find(p => p.id === openId.value) ?? null : null))
+
+/**
+ * 分享歌单：生成分享码，写进剪贴板，同时尝试直接发给好友。
+ *
+ * 之前只有「导入分享码」的入口，没有任何地方能**生成**分享码 ——
+ * 用户看到的分享功能其实是单向的。这里补上生成端：拿到码既复制到剪贴板，
+ * 也在页面上显示出来（剪贴板权限可能被拒，不能只靠复制）。
+ */
+const shareCode = ref('')
+const shareErr = ref('')
+
+async function doShare(): Promise<void> {
+  const pl = opened.value
+  if (!pl) return
+  shareErr.value = ''
+  shareCode.value = ''
+  try {
+    const tracks = pl.items.map(it => ({
+      songmid: String(it.id),
+      source: it.source,
+      name: it.name,
+      singer: it.singer,
+      album: it.album ? String(it.album) : '',
+      duration: Number(it.duration) || 0,
+    }))
+    const code = await sharePlaylist(pl.name, tracks, '')
+    shareCode.value = code
+    try {
+      await navigator.clipboard.writeText(code)
+    } catch {
+      // 剪贴板被拒：码已经显示在页面上，用户能手动复制
+    }
+  } catch (e) {
+    shareErr.value = e instanceof Error ? e.message : '分享失败'
+  }
+}
 
 // —— 分享导入：好友页或手输分享码跳转过来时，sessionStorage 里带着码 ——
 const importPrompt = ref<{ code: string; name: string; count: number } | null>(null)
@@ -625,6 +661,17 @@ watch(playlists, () => {
               <span>{{ downloadingAll ? '加入中…' : '下载全部' }}</span>
             </button>
             <span v-if="downloadHint" class="text-[12px] text-ncm-faint">{{ downloadHint }}</span>
+
+            <button
+              type="button"
+              class="rounded-pill border border-ncm-divider px-4 py-1.5 text-[13px] text-ncm-muted transition-colors hover:bg-black/5 disabled:opacity-40"
+              :disabled="!opened.items.length || shareBusy"
+              @click="doShare"
+            >{{ shareBusy ? '生成中…' : '分享歌单' }}</button>
+            <span v-if="shareCode" class="text-[12px] text-ncm-faint">
+              分享码 <code class="rounded bg-ncm-bg px-1.5 py-0.5 font-mono text-[13px] tracking-wider text-ncm-fg">{{ shareCode }}</code>（已复制）
+            </span>
+            <span v-if="shareErr" class="text-[12px] text-red-500">{{ shareErr }}</span>
 
             <template v-if="!confirmDelete">
               <button

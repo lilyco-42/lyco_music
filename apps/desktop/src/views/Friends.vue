@@ -10,11 +10,15 @@ const { t } = useI18n()
  */
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useFriends } from '../lib/friends'
+import { useFriends, type ChatMessage } from '../lib/friends'
 import { useSharing, type FeedItem } from '../lib/share'
 
-const { me, friends, pendingIn, pendingOut, busy, error, loadError, denied, refresh, addByCode, accept, decline, remove, rename } = useFriends()
-const { feed, unread, feedBusy, pullFeed } = useSharing()
+const {
+  me, friends, pendingIn, pendingOut, busy, error, loadError, denied, refresh, addByCode, accept, decline, remove, rename,
+  chatWith, chatMessages, chatBusy, chatError, unread: chatUnread,
+  openChat, closeChat, sendText, sendPlaylist, loadUnread,
+} = useFriends()
+const { feed, unread, feedBusy, pullFeed, share } = useSharing()
 const router = useRouter()
 
 const codeInput = ref('')
@@ -26,7 +30,35 @@ const importing = ref(false)
 onMounted(() => {
   void refresh()
   void pullFeed()
+  void loadUnread()
 })
+
+/* ---------------- 聊天 ---------------- */
+
+const draft = ref('')
+
+/** 当前会话对方昵称（好友列表里找；找不到就用好友码） */
+function chatTitle(code: string): string {
+  return friends.value.find(f => f.friendCode === code)?.nickname ?? code
+}
+
+async function submitChat(): Promise<void> {
+  const text = draft.value
+  if (!text.trim()) return
+  draft.value = ''
+  await sendText(text)
+}
+
+function fmtMsgTime(t: number): string {
+  const d = new Date(t * 1000)
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
+}
+
+/** 在聊天里导入对方分享的歌单 */
+function importFromChat(m: ChatMessage): void {
+  sessionStorage.setItem('lyco-import-share', m.shareCode)
+  router.push({ name: 'my' })
+}
 
 /** 打开好友分享的歌单：把分享码存 sessionStorage，「我的音乐」页识别后导入 */
 function openShared(item: FeedItem) {
@@ -250,11 +282,93 @@ function fmtTime(t: number): string {
             </div>
             <button
               type="button"
+              class="relative rounded-pill bg-ncm-accent/10 px-4 py-1.5 text-[13px] text-ncm-accent hover:bg-ncm-accent/20"
+              @click="() => { void openChat(f.friendCode) }"
+            >
+              聊天
+              <span
+                v-if="chatUnread[f.friendCode]"
+                class="absolute -right-1.5 -top-1.5 min-w-[18px] rounded-full bg-ncm-accent px-1 text-center text-[11px] leading-[18px] text-white"
+              >{{ (chatUnread[f.friendCode] ?? 0) > 99 ? '99+' : chatUnread[f.friendCode] }}</span>
+            </button>
+            <button
+              type="button"
               class="rounded-pill border border-ncm-divider px-4 py-1.5 text-[13px] text-ncm-muted opacity-0 transition-opacity hover:bg-black/5 group-hover:opacity-100"
               @click="() => { void remove(f.friendCode) }"
             >删除</button>
           </li>
         </ul>
+      </section>
+
+      <!-- 聊天面板：点好友的「聊天」后出现在底部 -->
+      <section v-if="chatWith" class="mt-5 rounded-nav bg-ncm-surface p-5">
+        <div class="flex items-center gap-3">
+          <img :src="'./art/avatar-default.jpg'" alt="" class="size-[36px] rounded-full" />
+          <p class="min-w-0 flex-1 truncate text-[15px] font-semibold text-ncm-fg">
+            {{ chatTitle(chatWith) }}
+          </p>
+          <button
+            type="button"
+            class="rounded-pill border border-ncm-divider px-3 py-1 text-[12px] text-ncm-muted hover:bg-black/5"
+            @click="closeChat"
+          >关闭</button>
+        </div>
+
+        <!-- 消息区：固定高度、自己滚，新消息自动贴底 -->
+        <div ref="msgBox" class="mt-3 flex max-h-[320px] min-h-[120px] flex-col gap-2 overflow-y-auto pr-1">
+          <p v-if="chatBusy" class="text-[13px] text-ncm-faint">{{ t('fr.chatLoading', '正在加载聊天…') }}</p>
+          <p v-else-if="!chatMessages.length" class="text-[13px] text-ncm-faint">
+            {{ t('fr.chatEmpty', '还没有聊天记录，打个招呼吧') }}
+          </p>
+          <div
+            v-for="m in chatMessages"
+            :key="m.id"
+            class="flex"
+            :class="m.mine ? 'justify-end' : 'justify-start'"
+          >
+            <div
+              class="max-w-[70%] rounded-nav px-3.5 py-2 text-[14px]"
+              :class="m.mine ? 'bg-ncm-accent text-white' : 'bg-ncm-bg text-ncm-fg'"
+            >
+              <!-- 歌单消息：一张小卡片，点导入 -->
+              <template v-if="m.kind === 'share'">
+                <div class="flex items-center gap-2">
+                  <span class="text-[13px] opacity-80">{{ t('fr.chatShare', '歌单') }}</span>
+                  <span class="min-w-0 truncate font-medium">{{ m.shareName || m.text }}</span>
+                </div>
+                <div class="mt-1 flex items-center gap-2 text-[12px] opacity-80">
+                  <span>{{ m.shareCount }} {{ t('fr.chatSongs', '首') }}</span>
+                  <button
+                    type="button"
+                    class="rounded-pill bg-white/20 px-2 py-0.5 hover:bg-white/30"
+                    @click="importFromChat(m)"
+                  >{{ t('fr.chatImport', '导入歌单') }}</button>
+                </div>
+              </template>
+              <template v-else>{{ m.text }}</template>
+              <div class="mt-1 text-[11px] opacity-60">{{ fmtMsgTime(m.createdAt) }}</div>
+            </div>
+          </div>
+        </div>
+
+        <p v-if="chatError" class="mt-2 text-[13px] text-ncm-accent">{{ chatError }}</p>
+
+        <!-- 输入区 -->
+        <div class="mt-3 flex gap-2">
+          <input
+            v-model="draft"
+            maxlength="1000"
+            :placeholder="t('fr.chatPlaceholder', '说点什么…')"
+            class="min-w-0 flex-1 rounded-search border border-ncm-divider bg-ncm-bg px-4 py-2 text-[14px] text-ncm-fg outline-none focus:border-ncm-accent"
+            @keyup.enter="submitChat"
+          />
+          <button
+            type="button"
+            class="rounded-pill bg-ncm-accent px-5 py-2 text-[13px] text-white disabled:opacity-50"
+            :disabled="!draft.trim()"
+            @click="submitChat"
+          >{{ t('fr.chatSend', '发送') }}</button>
+        </div>
       </section>
     </template>
   </div>

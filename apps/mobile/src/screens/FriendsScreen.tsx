@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator, Image, Pressable, ScrollView, Text, TextInput, View,
 } from 'react-native'
-import { useFriendsApi, type FriendsState } from '../friends'
+import { useFriendsApi, type ChatMessage, type FriendsState } from '../friends'
 import { pullFeed, type FeedItem } from '../share'
 import { colors, useTopInset } from '../theme'
 
@@ -29,6 +29,11 @@ export default function FriendsScreen({ onNeedMembership, onOpenMy }: { onNeedMe
   })
   const [feed, setFeed] = useState<FeedItem[]>([])
   const [code, setCode] = useState('')
+  /** 当前打开的会话（好友码），空串表示没开 */
+  const [chatWith, setChatWith] = useState('')
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [draft, setDraft] = useState('')
+  const [unread, setUnread] = useState<Record<string, number>>({})
 
   const pull = useCallback(async () => {
     const r = await api.refresh()
@@ -40,6 +45,33 @@ export default function FriendsScreen({ onNeedMembership, onOpenMy }: { onNeedMe
   }, [])
 
   useEffect(() => { void pull() }, [])
+
+  /** 未读角标：进页面拉一次，开会话时也刷一次 */
+  const refreshUnread = useCallback(async () => {
+    const r = await api.unread()
+    if (r) setUnread(r.byCode ?? {})
+  }, [])
+
+  useEffect(() => { void refreshUnread() }, [])
+
+  const openChat = useCallback(async (friendCode: string) => {
+    setChatWith(friendCode)
+    setMessages([])
+    const r = await api.messages(friendCode, 0)
+    if (r) setMessages(r.messages ?? [])
+    void refreshUnread()
+  }, [])
+
+  const send = useCallback(async () => {
+    const text = draft.trim()
+    if (!text || !chatWith) return
+    setDraft('')
+    const ok = await api.sendText(chatWith, text)
+    if (ok !== null) {
+      const r = await api.messages(chatWith, messages.length ? messages[messages.length - 1]!.id : 0)
+      if (r?.messages?.length) setMessages((prev) => [...prev, ...r.messages])
+    }
+  }, [draft, chatWith, messages])
 
   const submit = async () => {
     if (!code.trim()) return
@@ -243,6 +275,14 @@ export default function FriendsScreen({ onNeedMembership, onOpenMy }: { onNeedMe
                   </Text>
                 </View>
                 <Pressable
+                  onPress={() => { void openChat(f.friendCode) }}
+                  style={{ backgroundColor: colors.accent + '22', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 }}
+                >
+                  <Text style={{ color: colors.accent, fontSize: 12 }}>
+                    聊天{unread[f.friendCode] ? ' ' + unread[f.friendCode] : ''}
+                  </Text>
+                </Pressable>
+                <Pressable
                   onPress={() => { void api.remove(f.friendCode).then(() => pull()) }}
                   style={{ borderWidth: 1, borderColor: colors.divider, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 }}
                 >
@@ -251,6 +291,76 @@ export default function FriendsScreen({ onNeedMembership, onOpenMy }: { onNeedMe
               </View>
             ))}
           </View>
+
+          {/* 聊天面板：点好友的「聊天」后展开在下面 */}
+          {chatWith ? (
+            <View style={{ marginTop: 16, backgroundColor: colors.surface, borderRadius: 12, padding: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={{ flex: 1, color: colors.fg, fontSize: 15, fontWeight: '600' }} numberOfLines={1}>
+                  {state.friends.find((x) => x.friendCode === chatWith)?.nickname ?? chatWith}
+                </Text>
+                <Pressable onPress={() => { setChatWith(''); setMessages([]) }}>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>关闭</Text>
+                </Pressable>
+              </View>
+
+              <View style={{ marginTop: 10, maxHeight: 280 }}>
+                {!messages.length ? (
+                  <Text style={{ color: colors.muted, fontSize: 13 }}>还没有聊天记录，打个招呼吧</Text>
+                ) : messages.map((m) => (
+                  <View
+                    key={m.id}
+                    style={{ alignSelf: m.mine ? 'flex-end' : 'flex-start', maxWidth: '78%', marginTop: 6 }}
+                  >
+                    <View style={{
+                      backgroundColor: m.mine ? colors.accent : colors.bg,
+                      borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8,
+                    }}>
+                      {m.kind === 'share' ? (
+                        <View>
+                          <Text style={{ color: m.mine ? '#fff' : colors.fg, fontSize: 13 }}>
+                            歌单 · {m.shareName || m.text}
+                          </Text>
+                          <Text style={{ color: m.mine ? '#ffffffcc' : colors.muted, fontSize: 11, marginTop: 2 }}>
+                            {m.shareCount} 首 · 分享码 {m.shareCode}
+                          </Text>
+                        </View>
+                      ) : (
+                        <Text style={{ color: m.mine ? '#fff' : colors.fg, fontSize: 14 }}>{m.text}</Text>
+                      )}
+                    </View>
+                  </View>
+                ))}
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, alignItems: 'center' }}>
+                <TextInput
+                  value={draft}
+                  onChangeText={setDraft}
+                  placeholder="说点什么…"
+                  placeholderTextColor={colors.fainter}
+                  style={{
+                    flex: 1, color: colors.fg, backgroundColor: colors.bg, borderRadius: 999,
+                    paddingHorizontal: 14, paddingVertical: 8, fontSize: 14,
+                  }}
+                  onSubmitEditing={() => { void send() }}
+                />
+                <Pressable
+                  onPress={() => { void send() }}
+                  disabled={!draft.trim()}
+                  style={{
+                    backgroundColor: colors.accent, borderRadius: 999,
+                    paddingHorizontal: 16, paddingVertical: 9, opacity: draft.trim() ? 1 : 0.5,
+                  }}
+                >
+                  <Text style={{ color: '#fff', fontSize: 13 }}>发送</Text>
+                </Pressable>
+              </View>
+              {api.error ? (
+                <Text style={{ color: colors.accent, fontSize: 12, marginTop: 6 }}>{api.error}</Text>
+              ) : null}
+            </View>
+          ) : null}
 
           {api.busy ? (
             <ActivityIndicator style={{ marginTop: 18 }} color={colors.accent} />

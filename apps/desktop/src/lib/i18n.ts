@@ -141,6 +141,7 @@ const ZH_CN: Dict = {
 
   'pl.fetching': '正在获取播放地址…',
   'pl.noLyric': '暂无歌词',
+  'pl.loadingLyric': '正在加载歌词…',
   'pl.hot': '热评',
   'pl.commentsLoading': '加载评论中…',
   'pl.resolvingComments': '正在找这首歌的评论…',
@@ -300,6 +301,7 @@ const EN_US: Dict = {
 
   'pl.fetching': 'Fetching stream…',
   'pl.noLyric': 'No lyrics',
+  'pl.loadingLyric': 'Loading lyrics…',
   'pl.hot': 'Hot',
   'pl.commentsLoading': 'Loading comments…',
   'pl.resolvingComments': 'Looking for comments…',
@@ -459,6 +461,7 @@ const KO_KR: Dict = {
 
   'pl.fetching': '재생 주소를 가져오는 중…',
   'pl.noLyric': '가사 없음',
+  'pl.loadingLyric': '가사를 불러오는 중…',
   'pl.hot': '인기',
   'pl.commentsLoading': '댓글 불러오는 중…',
   'pl.resolvingComments': '이 곡의 댓글을 찾는 중…',

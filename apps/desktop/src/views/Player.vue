@@ -985,7 +985,10 @@ const vinylStyle = computed(() => ({
                 v-if="dragHint"
                 class="pointer-events-none sticky top-0 z-10 mb-2 inline-block rounded-full bg-black/70 px-3 py-1 text-[12px] text-white backdrop-blur"
               >{{ dragHint }}</div>
-              <p v-if="!lyrics.length" class="text-[20px] leading-[32px] text-ncmd-dim">{{ t('pl.noLyric', '暂无歌词') }}</p>
+              <p v-if="!lyrics.length && player.state.lyricLoading" class="text-[20px] leading-[32px] text-ncmd-dim">
+              {{ t('pl.loadingLyric', '正在加载歌词…') }}
+            </p>
+            <p v-else-if="!lyrics.length" class="text-[20px] leading-[32px] text-ncmd-dim">{{ t('pl.noLyric', '暂无歌词') }}</p>
               <div
                 v-for="(line, i) in lyrics"
                 :key="i"

@@ -184,10 +184,128 @@ async function rename(nickname: string): Promise<void> {
   await refresh(true)
 }
 
+/* ------------------------------------------------------------------ 聊天 */
+
+export interface ChatMessage {
+  id: number
+  mine: boolean
+  kind: 'text' | 'share'
+  text: string
+  shareCode: string
+  shareName: string
+  shareCount: number
+  createdAt: number
+  readAt: number
+}
+
+/** 当前打开的会话对象（好友码），空串表示没开会话 */
+const chatWith = ref('')
+const chatMessages = ref<ChatMessage[]>([])
+const chatBusy = ref(false)
+const chatError = ref('')
+/** 好友码 -> 未读条数 */
+const unread = ref<Record<string, number>>({})
+
+/** 轮询定时器：只在会话打开时跑，关掉就清 */
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+async function loadUnread(): Promise<void> {
+  try {
+    const r = await api<{ total: number; byCode: Record<string, number> }>('GET', '/chat/unread')
+    unread.value = r.byCode ?? {}
+  } catch {
+    // 未读数失败不打扰用户
+  }
+}
+
+/**
+ * 打开会话：先把历史全量拉下来，然后每 5 秒增量拉新的。
+ *
+ * 用 after=<最大 id> 增量而不是整段重拉：聊天记录会越来越长，
+ * 每次都全传在弱网下会明显卡。轮询间隔 5 秒是「够快又不费流量」的折中，
+ * 关掉会话立刻停，不做后台轮询。
+ */
+async function openChat(code: string): Promise<void> {
+  chatWith.value = code
+  chatMessages.value = []
+  chatError.value = ''
+  chatBusy.value = true
+  stopPoll()
+  try {
+    const r = await api<{ messages: ChatMessage[] }>('GET', '/' + code + '/messages?after=0&limit=200')
+    chatMessages.value = r.messages ?? []
+    void loadUnread()
+  } catch (e) {
+    chatError.value = e instanceof Error ? e.message : '加载聊天失败'
+  } finally {
+    chatBusy.value = false
+  }
+  pollTimer = setInterval(() => {
+    void pollChat()
+  }, 5000)
+}
+
+async function pollChat(): Promise<void> {
+  const code = chatWith.value
+  if (!code) return
+  const last = chatMessages.value.length ? chatMessages.value[chatMessages.value.length - 1]!.id : 0
+  try {
+    const r = await api<{ messages: ChatMessage[] }>('GET', '/' + code + '/messages?after=' + last)
+    if (chatWith.value !== code) return
+    if (r.messages && r.messages.length) chatMessages.value = [...chatMessages.value, ...r.messages]
+  } catch {
+    // 轮询失败静默，下一轮再试
+  }
+}
+
+function stopPoll(): void {
+  if (pollTimer) clearInterval(pollTimer)
+  pollTimer = null
+}
+
+function closeChat(): void {
+  stopPoll()
+  chatWith.value = ''
+  chatMessages.value = []
+}
+
+/** 发文本 */
+async function sendText(text: string): Promise<void> {
+  const code = chatWith.value
+  const body = text.trim()
+  if (!code || !body) return
+  chatError.value = ''
+  try {
+    await api('POST', '/' + code + '/messages', { text: body })
+    await pollChat()
+  } catch (e) {
+    chatError.value = e instanceof Error ? e.message : '发送失败'
+  }
+}
+
+/** 把一张歌单当消息发给好友 */
+async function sendPlaylist(code: string, share: { shareCode: string; name: string; count: number }): Promise<void> {
+  chatError.value = ''
+  try {
+    await api('POST', '/' + code + '/messages', {
+      shareCode: share.shareCode,
+      shareName: share.name,
+      shareCount: share.count,
+      text: '分享歌单：' + share.name,
+    })
+    if (chatWith.value === code) await pollChat()
+  } catch (e) {
+    chatError.value = e instanceof Error ? e.message : '分享失败'
+    throw e
+  }
+}
+
 export function useFriends() {
   return {
     me, friends, pendingIn, pendingOut, busy, error, loadError, denied, loaded,
     refresh, addByCode, accept, decline, remove, rename,
     hasFriends: computed(() => friends.value.length > 0),
+    chatWith, chatMessages, chatBusy, chatError, unread,
+    openChat, closeChat, sendText, sendPlaylist, loadUnread,
   }
 }

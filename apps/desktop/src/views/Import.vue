@@ -141,8 +141,8 @@ onMounted(() => { void imp.detect() })
       <div v-if="imp.totalDecoded.value" class="mt-3 flex items-start gap-2 rounded-nav border border-emerald-200 bg-emerald-50/60 p-4 text-[13px] leading-5 text-emerald-900">
         <CheckCircle2 :size="15" class="mt-0.5 shrink-0" aria-hidden="true" />
         <span>
-          已就地把 {{ imp.totalDecoded.value }} 首 .ncm 解密成 mp3/flac 再导入（只处理本机文件，不上传、不联网）。
-          解密结果缓存在应用数据目录，源文件不变，重复导入不会再解一遍。
+          已就地把 {{ imp.totalDecoded.value }} 首加密文件（.ncm / .kgm / .qmc*）解密成 mp3/flac/ogg 再导入
+          （只处理本机文件，不上传、不联网）。解密结果缓存在应用数据目录，源文件不变，重复导入不会再解一遍。
         </span>
       </div>
 
@@ -155,8 +155,9 @@ onMounted(() => { void imp.detect() })
           <template v-for="(n, ext) in imp.lastSummary.value.encryptedByExt" :key="ext">
             <code class="rounded bg-black/5 px-1 py-0.5 text-[12px]">.{{ ext }}</code> {{ n }} 个&nbsp;
           </template>
-          —— .ncm 会解密，解不开通常是文件损坏或换了新的封装版本；
-          酷狗（.kgm）、QQ 音乐（.qmc/.mflac/.mgg）等格式暂未支持，需要先在对应客户端里导出为普通音频。
+          —— .ncm（网易云）、.kgm/.kgma（酷狗）、.qmc0/.qmc3/.qmcflac/.qmcogg（QQ 音乐静态加密）会自动解密；
+          解不开通常是文件损坏或换了新封装。QQ 音乐的 .mflac/.mgg/.qmc2 需要逐文件密钥，暂未支持，
+          可先用官方客户端导出为普通音频。
         </p>
       </div>
 

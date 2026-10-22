@@ -20,6 +20,8 @@ const { Readable } = require('node:stream')
 const zlib = require('node:zlib')
 const tags = require('./tags.cjs')
 const { decodeNcm } = require('./ncm.cjs')
+const { decodeKgm } = require('./kgm.cjs')
+const { decodeQmc } = require('./qmc.cjs')
 
 const SCHEME = 'lxmn-media'
 const PREFIX = `${SCHEME}://local/`
@@ -316,15 +318,31 @@ function krcToLrc(text) {
   return out.join('\n')
 }
 
+/** 目前能解的封装格式 -> 用哪个解码器 */
+const DECODERS = {
+  ncm: (buf) => decodeNcm(buf),
+  kgm: (buf) => decodeKgm(buf),
+  kgma: (buf) => decodeKgm(buf),
+  vpr: (buf) => decodeKgm(buf),
+  qmc0: (buf) => decodeQmc(buf, 'qmc0'),
+  qmc3: (buf) => decodeQmc(buf, 'qmc3'),
+  qmcflac: (buf) => decodeQmc(buf, 'qmcflac'),
+  qmcogg: (buf) => decodeQmc(buf, 'qmcogg'),
+  bkc: (buf) => decodeQmc(buf, 'bkc'),
+  bkcmp3: (buf) => decodeQmc(buf, 'bkcmp3'),
+  bkcflac: (buf) => decodeQmc(buf, 'bkcflac'),
+  bkcogg: (buf) => decodeQmc(buf, 'bkcogg'),
+}
+
 /**
- * 把 .ncm 就地解密成 mp3/flac（见 ncm.cjs）。
+ * 把加密封装（.ncm / .kgm / .qmc* ）就地解密成普通音频。
  *
  * 解出来的文件写在 userData/ncm-cache 下，按「原文件名 + mtime + size」命名：
  * 同一个文件重复扫描直接命中缓存，源文件更新会自动换新的。
  * 失败不阻断扫描，只在条目上留 decodeError，由界面如实告诉用户。
  */
 async function decodeNcmEntries(entries) {
-  const targets = entries.filter(e => e.ext === 'ncm')
+  const targets = entries.filter(e => DECODERS[e.ext])
   if (!targets.length) return
   const outDir = path.join(app.getPath('userData'), 'ncm-cache')
   try {
@@ -339,17 +357,19 @@ async function decodeNcmEntries(entries) {
       const i = cursor++
       if (i >= targets.length) return
       const e = targets[i]
+      const srcExt = e.ext
       const stamp = e.mtime + '-' + e.size
       const base = path.join(outDir, path.basename(e.name, path.extname(e.name)) + '.' + stamp)
       const cached = ['mp3', 'flac', 'm4a', 'wav', 'ogg'].map(ext => base + '.' + ext).find(p => fs.existsSync(p))
       if (cached) {
         e.path = cached
         e.ext = path.extname(cached).slice(1)
-        e.decodedFrom = 'ncm'
+        e.decodedFrom = srcExt === 'ncm' ? 'ncm' : 'pack'
         continue
       }
       try {
-        const res = decodeNcm(await fsp.readFile(e.path))
+        const decode = DECODERS[e.ext]
+        const res = decode(await fsp.readFile(e.path))
         if (!res.ok) {
           e.decodeError = res.error
           continue
@@ -362,7 +382,7 @@ async function decodeNcmEntries(entries) {
         // 不改名会一直算在「加密文件、跳过」里
         e.name = path.basename(e.name, path.extname(e.name)) + '.' + res.format
         e.size = res.audio.length
-        e.decodedFrom = 'ncm'
+        e.decodedFrom = srcExt === 'ncm' ? 'ncm' : 'pack'
         if (res.meta && res.meta.musicName) e.title = String(res.meta.musicName)
         if (res.meta && Array.isArray(res.meta.artist)) {
           const names = res.meta.artist.map(a => (Array.isArray(a) ? a[0] : a)).filter(Boolean)
