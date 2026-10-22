@@ -11,11 +11,15 @@
  */
 import { useEffect, useState } from 'react'
 import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, Text, View } from 'react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { getSource, hasSource, listSources, type MusicItem } from '@lxmn/core'
 import { Logo } from '../components/Icons'
 import { picKey } from '../lib/picKey'
 import { play, usePlayerState } from '../player'
 import { colors, useTopInset } from '../theme'
+
+const COVER_CACHE_KEY = 'lxmn.mobile.covers.v1'
+const COVER_TTL = 24 * 60 * 60 * 1000
 
 interface Playlist {
   id: number
@@ -84,6 +88,35 @@ export default function HomeScreen({ onOpenSearch }: { onOpenSearch?: (keyword?:
   const st = usePlayerState()
   const currentId = st.queue[st.index]?.songmid
 
+  /**
+   * 首页封面缓存（和桌面端同一套思路）。
+   *
+   * 歌单封面要串行搜 7 次，冷启动时这几张卡会空两三秒；缓存进 AsyncStorage
+   * 后第二次进首页首帧就有图。TTL 24 小时：再长换过的封面不更新，再短没意义。
+   */
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(COVER_CACHE_KEY)
+        if (!raw || !alive) return
+        const parsed = JSON.parse(raw) as Record<string, { url?: string; ts?: number }>
+        const now = Date.now()
+        const restored: Record<number, string> = {}
+        for (const pl of PLAYLISTS) {
+          const hit = parsed[String(pl.id)]
+          if (hit && typeof hit.url === 'string' && hit.url && typeof hit.ts === 'number' && now - hit.ts < COVER_TTL) {
+            restored[pl.id] = hit.url
+          }
+        }
+        if (Object.keys(restored).length) setCovers((prev) => ({ ...restored, ...prev }))
+      } catch {
+        // 缓存坏了就当没有
+      }
+    })()
+    return () => { alive = false }
+  }, [])
+
   useEffect(() => {
     let alive = true
     ;(async () => {
@@ -141,7 +174,16 @@ export default function HomeScreen({ onOpenSearch }: { onOpenSearch?: (keyword?:
             }
           }
         }
-        if (alive) setCovers(found)
+        if (alive) {
+          setCovers((prev) => ({ ...prev, ...found }))
+          // 写回缓存：只存 URL，不含其它状态
+          const now = Date.now()
+          const store: Record<string, { url: string; ts: number }> = {}
+          for (const [id, url] of Object.entries(found)) {
+            if (url) store[id] = { url, ts: now }
+          }
+          void AsyncStorage.setItem(COVER_CACHE_KEY, JSON.stringify(store)).catch(() => {})
+        }
       } catch (e) {
         if (alive) setError(e instanceof Error ? e.message : String(e))
       } finally {
