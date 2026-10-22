@@ -181,7 +181,8 @@ function fmtDuration(v: unknown): string {
         v-for="(item, i) in filtered"
         :key="item.source + '-' + item.songmid"
         class="group flex h-[62px] cursor-pointer items-center gap-4 rounded-nav px-3 transition-colors hover:bg-black/5"
-        @dblclick="play(item)"
+        :title="'点击播放：' + item.name"
+        @click="play(item)"
       >
         <span class="w-6 shrink-0 text-center text-[15px] text-ncm-fainter">{{ i + 1 }}</span>
 

@@ -698,7 +698,7 @@ watch(playlists, () => {
           v-for="(item, i) in opened.items"
           :key="keyOf(item)"
           class="group flex h-[62px] cursor-pointer items-center gap-4 rounded-nav px-3 transition-colors hover:bg-black/5"
-          @dblclick="play(item)"
+          @click="play(item)"
         >
           <span class="w-6 shrink-0 text-center text-[15px] text-ncm-fainter">{{ i + 1 }}</span>
 
@@ -770,7 +770,7 @@ watch(playlists, () => {
           v-for="(row, i) in list"
           :key="keyOf(row.item)"
           class="group flex h-[62px] cursor-pointer items-center gap-4 rounded-nav px-3 transition-colors hover:bg-black/5"
-          @dblclick="play(row.item)"
+          @click="play(row.item)"
         >
           <span class="w-6 shrink-0 text-center text-[15px] text-ncm-fainter">{{ i + 1 }}</span>
 

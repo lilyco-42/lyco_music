@@ -8,7 +8,7 @@ const { t } = useI18n()
  * 身份即订阅：没开会员时整个页面引导去开通，而不是报错 ——
  * 和云同步页一个套路，用户不用理解「令牌」是什么。
  */
-import { onMounted, ref } from 'vue'
+import { nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFriends, type ChatMessage } from '../lib/friends'
 import { useSharing, type FeedItem } from '../lib/share'
@@ -36,6 +36,17 @@ onMounted(() => {
 /* ---------------- 聊天 ---------------- */
 
 const draft = ref('')
+/** 消息容器：新消息进来要自动贴底，否则用户以为对方没回 */
+const msgBox = ref<HTMLElement | null>(null)
+
+watch(
+  () => chatMessages.value.length,
+  async () => {
+    await nextTick()
+    const el = msgBox.value
+    if (el) el.scrollTop = el.scrollHeight
+  },
+)
 
 /** 当前会话对方昵称（好友列表里找；找不到就用好友码） */
 function chatTitle(code: string): string {

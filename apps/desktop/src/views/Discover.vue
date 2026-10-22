@@ -193,7 +193,7 @@ const tabs = computed(() => ([
           v-for="(item, i) in detail.tracks"
           :key="item.source + '-' + String(item.songmid)"
           class="group flex h-[56px] cursor-pointer items-center gap-3 rounded-nav px-3 transition-colors hover:bg-black/5"
-          @dblclick="playOne(item)"
+          @click="playOne(item)"
         >
           <span class="w-6 shrink-0 text-center text-[14px] text-ncm-fainter">{{ i + 1 }}</span>
           <div class="relative size-[40px] shrink-0 overflow-hidden rounded-[5px] bg-ncm-fainter/30">

@@ -3,7 +3,7 @@
  *
  * 身份即订阅：未开通会员时引导去会员页；开通后用好友码加好友。
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator, Image, Pressable, ScrollView, Text, TextInput, View,
 } from 'react-native'
@@ -34,6 +34,8 @@ export default function FriendsScreen({ onNeedMembership, onOpenMy }: { onNeedMe
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [draft, setDraft] = useState('')
   const [unread, setUnread] = useState<Record<string, number>>({})
+  /** 已拉到的最大消息 id，轮询游标 */
+  const lastIdRef = useRef(0)
 
   const pull = useCallback(async () => {
     const r = await api.refresh()
@@ -54,11 +56,39 @@ export default function FriendsScreen({ onNeedMembership, onOpenMy }: { onNeedMe
 
   useEffect(() => { void refreshUnread() }, [])
 
+  /**
+   * 会话打开期间每 5 秒增量拉一次。
+   *
+   * 桌面端在 lib 里做了轮询，移动端这边之前只拉了首屏 —— 对方回消息要退出重进
+   * 才看得到，等于聊天只能单边用。after 传已有的最大 id，只取新的。
+   */
+  useEffect(() => {
+    if (!chatWith) return
+    let alive = true
+    const timer = setInterval(() => {
+      void (async () => {
+        // 用 ref 读游标：不能把 messages 放进依赖，否则每来一条消息
+        // 都会重建定时器，等于把轮询节流成「消息越频繁越慢」
+        const last = lastIdRef.current
+        const r = await api.messages(chatWith, last)
+        if (!alive || !r?.messages?.length) return
+        setMessages((prev) => [...prev, ...r.messages])
+        void refreshUnread()
+      })()
+    }, 5000)
+    return () => { alive = false; clearInterval(timer) }
+  }, [chatWith])
+
   const openChat = useCallback(async (friendCode: string) => {
     setChatWith(friendCode)
     setMessages([])
+    lastIdRef.current = 0
     const r = await api.messages(friendCode, 0)
-    if (r) setMessages(r.messages ?? [])
+    if (r) {
+      setMessages(r.messages ?? [])
+      const list = r.messages ?? []
+      if (list.length) lastIdRef.current = list[list.length - 1]!.id
+    }
     void refreshUnread()
   }, [])
 
@@ -68,10 +98,13 @@ export default function FriendsScreen({ onNeedMembership, onOpenMy }: { onNeedMe
     setDraft('')
     const ok = await api.sendText(chatWith, text)
     if (ok !== null) {
-      const r = await api.messages(chatWith, messages.length ? messages[messages.length - 1]!.id : 0)
-      if (r?.messages?.length) setMessages((prev) => [...prev, ...r.messages])
+      const r = await api.messages(chatWith, lastIdRef.current)
+      if (r?.messages?.length) {
+        setMessages((prev) => [...prev, ...r.messages])
+        lastIdRef.current = r.messages[r.messages.length - 1]!.id
+      }
     }
-  }, [draft, chatWith, messages])
+  }, [draft, chatWith])
 
   const submit = async () => {
     if (!code.trim()) return
