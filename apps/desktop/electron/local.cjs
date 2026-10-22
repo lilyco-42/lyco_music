@@ -22,6 +22,7 @@ const tags = require('./tags.cjs')
 const { decodeNcm } = require('./ncm.cjs')
 const { decodeKgm } = require('./kgm.cjs')
 const { decodeQmc } = require('./qmc.cjs')
+const { decodeQmcV2 } = require('./qmc2.cjs')
 
 const SCHEME = 'lxmn-media'
 const PREFIX = `${SCHEME}://local/`
@@ -332,6 +333,19 @@ const DECODERS = {
   bkcmp3: (buf) => decodeQmc(buf, 'bkcmp3'),
   bkcflac: (buf) => decodeQmc(buf, 'bkcflac'),
   bkcogg: (buf) => decodeQmc(buf, 'bkcogg'),
+  // QMCv2：每文件一个 ekey，容器布局各不相同，交给 qmc2.cjs 自己嗅探
+  mflac: (buf) => decodeQmcV2(buf, 'flac'),
+  mflac0: (buf) => decodeQmcV2(buf, 'flac'),
+  mflac2: (buf) => decodeQmcV2(buf, 'flac'),
+  mflac4: (buf) => decodeQmcV2(buf, 'flac'),
+  mgg: (buf) => decodeQmcV2(buf, 'ogg'),
+  mgg0: (buf) => decodeQmcV2(buf, 'ogg'),
+  mgg1: (buf) => decodeQmcV2(buf, 'ogg'),
+  mgg2: (buf) => decodeQmcV2(buf, 'ogg'),
+  mgg4: (buf) => decodeQmcV2(buf, 'ogg'),
+  mggl: (buf) => decodeQmcV2(buf, 'ogg'),
+  qmc2: (buf) => decodeQmcV2(buf, 'mp3'),
+  qmcflac2: (buf) => decodeQmcV2(buf, 'flac'),
 }
 
 /**

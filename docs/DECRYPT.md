@@ -14,12 +14,14 @@
 | `.qmc0` `.qmc3` | QQ 音乐 | `electron/qmc.cjs` | 静态密码：SEED_MAP 蛇形遍历生成 128 字节密钥流，逐字节异或 |
 | `.qmcflac` `.qmcogg` | QQ 音乐 | `electron/qmc.cjs` | 同上，输出 flac / ogg |
 | `.bkc` `.bkcmp3` `.bkcflac` `.bkcogg` | QQ 音乐（备份） | `electron/qmc.cjs` | 同 QMC 静态密码 |
+| `.mflac` `.mflac0/2/4` `.mgg` `.mgg0/1/2/4` `.mggl` `.qmc2` `.qmcflac2` | QQ 音乐 | `electron/qmc2.cjs` | QMCv2：从 STag/QTag/裸尾容器里挖 ekey，TEA 派生密钥，再走 RC4 变体（长密钥）或 32768 掩码（短密钥） |
 
 ## 暂不支持
 
 | 格式 | 原因 |
 | --- | --- |
-| `.mflac` `.mgg` `.mflac0` `.mgg1` `.qmc2` | QMCv2：需要从文件内 STag/QTag 里解出 per-file ekey（Tencent TEA），再走 RC4 + 动态掩码。工作量是静态版的三四倍，且 ekey 有时还得回官方接口换，目前没做 |
+| musicex 容器（2023 年后的 QQ 音乐新版） | 文件里**没有**内嵌 ekey，必须带用户 Cookie 回官方接口换。导入页会明确提示这一条，不会静默跳过 |
+| 带 STag 但无内嵌密钥的容器 | 同上，需要旧版客户端重新下载 |
 | 其他（`.xm`、`.tm*` 等） | 格式已停用或样本太少，没有可靠参考实现 |
 
 遇到不支持的格式，导入页会明确列出来（"仍有 M 个加密文件解不开"），不会静默跳过。
@@ -37,6 +39,11 @@
 - 逐字节：`med8 = key[pos % 17] ^ data` → `med8 ^= (med8 & 0x0F) << 4` → `msk8 = getMask(pos)` → `msk8 ^= (msk8 & 0x0F) << 4` → `data = med8 ^ msk8`。
 - VPR 再异或 `VPR_MASK_DIFF[pos % 17]`。
 - `getMask` 用三张 272 字节表（`MASK_V2_PRE_DEF` / `TABLE1` / `TABLE2`），表在 `electron/decoder-tables.cjs`。
+
+### QMCv2
+- 容器嗅探（`detectKey`）：STag 头（`ekeyLen`@0x14，ekey@0x18）、QTag 尾（`ekey,songid,ver` + u32be 长度 + `QTag`）、裸 ekey 尾（ekey + u32le 长度）。musicex / 无密钥 STag 直接给出可读原因。
+- 密钥派生：ekey(base64) → 若以 `QQMusic EncV2,Key:` 开头，先用 MIX_KEY_1/MIX_KEY_2 各解一轮腾讯 TEA；再用 `simpleMakeKey(106, 8)` 拼出 16 字节 TEA 密钥，解主体，拼成 `8 + N` 字节。
+- 解音频：派生密钥 >300 字节 → `QmcRC4Cipher`（KSA 标准，分段 5120，段内用 `S[(skip + pos + i) % N]`）；≤300 字节 → `keyCompress` 压成 128 字节后铺 32768 掩码。
 
 ### QMC 静态（v1）
 - 密钥流：在 7×8 的 `SEED_MAP` 上蛇形遍历，每轮 128 字节；`index` 到 `0x8000` 的倍数时递归跳过一格。

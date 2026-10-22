@@ -155,9 +155,10 @@ onMounted(() => { void imp.detect() })
           <template v-for="(n, ext) in imp.lastSummary.value.encryptedByExt" :key="ext">
             <code class="rounded bg-black/5 px-1 py-0.5 text-[12px]">.{{ ext }}</code> {{ n }} 个&nbsp;
           </template>
-          —— .ncm（网易云）、.kgm/.kgma（酷狗）、.qmc0/.qmc3/.qmcflac/.qmcogg（QQ 音乐静态加密）会自动解密；
-          解不开通常是文件损坏或换了新封装。QQ 音乐的 .mflac/.mgg/.qmc2 需要逐文件密钥，暂未支持，
-          可先用官方客户端导出为普通音频。
+          —— 自动解密：.ncm（网易云）、.kgm/.kgma/.vpr（酷狗）、
+          .qmc0/.qmc3/.qmcflac/.qmcogg（QQ 音乐静态加密）、.mflac/.mgg/.qmc2（QQ 音乐逐文件密钥）。
+          解不开通常是文件损坏、换了新封装，或者文件来自 2023 年后的 QQ 音乐新版（musicex，
+          密钥不在文件里），这种只能在官方客户端里导出成普通音频。
         </p>
       </div>
 
