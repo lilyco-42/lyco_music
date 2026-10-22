@@ -523,7 +523,7 @@ watch(playlists, () => {
     <div v-if="tab === 'playlist' && !opened" class="mt-6">
       <div v-if="!playlists.length" class="mt-10 flex flex-col items-center">
         <img :src="'./art/empty-favorites.jpg'" alt="" class="w-[180px] rounded-cover opacity-90" loading="lazy" />
-        <p class="mt-4 text-[15px] text-ncm-faint">还没有歌单。点右上角「新建歌单」建一个。</p>
+        <p class="mt-4 text-[15px] text-ncm-faint">{{ t('my.emptyPlaylists', '还没有歌单。点右上角「新建歌单」建一个。') }}</p>
       </div>
       <div v-else class="grid grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-5">
         <button
@@ -701,7 +701,7 @@ watch(playlists, () => {
           type="button"
           class="shrink-0 rounded-pill border border-ncm-divider px-3.5 py-1.5 text-[13px] text-ncm-muted transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-600"
           @click="clearTrial"
-        >清空试听列表</button>
+        >{{ t('my.clearTrial', '清空试听列表') }}</button>
       </div>
 
       <div v-if="!list.length" class="mt-10 flex flex-col items-center">
@@ -712,9 +712,9 @@ watch(playlists, () => {
           loading="lazy"
         />
         <p class="mt-4 text-[15px] text-ncm-faint">
-          <template v-if="tab === 'trial'">试听列表是空的。在搜索页点一首歌，它就会进来。</template>
-          <template v-else-if="tab === 'fav'">还没有收藏。在搜索页点右侧的心形即可收藏。</template>
-          <template v-else>还没有播放记录。</template>
+          <template v-if="tab === 'trial'">{{ t('my.trialEmpty', '试听列表是空的。在搜索页点一首歌，它就会进来。') }}</template>
+          <template v-else-if="tab === 'fav'">{{ t('my.favEmpty', '还没有收藏。在搜索页点右侧的心形即可收藏。') }}</template>
+          <template v-else>{{ t('my.recentEmpty', '还没有播放记录。') }}</template>
         </p>
       </div>
 

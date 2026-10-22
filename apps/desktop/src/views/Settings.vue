@@ -16,7 +16,9 @@ import { toast } from '@/lib/toast'
 import { useUserSources } from '@/lib/user-sources'
 import { sourcePool, syncScriptSources } from '@/lib/source-pool'
 import PrefsSettings from '@/components/settings/PrefsSettings.vue'
+import { useI18n } from '@/lib/i18n'
 
+const { t } = useI18n()
 const tex = useTexture()
 const theme = useTheme()
 
@@ -178,7 +180,7 @@ const SKIN_DESC: Record<SkinId, string> = {
     <div class="rounded-2xl border border-ncm-divider bg-white p-7">
       <div class="flex items-center gap-2">
         <Layers :size="19" class="text-ncm-accent" />
-        <h2 class="text-lg font-semibold text-ncm-fg">封面质感</h2>
+        <h2 class="text-lg font-semibold text-ncm-fg">{{ t('set.texture', '封面质感') }}</h2>
         <span class="ml-auto rounded-full bg-ncm-accent/10 px-2.5 py-1 text-[11px] text-ncm-accent">默认：半调网点</span>
       </div>
       <p class="mt-2 text-sm text-ncm-faint">
@@ -241,7 +243,7 @@ const SKIN_DESC: Record<SkinId, string> = {
     <div class="mt-5 rounded-2xl border border-ncm-divider bg-white p-7">
       <div class="flex items-center gap-2">
         <Layers :size="19" class="text-ncm-accent" />
-        <h2 class="text-lg font-semibold text-ncm-fg">皮肤</h2>
+        <h2 class="text-lg font-semibold text-ncm-fg">{{ t('set.skin', '皮肤') }}</h2>
       </div>
       <p class="mt-2 text-sm text-ncm-faint">皮肤换的是材质（面板是否半透明、有没有毛玻璃），和下面的强调色互不影响。</p>
       <div class="mt-4 grid grid-cols-2 gap-3">
@@ -268,7 +270,7 @@ const SKIN_DESC: Record<SkinId, string> = {
     <div class="mt-5 rounded-2xl border border-ncm-divider bg-white p-7">
       <div class="flex items-center gap-2">
         <Palette :size="19" class="text-ncm-accent" />
-        <h2 class="text-lg font-semibold text-ncm-fg">强调色</h2>
+        <h2 class="text-lg font-semibold text-ncm-fg">{{ t('set.accent', '强调色') }}</h2>
       </div>
       <p class="mt-2 text-sm text-ncm-faint">只换选中态/进度条这类强调色，结构色不动，所以任何配色下对比度都是可预期的。</p>
       <div class="mt-4 flex flex-wrap items-center gap-3">
@@ -313,7 +315,7 @@ const SKIN_DESC: Record<SkinId, string> = {
     <div class="mt-5 rounded-2xl border border-ncm-divider bg-white p-7">
       <div class="flex items-center gap-2">
         <ThumbsDown :size="19" class="text-ncm-accent" aria-hidden="true" />
-        <h2 class="text-lg font-semibold text-ncm-fg">不喜欢的歌曲</h2>
+        <h2 class="text-lg font-semibold text-ncm-fg">{{ t('set.dislike', '不喜欢的歌曲') }}</h2>
         <span class="ml-1 text-[12px] text-ncm-faint">{{ dislikes.length }} 条规则</span>
       </div>
       <p class="mt-2 text-sm text-ncm-faint">
@@ -356,7 +358,7 @@ const SKIN_DESC: Record<SkinId, string> = {
     <div class="mt-5 rounded-2xl border border-ncm-divider bg-white p-7">
       <div class="flex items-center gap-2">
         <FileCode2 :size="19" class="text-ncm-accent" aria-hidden="true" />
-        <h2 class="text-lg font-semibold text-ncm-fg">自定义音源</h2>
+        <h2 class="text-lg font-semibold text-ncm-fg">{{ t('set.sources', '自定义音源') }}</h2>
         <span class="ml-1 text-[12px] text-ncm-faint">
           已导入 {{ userSources.list.value.length }} 个 · 启用 {{ userSources.enabledCount.value }} 个
         </span>
