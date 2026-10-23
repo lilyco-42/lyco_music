@@ -61,3 +61,48 @@
 查表数据固化在 `electron/decoder-tables.cjs`（从参考实现导出，非手写），
 算法在 `kgm.cjs` / `qmc.cjs` / `ncm.cjs`，测试在 `tests/ncm.test.ts` 与
 `tests/media-decoders.test.ts`（用合成文件做往返校验，不依赖真实样本）。
+
+
+## 跨平台外挂解析器（可选方案，尚未接入）
+
+现有解码器是**纯 JS**（`electron/ncm.cjs` 等），不依赖任何原生库，三平台通用。
+用户提出「要不要加个 .so/.dll 外挂解析器」，调研结论如下。
+
+### 候选：taurusxin/ncmdump
+
+| 项 | 值 |
+| --- | --- |
+| 语言 | C++17 |
+| 许可证 | **MIT**（可商用、可闭源分发，只需保留版权声明） |
+| 依赖 | **TagLib**（必需）、ZLIB |
+| 原生接口 | **已有 C ABI**，见 `src/lib/libncmdump.h` |
+
+它导出的就是标准 C 接口，不用自己再包一层：
+
+```c
+NeteaseCrypt* CreateNeteaseCrypt(const char* path);
+int  Dump(NeteaseCrypt*, const char* outputPath);
+void FixMetadata(NeteaseCrypt*);
+void DestroyNeteaseCrypt(NeteaseCrypt*);
+```
+
+### 为什么暂时不接
+
+1. **能力没有增量**：它只解 NCM。而本仓库已经覆盖 NCM + KGM/KGMA/VPR +
+   QMCv1（含 bkc*）+ QMCv2（mflac*/mgg*），共 15 种。换它反而少。
+2. **引入原生依赖**：要连带打包 TagLib，三平台各一份预编译产物
+   （win-x64 / mac-arm64 / mac-x64 / linux-x64），安装包体积和维护成本都上升，
+   而 Electron 主进程本身已经是 Node，纯 JS 足够快（实测 1000 首目录扫描无压力）。
+3. **它并不解决真正的难点**：musicex 容器（2023 年后 QQ 音乐新版）密钥不在文件里，
+   任何本地解码器都无能为力，必须带 Cookie 回官方接口换。这不是 C++ 能补的。
+
+### 什么情况下值得接
+
+- 遇到**纯 JS 解不开但 ncmdump 能解**的真实样本（目前没有这样的样本）；
+- 或者需要处理超大文件、要求解密吞吐显著高于 JS。
+
+真要接的话，路线是：把 `libncmdump` 编成 `ncmdump.dll` / `.dylib` / `.so`，
+在主进程用 `node:ffi` 或一个极薄的 `node-gyp` 绑定加载，作为
+`DECODERS.ncm` 的**备用实现**（先试纯 JS，失败再回落原生），
+这样既不影响现有可用性，也能覆盖 JS 实现漏掉的边界样本。
+

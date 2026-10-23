@@ -248,6 +248,18 @@ function installProtocol() {
  * 注册表和 Program Files 里都查不到。只认 `%USERPROFILE%\Music\CloudMusic`
  * 会直接漏掉。
  */
+/**
+ * 解密产物的存放目录。
+ *
+ * 单独抽成函数是因为有**两处**必须用同一个值：
+ *   1. 解密时写文件；
+ *   2. 扫描时把这个目录排除掉（否则缓存会被当成新的歌再导入一遍）。
+ * 之前只有第 1 处，第 2 处漏了，于是界面上凭空多出一个 ncm-cache 歌单。
+ */
+function decodedCacheDir() {
+  return path.join(app.getPath('userData'), 'ncm-cache')
+}
+
 async function detectDirs() {
   const home = app.getPath('home')
   const downloads = new Set()
@@ -288,6 +300,15 @@ async function detectDirs() {
 /** 递归收集文件。用 promises 逐个 stat，不阻塞主进程的其它 IPC */
 async function walk(dir, depth, budget) {
   if (depth > MAX_DEPTH || budget.entries.length >= MAX_FILES) return
+  /**
+   * 跳过自己的解密缓存目录。
+   *
+   * 解出来的 mp3 就放在 userData/ncm-cache 下。如果用户把整个用户目录
+   * （或者应用数据目录）当成本地音乐目录导入，这些缓存会被当成「新的歌」
+   * 再导入一遍 —— 界面于是出现一个叫 ncm-cache 的歌单，歌还是同一批，
+   * 用户看到「19 首可导入 + 17 个解不开」这种自相矛盾的数字。
+   */
+  if (depth > 0 && path.resolve(dir) === path.resolve(decodedCacheDir())) return
   let entries
   try {
     entries = await fsp.readdir(dir, { withFileTypes: true })
@@ -398,7 +419,7 @@ const DECODERS = {
 async function decodeNcmEntries(entries) {
   const targets = entries.filter(e => DECODERS[e.ext])
   if (!targets.length) return
-  const outDir = path.join(app.getPath('userData'), 'ncm-cache')
+  const outDir = decodedCacheDir()
   try {
     await fsp.mkdir(outDir, { recursive: true })
   } catch {
