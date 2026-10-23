@@ -433,6 +433,7 @@ async function decodeNcmEntries(entries) {
       if (i >= targets.length) return
       const e = targets[i]
       const srcExt = e.ext
+      const srcPath = e.path
       const stamp = e.mtime + '-' + e.size
       const base = path.join(outDir, path.basename(e.name, path.extname(e.name)) + '.' + stamp)
       const cached = ['mp3', 'flac', 'm4a', 'wav', 'ogg'].map(ext => base + '.' + ext).find(p => fs.existsSync(p))
@@ -440,6 +441,32 @@ async function decodeNcmEntries(entries) {
         e.path = cached
         e.ext = path.extname(cached).slice(1)
         e.decodedFrom = srcExt === 'ncm' ? 'ncm' : 'pack'
+        /**
+         * 命中缓存时也要把封面接回来。
+         *
+         * 之前这里只恢复了 path/ext，于是「第一次导入有封面、之后每次都没有」——
+         * 缓存分支是常态路径（用户重复导入、换目录再扫），必须一起处理。
+         *
+         * 老缓存里根本没有 .cover 文件（封面落盘是后加的），所以这里
+         * 发现缺失就回读一次源文件补上，补完下次就直接命中。
+         */
+        const coverPath = base + '.cover'
+        if (fs.existsSync(coverPath)) {
+          e.hasCover = true
+          e.coverPath = coverPath
+        } else if (srcExt === 'ncm') {
+          try {
+            // 注意读的是**源文件**（e.path 此刻已被改成缓存里的 mp3）
+            const res = DECODERS[srcExt](await fsp.readFile(srcPath))
+            if (res && res.ok && res.cover && res.cover.length) {
+              await fsp.writeFile(coverPath, res.cover)
+              e.hasCover = true
+              e.coverPath = coverPath
+            }
+          } catch {
+            // 源文件已被删除/改名：没有封面也能播，不报错
+          }
+        }
         continue
       }
       try {

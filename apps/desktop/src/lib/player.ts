@@ -546,6 +546,16 @@ async function loadLyric(item: MusicItem): Promise<void> {
 }
 
 /** 取封面（同样不阻断） */
+/**
+ * 取封面，本音源没有就跨源借一张。
+ *
+ * 各音源给封面的完整度差别很大：网易云几乎每条都有 al.picUrl，
+ * 酷狗的 Image 有时是空模板，咪咕部分条目 imgItems 为空。
+ * 以前只问本音源，拿不到就一直显示占位图 —— 用户看到的就是「这首歌没封面」。
+ *
+ * 兜底策略和歌词一致：先用自己这条记录的 picUrl（最准），
+ * 再让本音源 getPic 补一次，最后按同一首歌去别的源借。
+ */
 async function loadPic(item: MusicItem): Promise<void> {
   const target = state.playingItem && state.playingItem.id === item.id ? state.playingItem : item
   state.picUrl = target.picUrl ?? ''
@@ -554,7 +564,22 @@ async function loadPic(item: MusicItem): Promise<void> {
     const info = await getSource(target.source).getPic(target)
     state.picUrl = info.url ?? ''
   } catch {
-    // 忽略
+    // 本音源取不到，继续跨源
+  }
+  if (state.picUrl) return
+  // 跨源借封面：同一首歌在别家通常带图
+  try {
+    const alt = await findSameSong(target)
+    if (alt && alt.picUrl) {
+      state.picUrl = alt.picUrl
+      return
+    }
+    if (alt) {
+      const info = await getSource(alt.source).getPic(alt)
+      if (info.url) state.picUrl = info.url
+    }
+  } catch {
+    // 借不到就保持占位图，不影响播放
   }
 }
 

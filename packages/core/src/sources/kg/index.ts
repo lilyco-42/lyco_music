@@ -82,10 +82,16 @@ export function handleKgSearchItem(raw: unknown): MusicItem | null {
   }
 }
 
-/** 取封面：搜索结果里的 Image 是带 {size} 占位符的模板 */
+/**
+ * 取封面：搜索结果里的 Image 是带 {size} 占位符的模板。
+ *
+ * 用全局替换（原来只换第一个）：有的条目模板里出现两次 {size}，
+ * 只换一处会拼出 .../480/xxx_{size}.jpg 这种坏地址，图片必然加载失败，
+ * 表现出来就是「这首歌没封面」。
+ */
 function picFromTemplate(tpl: unknown, size = 480): string {
   if (typeof tpl !== 'string' || !tpl) return ''
-  return tpl.replace('{size}', String(size))
+  return tpl.replace(/{size}/g, String(size))
 }
 
 /**
