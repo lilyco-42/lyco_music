@@ -27,11 +27,11 @@ describe('本地 ncm 封面', () => {
     expect(hit).toContain('res.cover')
   })
 
-  it('srcPath 在改写 e.path 之前就保存了', () => {
-    const i = local.indexOf('const srcPath = e.path')
-    const j = local.indexOf('e.path = cached')
-    expect(i).toBeGreaterThan(-1)
-    expect(i).toBeLessThan(j)
+  it('srcPath 保留了源文件位置（path 不再被改写）', () => {
+    const region = local.slice(local.indexOf('async function decodeNcmEntries'), local.indexOf('async function attachTags'))
+    // 解密产物走 playPath；path 必须始终是源文件，否则分组会跑到 ncm-cache 下
+    expect(region).toContain('const srcPath = e.path')
+    expect(region).not.toMatch(/^\s*e\.path\s*=/m)
   })
 })
 

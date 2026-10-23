@@ -102,6 +102,14 @@ export interface LocalFileEntry {
   artist?: string
   /** 内嵌标签里的专辑 */
   album?: string
+  /**
+   * 实际播放要读的文件路径。
+   *
+   * 加密文件（.ncm 等）解密后会生成一份普通音频放在缓存目录，
+   * 但 path 仍然指向**源文件**——渲染层靠 path 决定这首歌归到哪个
+   * 目录分组。只有解密过的条目才有这个字段，其它情况直接用 path。
+   */
+  playPath?: string
   /** 有没有封面（有的话封面走 lxmn-media://cover/ 按需读） */
   hasCover?: boolean
   /**
@@ -192,8 +200,9 @@ export function buildLocalTracks(files: readonly LocalFileEntry[], options: Buil
       songmid: file.path,
       name: title,
       singer: singer || '未知歌手',
-      url: localMediaUrl(file.path),
-      path: file.path,
+      // 解密过的用解密产物播放；path 保留源文件位置，用于分组与显示
+      url: localMediaUrl(file.playPath ?? file.path),
+      path: file.playPath ?? file.path,
       size: file.size,
       mtime: file.mtime,
       ...(file.album ? { albumName: String(file.album) } : {}),

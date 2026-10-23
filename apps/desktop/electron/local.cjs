@@ -438,7 +438,17 @@ async function decodeNcmEntries(entries) {
       const base = path.join(outDir, path.basename(e.name, path.extname(e.name)) + '.' + stamp)
       const cached = ['mp3', 'flac', 'm4a', 'wav', 'ogg'].map(ext => base + '.' + ext).find(p => fs.existsSync(p))
       if (cached) {
-        e.path = cached
+        /**
+         * 关键：**不改 e.path**。
+         *
+         * e.path 是「这首歌来自哪个目录」，渲染层靠它分组（CloudMusic /
+         * VipSongsDownload / ...）。以前这里直接把它改写成缓存里的 mp3 路径，
+         * 于是那 17 首 ncm 全被归到 ncm-cache 分组下，界面上凭空多出一个
+         * 叫 ncm-cache 的歌单，看起来像「缓存被重复导入」。
+         *
+         * 实际播放要读的是解密产物，所以另存 playPath。
+         */
+        e.playPath = cached
         e.ext = path.extname(cached).slice(1)
         e.decodedFrom = srcExt === 'ncm' ? 'ncm' : 'pack'
         /**
@@ -478,7 +488,8 @@ async function decodeNcmEntries(entries) {
         }
         const out = base + '.' + res.format
         await fsp.writeFile(out, res.audio)
-        e.path = out
+        // 同上：path 保留源文件位置（用于分组），播放读 playPath
+        e.playPath = out
         e.ext = res.format
         // 名字也换成解密后的扩展名：渲染层用文件名判断「能不能播」，
         // 不改名会一直算在「加密文件、跳过」里
