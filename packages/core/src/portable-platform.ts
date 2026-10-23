@@ -71,6 +71,6 @@ export function createPortablePlatform(options: PortablePlatformOptions): Platfo
       base64Decode: (s) => fromBase64(s),
       decodeName: options.decodeName ?? ((s) => (typeof s === 'string' ? s : utf8Decode(s))),
     },
-    version: options.version ?? '0.2.52',
+    version: options.version ?? '0.2.53',
   }
 }
