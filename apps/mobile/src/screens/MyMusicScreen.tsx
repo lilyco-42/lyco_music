@@ -4,8 +4,8 @@
  * 曲库是内核级的，与桌面端读同一份数据，所以这里看到的就是同步过去的内容。
  */
 import { useCallback, useEffect, useState } from 'react'
-import { FlatList, Pressable, Text, View } from 'react-native'
-import type { MusicItem, SourceId } from '@lxmn/core'
+import { FlatList, Modal, Pressable, Text, TextInput, View } from 'react-native'
+import { importWyPlaylistToLibrary, type MusicItem, type SourceId } from '@lxmn/core'
 import { play, usePlayerState } from '../player'
 import { library } from '../sync'
 import { getShared } from '../share'
@@ -82,6 +82,37 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
     pull()
   }
 
+  // 网易云歌单导入：粘链接/短链，读歌单后建成自建歌单（桌面端同一份内核逻辑）
+  const [wyOpen, setWyOpen] = useState(false)
+  const [wyText, setWyText] = useState('')
+  const [wyBusy, setWyBusy] = useState(false)
+  const [wyMsg, setWyMsg] = useState('')
+  const [wyErr, setWyErr] = useState('')
+
+  function openWyImport() {
+    setWyOpen(true)
+    setWyText('')
+    setWyMsg('')
+    setWyErr('')
+  }
+
+  async function doWyImport() {
+    if (wyBusy || !wyText.trim()) return
+    setWyBusy(true)
+    setWyErr('')
+    setWyMsg('')
+    try {
+      const r = await importWyPlaylistToLibrary(wyText, library)
+      setWyMsg('已导入「' + r.name + '」共 ' + r.added + ' 首（歌单 ' + r.total + ' 首）')
+      setWyText('')
+      pull()
+    } catch (e) {
+      setWyErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setWyBusy(false)
+    }
+  }
+
   async function unfav(item: MusicItem) {
     await library.removeFavorite(item)
     pull()
@@ -127,14 +158,16 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
         <Text style={{ color: colors.fg, fontSize: 24, fontWeight: '700', flex: 1 }}>我的音乐</Text>
       </View>
 
-      {/* 功能入口行：账户 / 云同步 / 好友。
+      {/* 功能入口行：账户 / 云同步 / 好友 / 网易云导入。
           原来是三个独立标签，挤在 7 个标签的一行里；收进这里之后
-          标签栏才腾得出位置给迷你播放条和更大的字号。 */}
+          标签栏才腾得出位置给迷你播放条和更大的字号。
+          「网易云导入」不依赖任何 props，始终在。 */}
       <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 20, paddingTop: 16 }}>
         {([
           ['账户', onOpenAccount],
           ['云同步', onOpenSync],
           ['好友', onOpenFriends],
+          ['网易云导入', openWyImport],
         ] as const).map(([label, fn]) =>
           fn ? (
             <Pressable
@@ -145,11 +178,64 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
                 backgroundColor: colors.surface, alignItems: 'center',
               }}
             >
-              <Text style={{ color: colors.fg, fontSize: 13.5 }}>{label}</Text>
+              <Text numberOfLines={1} style={{ color: colors.fg, fontSize: 13.5 }}>{label}</Text>
             </Pressable>
           ) : null,
         )}
       </View>
+
+      {/* 网易云歌单导入：粘链接/短链即可，不要求登录 */}
+      <Modal visible={wyOpen} animationType="fade" transparent onRequestClose={() => setWyOpen(false)}>
+        <Pressable
+          onPress={() => setWyOpen(false)}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', paddingHorizontal: 20 }}
+        >
+          {/* 内层拦住点击，避免点输入框时把弹窗关掉 */}
+          <Pressable onPress={() => {}} style={{ backgroundColor: colors.surface, borderRadius: 16, padding: 18 }}>
+            <Text style={{ color: colors.fg, fontSize: 17, fontWeight: '700' }}>导入网易云歌单</Text>
+            <Text style={{ color: colors.fainter, fontSize: 12, marginTop: 6, lineHeight: 18 }}>
+              粘歌单链接、直接粘那串数字，或整个分享文案一起粘进来（163cn.tv 短链也能认）。
+              只读取歌名/歌手/专辑/封面，播放仍走我们自己的音源（付费或下架的歌会自动换源）。
+            </Text>
+            <TextInput
+              value={wyText}
+              onChangeText={setWyText}
+              placeholder="https://music.163.com/playlist?id=123456789"
+              placeholderTextColor={colors.fainter}
+              autoCapitalize="none"
+              autoCorrect={false}
+              multiline
+              style={{
+                marginTop: 12, minHeight: 74, textAlignVertical: 'top',
+                backgroundColor: colors.bg, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13,
+                color: colors.fg, fontSize: 14, borderWidth: 1, borderColor: colors.divider,
+              }}
+            />
+            {wyMsg ? (
+              <Text style={{ color: '#4ade80', fontSize: 12, marginTop: 10 }}>{wyMsg}</Text>
+            ) : null}
+            {wyErr ? (
+              <Text style={{ color: colors.accent, fontSize: 12, marginTop: 10 }}>{wyErr}</Text>
+            ) : null}
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
+              <Pressable onPress={() => setWyOpen(false)}
+                style={{ borderWidth: 1, borderColor: colors.divider, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9 }}>
+                <Text style={{ color: colors.muted, fontSize: 13 }}>关闭</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void doWyImport()}
+                disabled={wyBusy || !wyText.trim()}
+                style={{
+                  backgroundColor: colors.accent, borderRadius: 999, paddingHorizontal: 18, paddingVertical: 9,
+                  opacity: wyBusy || !wyText.trim() ? 0.4 : 1,
+                }}
+              >
+                <Text style={{ color: '#fff', fontSize: 13 }}>{wyBusy ? '导入中…' : '开始导入'}</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* 标签 */}
       <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 20, paddingVertical: 14 }}>

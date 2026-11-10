@@ -466,7 +466,7 @@ watch(playlists, () => {
       <div class="w-[520px] rounded-2xl bg-white p-6 shadow-[0_18px_48px_rgba(0,0,0,.18)]">
         <h3 class="text-[17px] font-semibold text-ncm-fg">导入网易云歌单</h3>
         <p class="mt-1 text-[12px] leading-[18px] text-ncm-faint">
-          粘歌单链接，或直接粘那串数字。只读取歌名/歌手/专辑/封面，播放仍走我们自己的音源（付费或下架的歌会自动换源）。
+          粘歌单链接、直接粘那串数字，或整个分享文案一起粘进来（163cn.tv 短链也能认）。只读取歌名/歌手/专辑/封面，播放仍走我们自己的音源（付费或下架的歌会自动换源）。
         </p>
         <textarea
           v-model="wyImportText"

@@ -4,13 +4,15 @@
  * lx 没有这个能力，但它是「99% 网易云体验」的最后一块：用户手里有几十个
  * 网易云歌单，迁移时一个个手点是不可能的。
  *
- * 只做**读取 + 匹配**，不写回网易云：拿歌单里的歌名/歌手，在我们自己的
- * 四个源里重新搜一遍。这样得到的曲目在任何源上都能播，而不是依赖网易云的
- * 播放权限。
+ * 只做**读取**，不写回网易云：把歌单里的曲目连同歌名/歌手/专辑/封面原样
+ * 存进本地曲库。**刻意不做逐首跨源搜索** —— 播放链路本来就有三层静默兜底
+ * （内置源 → 脚本源 → 跨源匹配），导入时再搜一遍既慢，又容易把「搜到了但
+ * 不是这首」写进歌单。导入要秒级完成，换源交给播放时处理。
  */
 import type { MusicItem } from '../../types'
 import { formatSingerName } from '../../sign'
-import { eapiRequest } from './utils'
+import { getPlatform } from '../../registry'
+import { EAPI_UA, eapiRequest } from './utils'
 
 /** 秒 -> mm:ss（与 wy 源内部的 formatPlayTime 一致） */
 function formatPlayTime(seconds: number): string {
@@ -47,6 +49,91 @@ export function parsePlaylistId(text: string): string {
   if (m && m[1]) return m[1]
   if (/^\d{4,}$/.test(raw)) return raw
   return ''
+}
+
+/* ---------------- 短链（163cn.tv / 163cn.link） ---------------- */
+
+/** 网易云客户端「分享」给出的短链域名 */
+const SHORT_LINK_HOSTS = ['163cn.tv', '163cn.link']
+
+/**
+ * 判断这段文本里是否含网易云短链，并取出它的短码。
+ *
+ * 客户端的分享文案长这样：
+ *   「分享单曲《xxx》 https://163cn.tv/zoIxm3 (@网易云音乐)」
+ * 短码是大小写敏感的 base62，所以不能像歌单 id 那样只认数字。
+ */
+function parseShortLinkCode(text: string): string {
+  const m = /https?:\/\/([a-z0-9.-]*163cn\.(?:tv|link))\/([A-Za-z0-9_-]+)/i.exec(String(text || ''))
+  if (!m) return ''
+  const host = (m[1] || '').toLowerCase()
+  if (!SHORT_LINK_HOSTS.some(h => host === h || host.endsWith('.' + h))) return ''
+  return m[2] || ''
+}
+
+/** 从落地页 HTML 里取 og: / canonical 的值（属性顺序两种都试） */
+function metaContent(html: string, attr: 'property' | 'rel', key: string): string {
+  const tail = attr + '="' + key + '"'
+  const patterns = [
+    new RegExp('<meta[^>]*' + tail + '[^>]*content="([^"]*)"', 'i'),
+    new RegExp('<meta[^>]*content="([^"]*)"[^>]*' + tail, 'i'),
+    new RegExp('<link[^>]*' + tail + '[^>]*href="([^"]*)"', 'i'),
+    new RegExp('<link[^>]*href="([^"]*)"[^>]*' + tail, 'i'),
+  ]
+  for (const re of patterns) {
+    const m = re.exec(html)
+    if (m && m[1]) return m[1]
+  }
+  return ''
+}
+
+/**
+ * 把短链解析成歌单 id。
+ *
+ * 短链本身只回 302，`location` 头里就带着 `id=`；但平台层的 http 适配器
+ * 会自动跟随重定向且不回传最终 URL（desktop 的 createFetchHttp 只回
+ * statusCode/headers/body），所以拿不到 location。于是改成读落地页里的
+ * 元信息 —— 网易云的歌单页一定会给出 canonical 与 og:url，两者都带 id。
+ *
+ * 三种落地页形态都已实测（PC / 移动 UA 结果一致）：
+ *   歌单： canonical=…/playlist?id=…
+ *   单曲： og:type=music.song，canonical=…/song?id=…（没有 playlist 段）
+ *   失效： og:type=website，canonical=https://music.163.com/（没有 id）
+ */
+async function resolveShortLink(code: string): Promise<string> {
+  const res = await getPlatform().http.request({
+    url: 'https://163cn.tv/' + encodeURIComponent(code),
+    method: 'GET',
+    headers: { 'User-Agent': EAPI_UA, 'Accept-Language': 'zh-CN,zh;q=0.9' },
+  })
+  const html = String(res.body ?? '')
+  if (!html) throw new Error('短链打不开：网易云没有返回内容，请检查网络后重试')
+
+  if (metaContent(html, 'property', 'og:type') === 'music.song') {
+    throw new Error('这是单曲短链，不是歌单。请在网易云里打开歌单再分享，或直接粘歌单链接')
+  }
+
+  // canonical 最稳，og:url 兜底
+  for (const page of [metaContent(html, 'rel', 'canonical'), metaContent(html, 'property', 'og:url')]) {
+    const id = parsePlaylistId(page)
+    if (id) return id
+  }
+  throw new Error('短链无效或已过期：请在网易云里重新复制歌单链接')
+}
+
+/**
+ * 从用户粘贴的任意文本里解析出歌单 id，必要时展开 163cn.tv 短链。
+ *
+ * 为什么单独开一个 async 版本：短链必须发一次请求才知道指向哪个歌单，
+ * 而 parsePlaylistId 是同步的（调用方常常只关心纯链接）。保留同步快路径，
+ * 只有识别出短链才走网络，两个入口都在，调用方按需选。
+ */
+export async function resolvePlaylistId(text: string): Promise<string> {
+  const direct = parsePlaylistId(text)
+  if (direct) return direct
+  const code = parseShortLinkCode(text)
+  if (!code) throw new Error('没找到歌单 id：请粘歌单链接，或直接粘那串数字')
+  return resolveShortLink(code)
 }
 
 function toItem(song: Record<string, unknown>): MusicItem | null {
