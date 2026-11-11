@@ -60,6 +60,33 @@ const ALLOWED_KEY_PREFIX = ['lyco_music/', 'downloads/', 'assets/'];
 // R2 multipart 要求除最后一片外每片 >= 5MiB，8MiB 正好。
 const RANGE_CHUNK = 8 * 1024 * 1024;
 const RANGE_MAX_PARTS = 10000;
+// 非分片路径（页面 / CSS / manifest / 小文件）允许缓冲的上限。
+const SMALL_MIRROR_LIMIT = 16 * 1024 * 1024;
+
+// 从 ReadableStream 读成定长字节；超过上限立即取消，避免大文件被整份吞进内存。
+async function bufferBody(stream, limit) {
+  const reader = stream.getReader();
+  const chunks = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > limit) {
+        throw new Error('upstream larger than ' + limit + ' bytes; Range required');
+      }
+      chunks.push(value);
+    }
+  } catch (e) {
+    try { await reader.cancel(); } catch { /* best effort */ }
+    throw e;
+  }
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) { out.set(c, at); at += c.byteLength; }
+  return out;
+}
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -101,10 +128,12 @@ async function handleMirror(request, env) {
     return json({ error: 'src not allowed' }, 400);
   }
 
-  // 先 HEAD：只有明确支持 Range 的大文件才走分片，其余保持原样（小文件 / 页面）。
+  // 先 HEAD，但强制 identity：pingap 对 Range 请求换了一条处理路径，
+  // 可能把打包后的静态资源再 gzip 一遍；content-length 会与后续 GET 不一致。
+  const MIRROR_HEADERS = { 'user-agent': 'lyco-r2-mirror/1', 'accept-encoding': 'identity' };
   const head = await fetch(src, {
     method: 'HEAD',
-    headers: { 'user-agent': 'lyco-r2-mirror/1' },
+    headers: MIRROR_HEADERS,
   }).catch(() => null);
   const total = head && head.ok ? Number(head.headers.get('content-length') || 0) : 0;
   const canRange = !!(head && /bytes/i.test(head.headers.get('accept-ranges') || ''));
@@ -125,7 +154,7 @@ async function handleMirror(request, env) {
         for (let attempt = 1; attempt <= 3 && !part; attempt++) {
           const r = await fetch(src, {
             headers: {
-              'user-agent': 'lyco-r2-mirror/1',
+              ...MIRROR_HEADERS,
               Range: 'bytes=' + offset + '-' + end,
             },
           });
@@ -159,7 +188,10 @@ async function handleMirror(request, env) {
     }
   }
 
-  const upstream = await fetch(src, { headers: { 'user-agent': 'lyco-r2-mirror/1' } });
+  if (total > SMALL_MIRROR_LIMIT) {
+    return json({ error: 'upstream requires Range but does not advertise Accept-Ranges' }, 502);
+  }
+  const upstream = await fetch(src, { headers: MIRROR_HEADERS });
   if (!upstream.ok || !upstream.body) {
     return json({ error: 'upstream ' + upstream.status }, 502);
   }
@@ -177,7 +209,18 @@ async function handleMirror(request, env) {
     return json({ ok: true, key, size: obj.size, banner: true });
   }
 
-  const obj = await env.BUCKET.put(key, upstream.body, {
+  // R2 put() 不接受「长度未知」的 ReadableStream：某些源站响应是 chunked，
+  // 直接传 upstream.body 会抛 Error 1101（Provided readable stream must have a known length）。
+  // 页面/CSS/小安装包全部小于 16MiB，按上限缓冲成定长 Uint8Array 再入库。
+  let buf;
+  try {
+    buf = await bufferBody(upstream.body, SMALL_MIRROR_LIMIT);
+  } catch (e) {
+    return json({ error: 'buffered mirror failed: ' + String(e) }, 502);
+  }
+  // HEAD 与 GET 若长度不同（目录 rewrite / 压缩差异），以实际收到的定长字节为准；
+  // 这里只用于小文件，避免误判把页面镜像卡死。
+  const obj = await env.BUCKET.put(key, buf, {
     httpMetadata: {
       contentType: upstream.headers.get('content-type') || contentType,
     },
