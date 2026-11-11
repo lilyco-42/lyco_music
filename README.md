@@ -117,6 +117,8 @@ Test Files  10 passed | 5 skipped (15)
 
 **主入口：<https://lain42.top/downloads/>**（按版本列出各平台安装包与 SHA256）
 
+**完整使用教程：<https://lain42.top/docs/lyco-music.html>**（各平台安装、网易云歌单导入、排行榜与歌单搜索、`lxmusic://` 深链、会员与云同步、本地加密音频、常见问题）。
+
 也可以从 GitHub Release 下载：<https://github.com/lilyco-42/lyco_music/releases>
 
 | 平台 | 产物 | 说明 |

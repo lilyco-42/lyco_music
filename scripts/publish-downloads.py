@@ -116,6 +116,8 @@ common = {
     'official': base_url + '/',
     'channel': '本站文件',
     'release': tag,
+    'guide': '/docs/lyco-music.html',
+    'guideLabel': 'Lyco Music 使用教程 →',
 }
 
 items = []
@@ -251,3 +253,20 @@ if 'data-platform="linux"' not in h:
     print('downloads page: linux tab added, backup', hbak)
 else:
     print('downloads page: linux tab already present')
+
+# ---- 下载页教程链接文案可配置 ----
+# manifest 里 Lyco Music 安装包带 guideLabel，下载页原来把文案写死成
+# 「批量抠图使用步骤」，这里改成读字段（缺省保持旧文案），幂等。
+h = open(HTML, encoding='utf-8').read()
+_guide_old = "var guide=item.guide?'<a class=\"button secondary\" href=\"'+esc(item.guide)+'\">批量抠图使用步骤 →</a>':'';"
+_guide_new = "var guide=item.guide?'<a class=\"button secondary\" href=\"'+esc(item.guide)+'\">'+esc(item.guideLabel||'批量抠图使用步骤 →')+'</a>':'';"
+if _guide_new in h:
+    print('downloads page: guideLabel already present')
+elif _guide_old in h:
+    hbak = HTML + '.bak-lyco-tutorial-' + time.strftime('%Y%m%d-%H%M%S')
+    shutil.copy2(HTML, hbak)
+    h = h.replace(_guide_old, _guide_new, 1)
+    open(HTML, 'w', encoding='utf-8').write(h)
+    print('downloads page: guideLabel added, backup', hbak)
+else:
+    print('WARNING: guide anchor not found, skip guideLabel patch')
