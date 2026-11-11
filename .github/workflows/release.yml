@@ -433,7 +433,7 @@ jobs:
         # 这一步要 scp 约 640MB 到自建服务器，实测 20~40 分钟。
         # 但它是可选的镜像步骤，绝不能无限期挂着 —— 上面已经把
         # 「Create release」提到它前面，所以这里超时也不会影响 GitHub Release。
-        timeout-minutes: 40
+        timeout-minutes: 50
         shell: bash
         env:
           SSH_KEY: ${{ secrets.LAIN42_SSH_KEY }}
@@ -469,9 +469,15 @@ jobs:
           # （例如旧命名 app-release.apk），导致 SHA256SUMS 与下载页混入过期产物。
           ssh -i ~/.ssh/id_lain42 root@lain42.top "rm -rf /var/www/studio/downloads/$STAGE && mkdir -p /var/www/studio/downloads/$STAGE"
 
-          # 并行上传。实测单条 scp 到 lain42.top 只有 2~3 Mbps，
-          # 600MB 顺序传要一个多小时（v0.2.18 第一次发布就卡在这里）。
-          # 4 路并发 + 单文件 10 分钟上限：慢的那个文件不会拖死整步。
+          # 并行上传 + 逐文件校验。
+          # 实测单条 scp 到 lain42.top 只有 2~3 Mbps，600MB 顺序传要一个多小时
+          #（v0.2.18 第一次发布就卡在这里）。4 路并发，单文件 15 分钟上限。
+          #
+          # v0.2.56 / v0.2.57 踩过的坑：scp 被 timeout 掐断或链路抖动时只传了一半，
+          # 而这里过去只 echo FAIL 不退出，事后也只比对「文件个数」——
+          # 截断文件因此通过校验，SHA256SUMS 是对着坏文件算的（自洽但内容错），
+          # 下载页和「源站备用下载」发的都是坏包。
+          # 现在：每个文件传完立刻比对远端字节数，不符就重试；最后再逐文件比对 sha256。
           LIST=$(mktemp)
           for f in release-files/*; do
             [ -f "$f" ] || continue
@@ -481,25 +487,50 @@ jobs:
           done
           echo "待上传 $(wc -l < "$LIST") 个文件"
           export STAGE
+          FAILED="$RUNNER_TEMP/upload-failed.txt"
+          : > "$FAILED"
+          export FAILED
           xargs -r -P 4 -I{} bash -c '
-            if timeout 600 scp -q -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -i ~/.ssh/id_lain42 "$1" "root@lain42.top:/var/www/studio/downloads/$STAGE/"; then
-              echo "  ok   $(basename "$1")"
-            else
-              echo "  FAIL $(basename "$1")"
-            fi
+            f="$1"; base=$(basename "$f"); want=$(stat -c %s "$f")
+            for attempt in 1 2 3; do
+              if timeout 900 scp -q -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -i ~/.ssh/id_lain42 "$f" "root@lain42.top:/var/www/studio/downloads/$STAGE/"; then
+                got=$(ssh -i ~/.ssh/id_lain42 root@lain42.top "stat -c %s /var/www/studio/downloads/$STAGE/$base" 2>/dev/null || echo 0)
+                if [ "$got" = "$want" ]; then
+                  echo "  ok   $base ($want B, 第 $attempt 次)"
+                  exit 0
+                fi
+                echo "  SIZE $base 本地 $want / 远端 $got（第 $attempt 次）"
+              else
+                echo "  FAIL $base scp 失败（第 $attempt 次）"
+              fi
+              sleep 5
+            done
+            echo "$base" >> "$FAILED"
+            exit 1
           ' _ {} < "$LIST"
 
-          # 传完核对：服务器上的文件数必须和本地一致，否则不写 SHA256SUMS、
-          # 也不登记下载页 —— 半套文件比没有更难查。
-          LOCAL_N=$(wc -l < "$LIST")
-          REMOTE_N=$(ssh -i ~/.ssh/id_lain42 root@lain42.top "ls -1 /var/www/studio/downloads/$STAGE | wc -l")
-          echo "本地 $LOCAL_N 个 / 远端 $REMOTE_N 个"
-          if [ "$LOCAL_N" != "$REMOTE_N" ]; then
-            echo "::error::lain42.top 上传不完整（$REMOTE_N/$LOCAL_N），已跳过 SHA256SUMS 与下载页登记；GitHub Release 不受影响"
+          if [ -s "$FAILED" ]; then
+            echo "::error::lain42.top 上传失败或大小不符：$(tr '\n' ' ' < "$FAILED")；已跳过 SHA256SUMS 与下载页登记，GitHub Release 不受影响"
             exit 1
           fi
+
+          # 逐文件比对 sha256：本地算一遍、远端算一遍，必须逐字节一致才算传好。
           ssh -i ~/.ssh/id_lain42 root@lain42.top \
-            "cd /var/www/studio/downloads/$STAGE && sha256sum * > SHA256SUMS.txt && ls -la"
+            "cd /var/www/studio/downloads/$STAGE && sha256sum * | sort -k2" > "$RUNNER_TEMP/remote.sums"
+          while read -r f; do
+            sha256sum "$f"
+          done < "$LIST" | sed 's#  release-files/#  #' | sort -k2 > "$RUNNER_TEMP/local.sums"
+          if ! diff -u "$RUNNER_TEMP/local.sums" "$RUNNER_TEMP/remote.sums" > "$RUNNER_TEMP/sums.diff"; then
+            echo "::error::lain42.top 文件内容校验失败（截断或损坏），已跳过 SHA256SUMS 与下载页登记"
+            head -60 "$RUNNER_TEMP/sums.diff" || true
+            exit 1
+          fi
+          echo "sha256 全部一致（$(wc -l < "$RUNNER_TEMP/local.sums") 个文件）"
+
+          # SHA256SUMS.txt 直接用刚校验过的清单写入，不再对着文件重复算一遍。
+          ssh -i ~/.ssh/id_lain42 root@lain42.top \
+            "cat > /var/www/studio/downloads/$STAGE/SHA256SUMS.txt" < "$RUNNER_TEMP/remote.sums"
+          ssh -i ~/.ssh/id_lain42 root@lain42.top "ls -la /var/www/studio/downloads/$STAGE"
 
           # 把本次发布登记进下载页目录（幂等）。脚本随仓库走，避免依赖服务器上的临时文件。
           scp -i ~/.ssh/id_lain42 scripts/publish-downloads.py root@lain42.top:/tmp/publish-downloads.py
