@@ -44,9 +44,13 @@ const MIRROR_BANNER =
   '<a href="https://lain42.top/downloads/" style="color:#E83A45">lain42.top/downloads/</a>' +
   '（本站仅镜像下载页与安装包）</div>';
 
+// 大安装包改从 GitHub Release 资产回源：GitHub 直连约 1MB/s，
+// 而 lain42.top 源站受阿里云国际出口 300~400KB/s 限制（且与分片数量相乘会超时）。
+// 页面/CSS/小文件仍走 lain42.top，保持原有行为。
 const ALLOWED_SRC = [
   'https://lain42.top/downloads/',
   'https://lain42.top/assets/',
+  'https://github.com/lilyco-42/lyco_music/releases/download/',
 ];
 const ALLOWED_KEY_PREFIX = ['lyco_music/', 'downloads/', 'assets/'];
 

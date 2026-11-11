@@ -542,9 +542,9 @@ jobs:
       # 而 Cloudflare 的 OAuth 登录建不出 API Token（403）。所以反过来 ——
       # 由镜像 Worker 自己去 lain42.top 拉文件入桶，CI 只发几十字节的 JSON，
       # 几百 MB 的安装包在 Cloudflare 内部流转，也不撞 Worker 的请求体大小限制。
-      # 未配置 R2_UPLOAD_TOKEN 时自动跳过，下载页主源仍是 lain42.top。
+      # 未配置 R2_UPLOAD_TOKEN 时自动跳过，下载页主源仍是 GitHub Release 直链。
       - name: Mirror to Cloudflare R2
-        # R2 只是边缘加速副本，主源是 lain42.top（已成功）。
+        # R2 只是边缘加速副本，主源是 GitHub Release 直链（已成功）。
         # v0.2.14 实测：镜像失败会把整个 job 判红，连带 GitHub Release 都不创建，
         # 于是一个「可选加速步骤」把正式发布也拖下水 —— 这里降级为非致命。
         #
@@ -567,12 +567,17 @@ jobs:
           EP="${R2_ENDPOINT:-https://lyco-music-dl.m15178682641.workers.dev}"
           STAGE="lyco_music/${{ steps.tag.outputs.name }}"
           SRC_BASE="https://lain42.top/downloads/$STAGE"
+          GH_BASE="https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}"
           echo "endpoint=$EP stage=$STAGE"
           ok=0
           fail=0
           mirror() {
             payload=$(printf '{"key":"%s","src":"%s"}' "$1" "$2")
-            resp=$(curl -sS --connect-timeout 10 --max-time 120 -X POST "$EP/__mirror" \
+            # 大包走 Worker 的 8MiB 分片 + multipart，请求时间长于单文件直传；
+            # 整步仍有 12min 上限与「连续失败即放弃」兜底。
+            tmo=120
+            case "$2" in https://github.com/*) tmo=600 ;; esac
+            resp=$(curl -sS --connect-timeout 10 --max-time "$tmo" -X POST "$EP/__mirror" \
               -H "Authorization: Bearer $R2_UPLOAD_TOKEN" \
               -H 'Content-Type: application/json' --data "$payload" || true)
             case "$resp" in
@@ -587,7 +592,16 @@ jobs:
               *.exe|*.msi|*.dmg|*.apk|*.ipa|*.AppImage|*.zip|*.blockmap|*.yml|SHA256SUMS.txt) ;;
               *) continue ;;
             esac
-            mirror "$STAGE/$name" "$SRC_BASE/$name"
+            # >16MiB 的安装包从 GitHub 回源（快、原生 Range、不撞源站 h2 缺陷）；
+            # 小文件与校验和文件仍从 lain42.top 回源，兼容当前线上旧 Worker。
+            size=$(stat -c %s "$f")
+            src="$SRC_BASE/$name"
+            if [ "$size" -gt 16777216 ]; then
+              case "$name" in
+                *.exe|*.msi|*.dmg|*.apk|*.ipa|*.AppImage) src="$GH_BASE/$name" ;;
+              esac
+            fi
+            mirror "$STAGE/$name" "$src"
             # 连续失败说明 Worker 挂了/令牌错了，再排下去只是浪费时间
             if [ "$fail" -ge 2 ] && [ "$ok" -eq 0 ]; then
               echo '连续失败，放弃镜像（不影响 GitHub Release 与 lain42.top）'
