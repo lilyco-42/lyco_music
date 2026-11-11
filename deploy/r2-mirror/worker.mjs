@@ -144,7 +144,7 @@ async function handleMirror(request, env) {
         if (!part) throw new Error(lastErr + ' @ ' + offset + '-' + end);
         parts.push({ partNumber: n, etag: part.etag });
       }
-      const obj = await upload.completeMultipartUpload(parts);
+      const obj = await upload.complete(parts);
       return json({
         ok: true,
         key,
@@ -154,7 +154,7 @@ async function handleMirror(request, env) {
         etag: obj.httpEtag,
       });
     } catch (e) {
-      try { await upload.abortMultipartUpload(); } catch { /* best effort */ }
+      try { await upload.abort(); } catch { /* best effort */ }
       return json({ error: 'ranged mirror failed: ' + String(e) }, 502);
     }
   }
@@ -252,8 +252,13 @@ export default {
         if (start >= obj.size || start > end) {
           return new Response('Range Not Satisfiable', { status: 416 });
         }
-        const slice = obj.body.slice(start, end + 1);
-        return new Response(slice, {
+        // R2ObjectBody.body 是 ReadableStream，没有 .slice()；
+        // 范围读取必须重新走 bucket.get(key, { range })，否则 Range 请求 500。
+        const ranged = await env.BUCKET.get(key, {
+          range: { offset: start, length: end - start + 1 },
+        });
+        if (ranged === null) return notFound();
+        return new Response(ranged.body, {
           status: 206,
           headers: {
             'Content-Type': type,
