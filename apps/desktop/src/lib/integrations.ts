@@ -154,14 +154,9 @@ export function installIntegrations(router: Router): void {
     void player.play(track)
   }
 
+  // 类型来自 env.d.ts 的 LxmnSchemePayload（songlist 也在里面，别再就地手写一份）
   n?.scheme?.onLink(async payload => {
-    const p = payload as
-      | { kind: 'player'; action: string }
-      | { kind: 'search'; keyword: string }
-      | { kind: 'searchPlay'; keyword: string }
-      | { kind: 'play'; item: { source?: string; songmid?: string; name?: string; singer?: string } }
-      | { kind: 'songlist'; id: string }
-      | null
+    const p = payload as LxmnSchemePayload | null
     if (!p) return
     /**
      * 歌单导入（6.6 的 songlist/*）。

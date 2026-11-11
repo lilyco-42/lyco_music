@@ -146,10 +146,17 @@ contextBridge.exposeInMainWorld('lxmnNative', {
     },
   },
   scheme: {
-    /** lxmusic://… 被唤起（含冷启动带参数、第二实例、macOS open-url） */
+    /**
+     * lxmusic://… 被唤起（含冷启动带参数、第二实例、macOS open-url）。
+     *
+     * 注册时顺手跟主进程握一次手：冷启动带着链接时，链接早就到了主进程，
+     * 而渲染层的监听才刚挂上 —— 主进程把这段时间的链接攒着，等这个握手
+     * 再补发。不握手就会「应用起来了但什么都没发生」。
+     */
     onLink: (cb) => {
       const handler = (_e, payload) => { try { cb(payload) } catch { /* ignore */ } }
       ipcRenderer.on('lxmn:scheme', handler)
+      ipcRenderer.invoke('lxmn:scheme:ready').catch(() => { /* 主进程没准备好就等下次 */ })
       return () => ipcRenderer.removeListener('lxmn:scheme', handler)
     },
   },

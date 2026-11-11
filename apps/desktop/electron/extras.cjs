@@ -115,12 +115,78 @@ function install(ctx) {
     return null
   }
 
+  /**
+   * 冷启动带链接时，scheme 比渲染层先到。
+   *
+   * 原来这里是 `setTimeout(…, 300)`「等一拍再发」—— 实测不管用：冷启动时
+   * 窗口刚 createWindow()，页面还在加载 dist/index.html 并挂载 Vue，
+   * 300ms 后 `webContents.send` 发出去没人收，消息静默消失，用户看到的是
+   * 「点了链接、应用起来了、但什么都没发生」。
+   *
+   * 改成握手 + 队列：渲染层挂好 `lxmn:scheme` 监听后主动 invoke 一次
+   * `lxmn:scheme:ready`，在这之前到达的链接先攒在 schemePending 里，
+   * 握手时一次性补发。第二实例（应用已在跑）时 schemeReady 早就是 true，
+   * 走的是立即投递，和以前一样快。
+   */
+  let schemeReady = false
+  let schemeWc = null
+  const schemePending = []
+  const SCHEME_PENDING_MAX = 16
+
+  function bindSchemeWindow() {
+    const win = getWin()
+    if (!win || win.isDestroyed()) return null
+    const wc = win.webContents
+    if (wc !== schemeWc) {
+      schemeWc = wc
+      schemeReady = false
+      /**
+       * 只在「主框架换文档」时把 ready 打回 false，等新页面重新握手。
+       *
+       * 这里踩过坑：一开始用的是 did-start-loading，结果**页面挂载完 1 秒后**
+       * 它还会因为子资源 / 媒体（`lxmn-media://` 的音频）开始加载而再触发一次，
+       * 把刚握好的 ready 又打回 false —— 之后所有 scheme 链接都进队列再也不发，
+       * 真机现象就是「干净启动之后，点链接没反应」。
+       *
+       * did-start-navigation 带 isMainFrame / isSameDocument，能精确区分：
+       * hash 变化（Vue Router 的 push）是 same-document，不算；
+       * 真正重新加载 index.html（含渲染进程崩溃后的 reload）才算。
+       */
+      wc.on('did-start-navigation', (details) => {
+        const main = details && typeof details === 'object' ? details.isMainFrame !== false : true
+        const same = details && typeof details === 'object' ? details.isSameDocument === true : false
+        if (main && !same) schemeReady = false
+      })
+    }
+    return wc
+  }
+
+  function pushScheme(parsed) {
+    schemePending.push(parsed)
+    // 渲染层始终没起来（崩了 / 卡死）时别把队列攒成内存泄漏，只留最近的
+    if (schemePending.length > SCHEME_PENDING_MAX) schemePending.shift()
+  }
+
+  function flushScheme() {
+    const wc = bindSchemeWindow()
+    if (!wc || !schemeReady) return
+    while (schemePending.length) {
+      const parsed = schemePending.shift()
+      try { wc.send('lxmn:scheme', parsed) } catch { schemePending.unshift(parsed); return }
+    }
+  }
+
+  function deliverScheme(parsed) {
+    const wc = bindSchemeWindow()
+    if (!wc || !schemeReady) { pushScheme(parsed); return }
+    try { wc.send('lxmn:scheme', parsed) } catch { pushScheme(parsed) }
+  }
+
   function handleSchemeUrl(raw) {
     const parsed = parseSchemeUrl(raw)
     if (!parsed) return
     showMainWindow()
-    // 窗口刚被唤起时渲染层可能还没挂监听，等一拍再发
-    setTimeout(() => sendToRenderer('lxmn:scheme', parsed), 300)
+    deliverScheme(parsed)
   }
 
   function registerSchemeClient() {
@@ -135,6 +201,15 @@ function install(ctx) {
       logCrash('scheme-register', e && e.message ? e.message : String(e))
     }
   }
+
+  /** 渲染层挂好监听后的握手：认领主窗口，并把攒下的链接补发出去 */
+  ipcMain.handle('lxmn:scheme:ready', (e) => {
+    const wc = bindSchemeWindow()
+    if (!wc || e.sender !== wc) return false
+    schemeReady = true
+    flushScheme()
+    return true
+  })
 
   app.on('open-url', (event, url) => {
     event.preventDefault()
@@ -315,6 +390,7 @@ function install(ctx) {
   return {
     registerSchemeClient,
     handleSchemeUrl,
+    flushScheme,
     /** Windows 的 scheme 唤起走「第二个实例带参数启动」 */
     consumeArgv(argv) {
       const link = (argv || []).find(a => typeof a === 'string' && a.toLowerCase().startsWith(URL_SCHEME + '://'))

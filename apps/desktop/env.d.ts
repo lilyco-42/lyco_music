@@ -58,6 +58,7 @@ type LxmnSchemePayload =
   | { kind: 'search'; keyword: string }
   | { kind: 'searchPlay'; keyword: string }
   | { kind: 'play'; item: { source?: string; songmid?: string; name?: string; singer?: string } }
+  | { kind: 'songlist'; id: string }
 
 interface LxmnSchemeApi {
   onLink: (cb: (payload: LxmnSchemePayload) => void) => () => void
