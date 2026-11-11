@@ -5,9 +5,9 @@
  * 「猜你喜欢」之前是 8 条写死的假数据（城市夜航 / 林一 / 128 万播放），
  * 现在改成用几个热门关键词去内核里搜真实歌曲，点了就能播。
  *
- * 推荐歌单卡上的「30 首 / 50 首」也一并删掉了：本站没有歌单数据源，
- * 那些数字纯粹是编的。卡片本身留着（版式是网易云的样子），点一下带着
- * 歌单名跳到搜索页 —— 版式不动，但每张卡都通向真实结果。
+ * 推荐歌单卡上的「30 首 / 50 首」也一并删掉了：以前没有歌单数据源，
+ * 那些数字是编的。现在「发现」页接了真的歌单搜索（网易云 cloudsearch），
+ * 卡片点一下带着词跳到「发现 → 歌单搜索」，出来的是真歌单。
  */
 import { useEffect, useState } from 'react'
 import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, Text, View } from 'react-native'
@@ -78,7 +78,14 @@ function CoverPlaceholder({ size, radius = 8, uri }: { size: number; radius?: nu
   )
 }
 
-export default function HomeScreen({ onOpenSearch }: { onOpenSearch?: (keyword?: string) => void }) {
+export default function HomeScreen({
+  onOpenSearch,
+  onOpenDiscover,
+}: {
+  onOpenSearch?: (keyword?: string) => void
+  /** 「推荐歌单」卡专用：词交给「发现」页去搜歌单（搜歌曲找不到歌单） */
+  onOpenDiscover?: (keyword?: string) => void
+}) {
   const insetTop = useTopInset()
   const [tracks, setTracks] = useState<MusicItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -209,7 +216,9 @@ export default function HomeScreen({ onOpenSearch }: { onOpenSearch?: (keyword?:
         {/* 推荐歌单 */}
         <View style={{ paddingHorizontal: 20, marginBottom: 12, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
           <Text style={{ color: colors.fg, fontSize: 17, fontWeight: '600' }}>推荐歌单</Text>
-          <Text style={{ color: colors.muted, fontSize: 13 }}>更多 ›</Text>
+          <Pressable onPress={() => (onOpenDiscover ?? onOpenSearch)?.()} hitSlop={8}>
+            <Text style={{ color: colors.muted, fontSize: 13 }}>更多 ›</Text>
+          </Pressable>
         </View>
 
         <FlatList
@@ -219,13 +228,16 @@ export default function HomeScreen({ onOpenSearch }: { onOpenSearch?: (keyword?:
           keyExtractor={i => String(i.id)}
           contentContainerStyle={{ paddingHorizontal: 20, gap: 12 }}
           renderItem={({ item }) => (
-            <Pressable style={{ width: 140 }} onPress={() => onOpenSearch?.(item.keyword)}>
+            <Pressable
+              style={{ width: 140 }}
+              onPress={() => (onOpenDiscover ?? onOpenSearch)?.(item.keyword)}
+            >
               <CoverPlaceholder size={140} radius={8} uri={covers[item.id]} />
               <Text numberOfLines={2} style={{ color: colors.fg, fontSize: 13, lineHeight: 18, marginTop: 8 }}>
                 {item.title}
               </Text>
               <Text numberOfLines={1} style={{ color: colors.fainter, fontSize: 11, marginTop: 3 }}>
-                搜索「{item.keyword}」
+                找歌单「{item.keyword}」
               </Text>
             </Pressable>
           )}

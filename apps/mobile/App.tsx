@@ -8,7 +8,7 @@
  * 拿不到全屏空间。
  *
  * 现在：
- * - 标签只留 首页 / 搜索 / 我的 / 会员；
+ * - 标签只留 首页 / 发现 / 搜索 / 我的 / 会员；
  * - 播放页从「标签」变成「从迷你条上滑出来的全屏 Modal」，可以占满整屏；
  * - 同步 / 好友 / 账户收进「我的」页的入口里（那里才是用户找它们的地方）。
  */
@@ -17,6 +17,7 @@ import { StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-nativ
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context'
 
 import HomeScreen from './src/screens/HomeScreen'
+import DiscoverScreen from './src/screens/DiscoverScreen'
 import SearchScreen from './src/screens/SearchScreen'
 import PlayerScreen from './src/screens/PlayerScreen'
 import MembershipScreen from './src/screens/MembershipScreen'
@@ -48,10 +49,11 @@ try {
   recordError('启动装配', e)
 }
 
-type TabKey = 'home' | 'search' | 'my' | 'member' | 'sync' | 'friends' | 'account'
+type TabKey = 'home' | 'discover' | 'search' | 'my' | 'member' | 'sync' | 'friends' | 'account'
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'home', label: '首页' },
+  { key: 'discover', label: '发现' },
   { key: 'search', label: '搜索' },
   { key: 'my', label: '我的' },
   { key: 'member', label: '会员' },
@@ -67,6 +69,8 @@ export default function App() {
   useEffect(() => subscribeAccent(() => forceThemeRender(n => n + 1)), [])
   /** 首页点歌单/频道时带过来的搜索词 */
   const [seedKeyword, setSeedKeyword] = useState('')
+  /** 首页「推荐歌单」卡带来的词：交给「发现」页去搜歌单（不是搜歌） */
+  const [seedPlaylist, setSeedPlaylist] = useState('')
   const [playerOpen, setPlayerOpen] = useState(false)
 
   useEffect(() => {
@@ -102,7 +106,13 @@ export default function App() {
                   if (kw) setSeedKeyword(kw)
                   setTab('search')
                 }}
+                onOpenDiscover={kw => {
+                  setSeedPlaylist(kw ?? '')
+                  setTab('discover')
+                }}
               />
+            ) : tab === 'discover' ? (
+              <DiscoverScreen initialKeyword={seedPlaylist} onSeedConsumed={() => setSeedPlaylist('')} />
             ) : tab === 'search' ? (
               <SearchScreen initialKeyword={seedKeyword} />
             ) : tab === 'my' ? (
@@ -165,6 +175,6 @@ const styles = StyleSheet.create({
   },
   tabItem: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   tabIndicator: { width: 20, height: 3, borderRadius: 2, marginBottom: 7 },
-  // 只剩 4 个标签，字号可以放大到 13（7 个时挤成 12）
+  // 5 个标签，13 仍然放得下（7 个时挤成 12）
   tabLabel: { fontSize: 13 },
 })

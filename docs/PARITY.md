@@ -8,7 +8,7 @@
 |---|---|
 | 基准 A | `lx-music-desktop` **v2.12.6**（本地源码 `/d/demo/lx-music/lx-music-desktop`） |
 | 基准 B | `lx-music-mobile` **v1.9.1**（本地源码 `/d/demo/lx-music/lx-music-mobile`） |
-| 对照 | Lyco Music **0.2.26** |
+| 对照 | Lyco Music **0.2.55** |
 | 判定依据 | 逐个读取 lx 的 `src/renderer/views/`、`src/renderer/views/Setting/components/`、`src/lang/zh-cn.json`（**316 个 `setting__*` 键**）、`src/main/modules/openApi/`、`src/renderer/core/useApp/useDeeplink/` |
 | 统计口径 | 只统计**用户可感知的能力**，不把「一个设置项拆成多个」重复计数 |
 
@@ -81,8 +81,8 @@ lx 实际拥有的能力 = 99 − 7（我们独有）= **92 项**。
 | 1.5 | 歌曲换源（手动指定来源） | 已 | 已 | 底栏「…」→ 歌曲换源，列出四个源并标出当前源；找到同名同歌手就替换队列里那一项（不新增条目）。CDP 实测从网易云切到酷我，地址变成 kw-er.kuwo.cn |
 | 1.6 | 自动换源下载 | 已 | 已 | 下载取流复用播放同一条兜底链（内置源 → 脚本池 → 跨源同名匹配），开关在设置页；关掉就只试原源 |
 | 1.7 | 多源聚合搜索 | 已 | 已 | 我们四源并发 + 去重 |
-| 1.8 | 歌单搜索 | 已 | 已 | 「发现 → 歌单搜索」：`/api/cloudsearch/pc?type=1000`，结果可直接导入成本地歌单 |
-| 1.9 | 排行榜（按音源分榜） | 已 | 已 | 「发现 → 排行榜」：17 个榜单（热歌/飙升/新歌/原创/说唱/国风/ACG/电音/古典/韩语/日语/欧美/Billboard/UK/Oricon/摇滚/民谣），点开即完整曲目，可整榜播放或存成歌单 |
+| 1.8 | 歌单搜索 | 已 | 已 | 双端都有「发现 → 歌单搜索」：`/api/cloudsearch/pc?type=1000`（`searchWyPlaylists`），结果点开是完整曲目，可直接播放 / 加入试听 / 存为本地歌单。移动端 2026-11-11 补齐（之前只有贴链接导入，没有「没目标时找歌单」的入口） |
+| 1.9 | 排行榜（按音源分榜） | 已 | 已 | 双端「发现 → 排行榜」：`WY_BOARDS` 18 个榜单（热歌/飙升/新歌/原创/说唱/国风/ACG/电音/古典/韩语/日语/欧美热歌/Billboard/UK/Oricon/摇滚/民谣/网络热歌），点开即完整曲目，可整榜播放或存成歌单 |
 
 ## 2. 播放控制（12）
 
@@ -172,7 +172,7 @@ lx 实际拥有的能力 = 99 − 7（我们独有）= **92 项**。
 | 6.3 | 托盘图标 + 菜单 | 已 | 已 | 菜单显示当前曲目，播放/暂停/上下曲/收藏/歌词；单击唤起窗口 |
 | 6.4 | 关闭窗口最小化到托盘 | 已 | 已 | 开关在设置页；开启后 × 只是隐藏，退出走托盘菜单 |
 | 6.5 | 开放 API 服务 | 已 | 已 | 14 个端点齐全，只监听 127.0.0.1；命令转给渲染层执行，5 秒超时。实测 `/status` 返回曲名/时长/收藏，`/pause` `/play` 生效 |
-| 6.6 | Scheme URL | 已 | 已 | `player/*`、`music/{search,searchPlay,play,{source}/{songmid}}`、`songlist/import?id=` 全部支持（冷启动、第二实例、macOS open-url 三条路） |
+| 6.6 | Scheme URL | 已 | 已 | `player/*`、`music/{search,searchPlay,play,{source}/{songmid}}`、`songlist/import?id=` 全部支持（冷启动、第二实例、macOS open-url 三条路）。**2026-11-11 修 Linux/AppImage 的注册缺口**：`electron-builder.yml` 加了 `protocols: [{name, schemes:[lxmusic]}]`，desktop 文件才会带 `MimeType=x-scheme-handler/lxmusic;`；此前 Linux 上 `app.setAsDefaultProtocolClient()` 只写 xdg 的 mimeapps.list，桌面文件没有 MimeType，等于白写 —— `xdg-mime query default x-scheme-handler/lxmusic` 一直是空 |
 | 6.7 | 启动参数 | 已 | 已 | `-hidden/--start-hidden` 启动即蹲托盘；设置页有等价开关说明 |
 | 6.8 | HTTP 代理设置 | 已 | 已 | session 级代理（接口/封面/音频一起走），支持账号密码（走 login 事件，不拼进 URL），localhost 自动绕过 |
 | 6.9 | 自动更新 | 已 | 已 | 检查 GitHub Releases → 提示新版本 → 一键打开下载页；启动静默检查可关。**不做静默自动安装**：产物未签名，自动下载只会被系统拦下 |
@@ -248,7 +248,7 @@ lx 实际拥有的能力 = 99 − 7（我们独有）= **92 项**。
 |---|---|
 | 2.4 音效（均衡器/混响/环绕） | 工作量大但用户感知强 |
 | 9.1 歌曲评论 | 「99% 网易云」绕不过去的一块 |
-| 6.5 开放 API + 6.6 Scheme URL | 第三方集成，lx 的高级用户很吃这套 |
+| 6.5 开放 API | 第三方集成，lx 的高级用户很吃这套（6.6 Scheme URL 已对齐，见第 6.6 行） |
 | 7.2–7.4 主题编辑器 / 字体大小 / 多语言 | 国际化前置 |
 | 6.9 + 6.10 自动更新 + 更新日志 | 发版闭环 |
 | 2.5 / 2.6 / 2.10 / 2.11 音频设备、声道、防休眠、任务栏进度 | 桌面端细节 |

@@ -26,6 +26,24 @@ directories:
 # 于是它找不到 apps/desktop/node_modules/@tailwindcss/vite 直接报 ENOENT。
 npmRebuild: false
 
+# URL Scheme 注册（lxmusic://）。
+#
+# 主进程 extras.cjs 里有 registerSchemeClient()（app.setAsDefaultProtocolClient），
+# 但**在 Linux 上它只写 xdg 的 mimeapps.list，桌面文件里没写 MimeType 就是白写**：
+# AppImage 的 desktop 文件由 electron-builder 生成，不写这段配置就永远没有
+# `MimeType=x-scheme-handler/lxmusic;` 这一行，xdg-mime query 一直返回空，
+# 浏览器点 lxmusic:// 也不会有任何反应。
+#
+# electron-builder 的 LinuxTargetHelper 会把这里的 schemes 拼成
+# `x-scheme-handler/<scheme>` 塞进 desktop 文件的 MimeType（见
+# node_modules/app-builder-lib/out/targets/LinuxTargetHelper.js:131）；
+# 同一个配置在 Windows（NSIS 写注册表）和 macOS（Info.plist 的
+# CFBundleURLTypes）上也是官方生效路径，一处声明三端都对。
+protocols:
+  - name: Lyco Music
+    schemes:
+      - lxmusic
+
 files:
   - dist/**/*
   - electron/**/*
@@ -111,7 +129,11 @@ dmg:
 
 linux:
   icon: build/icon.png
-  category: Audio
+  # 这个值会原样变成 desktop 文件的 Categories=。以前写的是 Audio，但
+  # `Audio` 在主类表里不是独立合法的主类（它属于 AudioVideo 下的子类），
+  # desktop-file-validate 会报「requires another category to be present
+  # among AudioVideo…」。写成完整串，LinuxTargetHelper 只负责补结尾的分号。
+  category: AudioVideo;Audio;Player
   target:
     - target: AppImage
       arch: [x64]
