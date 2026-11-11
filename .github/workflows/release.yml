@@ -438,7 +438,7 @@ jobs:
         env:
           SSH_KEY: ${{ secrets.LAIN42_SSH_KEY }}
         run: |
-          set -e
+          set -eo pipefail
           if [ -z "$SSH_KEY" ]; then
             echo 'LAIN42_SSH_KEY 未配置，跳过同步到 lain42.top（不影响 GitHub Release）'
             exit 0

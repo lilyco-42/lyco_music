@@ -50,6 +50,13 @@ const ALLOWED_SRC = [
 ];
 const ALLOWED_KEY_PREFIX = ['lyco_music/', 'downloads/', 'assets/'];
 
+// 大文件一次吞 88~119MB 会撞 lain42.top 前缘（pingap 0.13.5 + pingora h2
+// 「cannot reserve capacity」：对端在慢链路上放弃时，服务端还在写）。
+// 改成 8MiB Range 分片 + R2 multipart：每个子请求小而短，绕开这个窗口。
+// R2 multipart 要求除最后一片外每片 >= 5MiB，8MiB 正好。
+const RANGE_CHUNK = 8 * 1024 * 1024;
+const RANGE_MAX_PARTS = 10000;
+
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -90,6 +97,64 @@ async function handleMirror(request, env) {
     return json({ error: 'src not allowed' }, 400);
   }
 
+  // 先 HEAD：只有明确支持 Range 的大文件才走分片，其余保持原样（小文件 / 页面）。
+  const head = await fetch(src, {
+    method: 'HEAD',
+    headers: { 'user-agent': 'lyco-r2-mirror/1' },
+  }).catch(() => null);
+  const total = head && head.ok ? Number(head.headers.get('content-length') || 0) : 0;
+  const canRange = !!(head && /bytes/i.test(head.headers.get('accept-ranges') || ''));
+  const contentType =
+    (head && head.headers.get('content-type')) || guessType(key);
+
+  if (total > RANGE_CHUNK && canRange && total / RANGE_CHUNK < RANGE_MAX_PARTS) {
+    const upload = await env.BUCKET.createMultipartUpload(key, {
+      httpMetadata: { contentType },
+    });
+    const parts = [];
+    try {
+      for (let offset = 0, n = 1; offset < total; offset += RANGE_CHUNK, n++) {
+        const end = Math.min(offset + RANGE_CHUNK, total) - 1;
+        const want = end - offset + 1;
+        let part = null;
+        let lastErr = 'unknown';
+        for (let attempt = 1; attempt <= 3 && !part; attempt++) {
+          const r = await fetch(src, {
+            headers: {
+              'user-agent': 'lyco-r2-mirror/1',
+              Range: 'bytes=' + offset + '-' + end,
+            },
+          });
+          if (r.status === 206) {
+            const buf = await r.arrayBuffer();
+            if (buf.byteLength === want) {
+              part = await upload.uploadPart(n, buf);
+            } else {
+              lastErr = 'short chunk ' + buf.byteLength + '/' + want;
+            }
+          } else {
+            lastErr = 'range status ' + r.status;
+          }
+          if (!part) await new Promise((res) => setTimeout(res, 400 * attempt));
+        }
+        if (!part) throw new Error(lastErr + ' @ ' + offset + '-' + end);
+        parts.push({ partNumber: n, etag: part.etag });
+      }
+      const obj = await upload.completeMultipartUpload(parts);
+      return json({
+        ok: true,
+        key,
+        size: obj.size,
+        ranged: true,
+        parts: parts.length,
+        etag: obj.httpEtag,
+      });
+    } catch (e) {
+      try { await upload.abortMultipartUpload(); } catch { /* best effort */ }
+      return json({ error: 'ranged mirror failed: ' + String(e) }, 502);
+    }
+  }
+
   const upstream = await fetch(src, { headers: { 'user-agent': 'lyco-r2-mirror/1' } });
   if (!upstream.ok || !upstream.body) {
     return json({ error: 'upstream ' + upstream.status }, 502);
@@ -110,7 +175,7 @@ async function handleMirror(request, env) {
 
   const obj = await env.BUCKET.put(key, upstream.body, {
     httpMetadata: {
-      contentType: upstream.headers.get('content-type') || guessType(key),
+      contentType: upstream.headers.get('content-type') || contentType,
     },
   });
   return json({ ok: true, key, size: obj.size, etag: obj.httpEtag });
