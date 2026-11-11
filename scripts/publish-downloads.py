@@ -9,7 +9,7 @@
 设计要点：**幂等**。同一 tag 重复执行只会覆盖同名条目，不会重复追加；
 发布失败重跑、或者事后补跑都不会把目录弄脏。
 """
-import json, os, glob, hashlib, shutil, sys, time
+import json, os, glob, hashlib, shutil, sys, time, urllib.request
 
 MAN = '/var/www/studio/downloads/manifest.json'
 HTML = '/var/www/studio/downloads/index.html'
@@ -23,6 +23,25 @@ R2_MIRROR_BASE = os.environ.get(
     'https://lyco-music-dl.m15178682641.workers.dev/lyco_music',
 )
 REPO = 'https://github.com/lilyco-42/lyco_music'
+
+# GitHub Release 资产直链：弱网 / 境外场景的**主**下载源。
+# 依据（2026-11-11 实测）：本机家宽 8MiB Range 打 GitHub 1.4MB/s、打 lain42.top 153KB/s（6.6×）；
+# GitHub 原生支持 Range/断点续传，匿名可下，sha256 与 release 一致；
+# 而服务器自身国际出口只有 300–400KB/s，直链大文件必然慢。
+# 需要回退时设 LYCO_GH_MIRROR=0（主按钮会重新指回 lain42.top）。
+GH_RELEASE_BASE = os.environ.get('LYCO_GH_RELEASE_BASE', REPO + '/releases/download')
+# 发布时用 HEAD 探一下该 tag 的资产是否真的存在，避免把主按钮指到 404。
+GH_VERIFY = os.environ.get('LYCO_GH_VERIFY', '1') != '0'
+
+
+def gh_reachable(url, timeout=6):
+    try:
+        req = urllib.request.Request(url, method='HEAD', headers={'User-Agent': 'lyco-publish/1'})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return 200 <= r.status < 400
+    except Exception as e:
+        print('WARNING: github HEAD failed (%s): %s' % (e, url))
+        return False
 
 if len(sys.argv) > 1 and sys.argv[1].strip():
     tag = sys.argv[1].strip()
@@ -156,6 +175,26 @@ if ipa:
         note='这是未签名 IPA，不能直接双击安装。可用 AltStore / SideStore / TrollStore 侧载，或用你自己的开发者证书重签后再装。',
         **common))
 
+# GitHub Release 直链：把主下载按钮（mirror.url）切到 GitHub 资产，
+# 原 lain42.top 直链保留为 originMirror（下载页渲染成「源站备用下载 ↗」）。
+# 这一步只改 manifest，不动页面模板；页面已支持 originMirror。
+if os.environ.get('LYCO_GH_MIRROR', '1') != '0':
+    switched, skipped = 0, []
+    for it in items:
+        fn = (it.get('mirror') or {}).get('file')
+        if not fn:
+            continue
+        gh = GH_RELEASE_BASE + '/' + tag + '/' + fn
+        if GH_VERIFY and not gh_reachable(gh):
+            skipped.append(fn)
+            continue
+        it['originMirror'] = it['mirror']['url']
+        it['mirror']['url'] = gh
+        it['mirror']['source'] = 'github'
+        switched += 1
+    print('github direct: switched %d/%d, skipped %d %s' % (
+        switched, len(items), len(skipped), skipped or ''))
+
 # R2 边缘镜像直链：与 mirror.url 指向同一份文件，海外/断点续传走这条。
 # 放在条目顶层（和 official / channel 同级），下载页与客户端按需回退。
 if os.environ.get('LYCO_R2_MIRROR', '1') != '0':
@@ -177,6 +216,24 @@ json.dump(man, open(MAN, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 print('manifest: %d -> %d items (added %d, replaced %d)' % (
     before, len(man['items']), len(items), len(old_ids & {x['id'] for x in items})))
 print('backup', bak)
+
+# ---- 下载页徽标：识别 GitHub 直链 ----
+# 主按钮切到 GitHub 后，badge() 仍只认 dl.lilyco42.top / *.workers.dev，
+# 会把这批文件标成「本站文件」，与实际下载源不符。这里就地补一条分支（幂等）。
+h = open(HTML, encoding='utf-8').read()
+_badge_old = "if(item.mirror)return (/dl\\.lilyco42\\.top|\\.workers\\.dev/.test(item.mirror.url))?'Cloudflare R2 · 积分下载':'本站文件';"
+_badge_new = ("if(item.mirror)return (/github\\.com/.test(item.mirror.url))?'GitHub 直链 · 支持断点续传'"
+              ":((/dl\\.lilyco42\\.top|\\.workers\\.dev/.test(item.mirror.url))?'Cloudflare R2 · 积分下载':'本站文件');")
+if _badge_new in h:
+    print('downloads page: github badge already present')
+elif _badge_old in h:
+    hbak = HTML + '.bak-lxmusic-' + time.strftime('%Y%m%d-%H%M%S')
+    shutil.copy2(HTML, hbak)
+    h = h.replace(_badge_old, _badge_new, 1)
+    open(HTML, 'w', encoding='utf-8').write(h)
+    print('downloads page: github badge added, backup', hbak)
+else:
+    print('WARNING: badge anchor not found, skip github badge patch')
 
 # ---- 下载页加 Linux 标签 ----
 h = open(HTML, encoding='utf-8').read()
