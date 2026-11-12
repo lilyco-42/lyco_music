@@ -515,11 +515,14 @@ jobs:
           fi
 
           # 逐文件比对 sha256：本地算一遍、远端算一遍，必须逐字节一致才算传好。
+          # 两边都按完整行做 C locale 排序：v0.2.58 踩过 runner 与服务器的
+          # LC_COLLATE 不一致，sort -k2 把 windows-x64-portable.exe 和 .msi 的
+          # 先后排反，diff 明明看到同一个 sha256，却误报「内容损坏」并拦下下载页登记。
           ssh -i ~/.ssh/id_lain42 root@lain42.top \
-            "cd /var/www/studio/downloads/$STAGE && sha256sum * | sort -k2" > "$RUNNER_TEMP/remote.sums"
+            "cd /var/www/studio/downloads/$STAGE && sha256sum * | LC_ALL=C sort" > "$RUNNER_TEMP/remote.sums"
           while read -r f; do
             sha256sum "$f"
-          done < "$LIST" | sed 's#  release-files/#  #' | sort -k2 > "$RUNNER_TEMP/local.sums"
+          done < "$LIST" | sed 's#  release-files/#  #' | LC_ALL=C sort > "$RUNNER_TEMP/local.sums"
           if ! diff -u "$RUNNER_TEMP/local.sums" "$RUNNER_TEMP/remote.sums" > "$RUNNER_TEMP/sums.diff"; then
             echo "::error::lain42.top 文件内容校验失败（截断或损坏），已跳过 SHA256SUMS 与下载页登记"
             head -60 "$RUNNER_TEMP/sums.diff" || true
