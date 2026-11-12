@@ -1,82 +1,232 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import {
-  Apple, ArrowUpRight, Check, ChevronDown, Command, Download, ExternalLink, Filter,
-  Github, Globe, HardDrive, Info, Laptop, Loader2, Package, Search, ShieldCheck, Smartphone,
-  Sparkles, Terminal, X,
+  AlertTriangle, Apple, ArrowUpRight, BookOpen, Check, ChevronLeft, ChevronRight,
+  Download, ExternalLink, Filter, Github, Globe, HardDrive, HelpCircle, Info,
+  Laptop, Loader2, Search, ShieldCheck, Smartphone, Sparkles, Terminal, X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { Card, Separator } from '@/components/ui/card'
 import { cn, formatSize } from '@/lib/utils'
-import type { Item, Manifest } from './types'
-
-const PLATFORM_LABELS: Record<string, string> = {
-  windows: 'Windows', macos: 'macOS', ios: 'iPhone / iPad', android: 'Android', linux: 'Linux',
-}
-
-const PLATFORM_ICONS: Record<string, typeof Laptop> = {
-  windows: Laptop, macos: Apple, ios: Smartphone, android: Smartphone, linux: Terminal,
-}
+import {
+  DEVICE_INFO, FILE_GLOSSARY, PLATFORM_KEYS, PLATFORM_LABELS, RECOMMENDATIONS,
+  compatibility, detectDevice, fileInfo, fmtUpdated, fmtVersion, generalGuide, rowHint, sourceBadge,
+  type Platform,
+} from '@/lib/catalog'
+import type { DownloadRow, Item, Manifest } from './types'
 
 const DL_KEY = 'wb-token'
 const DL_PRICE = 10
+const PAGE_SIZE = 16 // 4 列 × 4 行 = 一节
+const DEVICE_SEEN_KEY = 'dl-device-seen'
+const SKIP_WARN_KEY = 'dl-skip-warn'
+
+const PLATFORM_ICONS: Record<string, typeof Laptop> = {
+  windows: Laptop, macos: Apple, ios: Smartphone, android: Smartphone, linux: Terminal,
+  unknown: HelpCircle,
+}
 
 function getToken() {
   try { return localStorage.getItem(DL_KEY) || '' } catch { return '' }
 }
 
-function sourceBadge(item: Item) {
-  if (Array.isArray(item.downloads) && item.downloads.length) return { label: '多平台直链', tone: 'brand' as const }
-  if (item.mirror) {
-    if (/github\.com/.test(item.mirror.url)) return { label: 'GitHub 直链 · 断点续传', tone: 'brand' as const }
-    if (/dl\.lilyco42\.top|\.workers\.dev/.test(item.mirror.url)) return { label: 'Cloudflare R2', tone: 'brand' as const }
-    return { label: '本站文件', tone: 'secondary' as const }
-  }
-  if (item.channel === '开发者测试') return { label: '开发者测试', tone: 'outline' as const }
-  if (item.download_url) return { label: 'GitHub Release', tone: 'secondary' as const }
-  if (item.channel === 'App Store') return { label: 'App Store', tone: 'outline' as const }
-  return { label: item.channel || '官方站点', tone: 'outline' as const }
+type Action = {
+  kind: 'ticket' | 'link' | 'detail'
+  item: Item
+  label: string
+  file?: string
+  hint?: string
+  slug?: string
+  href?: string
+  external?: boolean
 }
 
-function FacetGroup({
-  title, children, defaultOpen = true,
-}: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
-  const [open, setOpen] = useState(defaultOpen)
-  return (
-    <div className="border-b border-border py-3 last:border-0">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 py-1 text-[13px] font-semibold text-foreground"
-        aria-expanded={open}
+function primaryFor(item: Item): { action: Action; label: string } {
+  const rows = Array.isArray(item.downloads) ? item.downloads : []
+  const href = item.mirror?.url || item.download_url || item.official || ''
+  if (rows.length) {
+    return { action: { kind: 'detail', item, label: '选版本' }, label: '选版本' }
+  }
+  if (item.disabled) {
+    return { action: { kind: 'detail', item, label: '已暂停' }, label: '已暂停' }
+  }
+  if (item.mirror?.slug) {
+    const label = '下载 · ' + DL_PRICE + ' 积分'
+    return { action: { kind: 'ticket', item, slug: item.mirror.slug, file: item.mirror.file, label }, label }
+  }
+  if (item.mirror) {
+    const label = '下载校验文件'
+    return { action: { kind: 'link', item, href, file: item.mirror.file, label }, label }
+  }
+  if (item.channel === '开发者测试') {
+    return {
+      action: { kind: 'link', item, href, file: 'unsigned-test.ipa', label: '获取未签名 IPA', external: true },
+      label: '未签名 IPA',
+    }
+  }
+  if (item.download_url) {
+    return { action: { kind: 'link', item, href, label: '下载官方文件', external: true }, label: '下载官方文件' }
+  }
+  const label = item.channel === 'App Store' ? 'App Store' : '官网下载'
+  return {
+    action: { kind: 'link', item, href, label: item.channel === 'App Store' ? '前往 App Store' : '前往官网下载', external: true },
+    label,
+  }
+}
+
+/* ── 通用弹窗：挂到 body，z-index 盖过站点侧栏(80) / 顶栏(70) ── */
+function Modal({
+  children, onClose, titleId, wide,
+}: { children: ReactNode; onClose: () => void; titleId: string; wide?: boolean }) {
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeRef.current() }
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prev
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [])
+  if (typeof document === 'undefined') return null
+  return createPortal(
+    <div
+      className="dl-page fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/55 p-3 py-8 sm:p-6"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className={cn('w-full rounded-2xl border border-border bg-background shadow-2xl', wide ? 'max-w-[min(100%,1120px)]' : 'max-w-[min(100%,560px)]')}
       >
-        {title}
-        <ChevronDown className={cn('size-3.5 text-muted-foreground transition-transform', open && 'rotate-180')} />
-      </button>
-      {open && <div className="mt-2 space-y-0.5">{children}</div>}
+        {children}
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+function ModalHead({ id, title, sub, onClose }: { id: string; title: string; sub?: string; onClose: () => void }) {
+  return (
+    <div className="flex items-start justify-between gap-3 border-b border-border p-4">
+      <div className="min-w-0">
+        <h2 id={id} className="text-base font-semibold leading-snug">{title}</h2>
+        {sub && <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{sub}</p>}
+      </div>
+      <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="关闭弹窗" className="shrink-0"><X /></Button>
     </div>
   )
 }
 
-function FacetOption({
-  label, count, active, onClick, icon: Icon,
-}: { label: string; count: number; active: boolean; onClick: () => void; icon?: typeof Laptop }) {
+function FacetChips({
+  title, options, active, onPick,
+}: {
+  title: string
+  options: Array<{ value: string; label: string; count: number }>
+  active: string
+  onPick: (v: string) => void
+}) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] transition-colors',
-        active ? 'bg-accent font-medium text-accent-foreground' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
-      )}
+    <div className="min-w-0">
+      <div className="mb-2 text-[12px] font-semibold text-foreground">{title}</div>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            aria-pressed={active === o.value}
+            onClick={() => onPick(o.value)}
+            className={cn(
+              'rounded-md border px-2 py-1 text-[11.5px] leading-none transition-colors',
+              active === o.value
+                ? 'border-brand bg-brand-soft font-medium text-brand'
+                : 'border-border bg-background text-muted-foreground hover:border-brand/50 hover:text-foreground'
+            )}
+          >
+            {o.label}<span className="ml-1 tabular-nums opacity-70">{o.count}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/* ── 4×4 网格里的紧凑卡片：DOM 语义 + SVG 节点合计最多 4 层 ── */
+function SoftwareCard({
+  item, device, busy, onAction, onDetail,
+}: {
+  item: Item
+  device: Platform
+  busy: boolean
+  onAction: (a: Action) => void
+  onDetail: (item: Item) => void
+}) {
+  const badge = sourceBadge(item)
+  const info = fileInfo(item)
+  const check = compatibility(item, device)
+  const guide = generalGuide(item)
+  const primary = primaryFor(item)
+  const platforms = item.platforms || []
+  const Icon = PLATFORM_ICONS[platforms[0]] || Globe
+
+  return (
+    <li
+      id={'software-' + item.id}
+      className="scroll-mt-20 grid h-full min-w-0 grid-cols-[2rem_minmax(0,1fr)_1.75rem] content-start gap-x-2 gap-y-1.5 rounded-xl border border-border bg-card p-3 shadow-xs transition-colors hover:border-brand/50 hover:bg-accent/20"
     >
-      {Icon && <Icon className="size-3.5 shrink-0 opacity-80" />}
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">{count}</span>
-      {active && <Check className="size-3 shrink-0" />}
-    </button>
+      {item.icon ? (
+        <img src={item.icon} alt="" loading="lazy" className="size-8 shrink-0 rounded-md border border-border object-cover" />
+      ) : (
+        <Icon className="size-8 shrink-0 rounded-md border border-border bg-muted p-2 text-muted-foreground" />
+      )}
+      <div className="min-w-0">
+        <h3 className="truncate text-[13.5px] font-semibold leading-snug" title={item.name}>{item.name}</h3>
+        <div className="mt-0.5 truncate text-[10.5px] text-muted-foreground" title={platforms.map((p) => PLATFORM_LABELS[p] || p).join(' / ')}>
+          {platforms.map((p) => PLATFORM_LABELS[p] || p).join(' / ') || '全平台'}
+          {item.version ? ' · ' + fmtVersion(item.version) : ''}
+        </div>
+      </div>
+      <button type="button" onClick={() => onDetail(item)} aria-label={'查看 ' + item.name + ' 详情'} title="这是什么？点我看说明" className="grid size-7 place-items-center self-start rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+        <Info className="size-3.5" />
+      </button>
+
+      <p className="col-span-3 line-clamp-2 min-h-[2.7em] text-[11.5px] leading-snug text-muted-foreground">{item.summary}</p>
+
+      <div className="col-span-3 flex flex-wrap items-center gap-1">
+        <button type="button" onClick={() => onDetail(item)} title={info.what} className="rounded-md border border-brand/40 bg-brand-soft px-1.5 py-0.5 text-[10.5px] font-medium text-brand">
+          {info.ext} 是什么？
+        </button>
+        <Badge variant={badge.tone} className="max-w-[9rem] truncate text-[10px]">{badge.label}</Badge>
+        {item.mirror?.size ? <span className="text-[10px] tabular-nums text-muted-foreground">{formatSize(item.mirror.size)}</span> : null}
+        {!check.ok && (
+          <button type="button" onClick={() => onDetail(item)} title={check.reason} className="inline-flex items-center gap-0.5 rounded-md border border-amber-500/50 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300">
+            ⚠ 可能装不上
+          </button>
+        )}
+      </div>
+
+      {item.disabled ? (
+        <Button size="xs" variant="secondary" disabled className="col-span-2 mt-auto w-full justify-center">已暂停</Button>
+      ) : (
+        <Button
+          size="xs"
+          variant="brand"
+          className="col-span-2 mt-auto min-w-0 justify-center truncate"
+          title={primary.action.label}
+          disabled={busy}
+          onClick={() => onAction(primary.action)}
+        >
+          {busy ? <Loader2 className="animate-spin" /> : <Download />}{primary.label}
+        </Button>
+      )}
+      <a href={guide.href} className="col-span-1 inline-flex items-center justify-center gap-0.5 self-end text-[10.5px] text-muted-foreground hover:bg-accent hover:text-foreground" title={guide.label}>
+        <BookOpen className="size-3" />教程
+      </a>
+    </li>
   )
 }
 
@@ -91,12 +241,29 @@ export default function App() {
   const [sort, setSort] = useState<'default' | 'name' | 'size'>('default')
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [busySlug, setBusySlug] = useState('')
+  const [page, setPage] = useState(0)
+  const [device, setDevice] = useState<Platform>(() => detectDevice())
+  const [deviceOpen, setDeviceOpen] = useState(false)
+  const [glossaryOpen, setGlossaryOpen] = useState(false)
+  const [detail, setDetail] = useState<Item | null>(null)
+  const [warning, setWarning] = useState<{ reason: string; action: Action } | null>(null)
+  const [skipWarn, setSkipWarn] = useState(() => {
+    try { return sessionStorage.getItem(SKIP_WARN_KEY) === '1' } catch { return false }
+  })
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
     setQ(params.get('q') || '')
     const p = params.get('platform') || ''
     if (p in PLATFORM_LABELS) setPlatform(p)
+  }, [])
+
+  useEffect(() => {
+    let seen = false
+    try { seen = sessionStorage.getItem(DEVICE_SEEN_KEY) === '1' } catch { /* ignore */ }
+    if (seen) return
+    const t = setTimeout(() => setDeviceOpen(true), 700)
+    return () => clearTimeout(t)
   }, [])
 
   useEffect(() => {
@@ -112,9 +279,13 @@ export default function App() {
     return () => { alive = false }
   }, [])
 
+  useEffect(() => { setPage(0) }, [q, platform, category, channel, sort])
+
   const countFor = useCallback((predicate: (i: Item) => boolean) => (
     (items || []).filter(predicate).length
   ), [items])
+
+  const byId = useMemo(() => new Map((items || []).map((i) => [i.id, i])), [items])
 
   const categories = useMemo(() => {
     const m = new Map<string, number>()
@@ -138,22 +309,21 @@ export default function App() {
       if (category && i.category !== category) return false
       if (channel && sourceBadge(i).label !== channel) return false
       if (!needle) return true
-      return [i.name, i.summary, i.category, i.license, i.channel, i.id].join(' ').toLowerCase().includes(needle)
+      return [i.name, i.summary, i.category, i.license, i.channel, i.id, i.mirror?.file || ''].join(' ').toLowerCase().includes(needle)
     })
     if (sort === 'name') list = [...list].sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
     if (sort === 'size') list = [...list].sort((a, b) => (b.mirror?.size || 0) - (a.mirror?.size || 0))
     return list
   }, [items, q, platform, category, channel, sort])
 
+  const total = items?.length ?? 0
+  const pages = Math.max(1, Math.ceil(shown.length / PAGE_SIZE))
+  const pageItems = shown.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
   const activeFilters = [platform && PLATFORM_LABELS[platform], category, channel].filter(Boolean) as string[]
 
   function reset() {
-    setPlatform('')
-    setCategory('')
-    setChannel('')
-    setQ('')
+    setPlatform(''); setCategory(''); setChannel(''); setQ('')
     const url = new URL(location.href)
-    url.search = ''
     history.replaceState(null, '', url.pathname + url.hash)
   }
 
@@ -182,9 +352,9 @@ export default function App() {
       .then((r) => r.json().then((j) => ({ ok: r.ok, body: j })))
       .then((res) => {
         if (!res.ok) {
-          let detail = res.body && res.body.detail
-          if (Array.isArray(detail)) detail = detail.map((x: { msg?: string }) => x.msg || x).join('；')
-          throw new Error(detail || (res.body && res.body.message) || '无法获取下载链接（' + name + '）')
+          let msg = res.body && res.body.detail
+          if (Array.isArray(msg)) msg = msg.map((x: { msg?: string }) => x.msg || x).join('；')
+          throw new Error(msg || (res.body && res.body.message) || '无法获取下载链接（' + name + '）')
         }
         location.href = res.body.url
       })
@@ -192,369 +362,536 @@ export default function App() {
       .finally(() => setBusySlug(''))
   }
 
-  const total = items?.length ?? 0
+  function executeAction(a: Action) {
+    if (a.kind === 'detail') { setDetail(a.item); return }
+    if (a.kind === 'ticket' && a.slug) { download(a.slug, a.file || a.item.name); return }
+    if (a.href) {
+      if (a.external) window.open(a.href, '_blank', 'noopener,noreferrer')
+      else location.href = a.href
+    }
+  }
+
+  function requestAction(a: Action) {
+    if (a.kind === 'detail') { setDetail(a.item); return }
+    const check = compatibility(a.item, device, a.file, a.hint)
+    if (!check.ok && !skipWarn) { setWarning({ reason: check.reason, action: a }); return }
+    executeAction(a)
+  }
+
+  function closeDevice() {
+    setDeviceOpen(false)
+    try { sessionStorage.setItem(DEVICE_SEEN_KEY, '1') } catch { /* ignore */ }
+  }
+
+  function chooseDevice(p: Platform) {
+    setDevice(p)
+    try { sessionStorage.setItem(DEVICE_SEEN_KEY, '1') } catch { /* ignore */ }
+  }
+
+  function toggleSkipWarn(v: boolean) {
+    setSkipWarn(v)
+    try { sessionStorage.setItem(SKIP_WARN_KEY, v ? '1' : '0') } catch { /* ignore */ }
+  }
+
+  const deviceInfo = DEVICE_INFO[device]
 
   return (
-    <div className="dl-page mx-auto w-full max-w-[1180px] px-4 pb-16 pt-6 sm:px-6">
-      {/* ── hero ─────────────────────────────────────────────── */}
-      <header className="border-b border-border pb-6">
-        <div className="flex flex-wrap items-end justify-between gap-4">
+    <div className="dl-page mx-auto w-full max-w-[1280px] px-4 pb-16 pt-6 sm:px-6">
+      {/* hero */}
+      <header className="border-b border-border pb-5">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              <Sparkles className="size-3.5" /> All platforms · official & verified
+            <div className="flex items-center gap-2 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              <Sparkles className="size-3.5" /> 4 × 4 grid · beginner friendly
             </div>
-            <h1 className="mt-2 text-[clamp(28px,4vw,40px)] font-semibold leading-tight tracking-tight">
-              软件下载中心
-            </h1>
-            <p className="mt-2 max-w-[68ch] text-sm leading-relaxed text-muted-foreground">
-              开发、AI、创作、安全与效率工具目录。优先官方安装入口；本站镜像提供版本、大小与 SHA-256，支持断点续传。
-              当前共 <span className="font-medium text-foreground tabular-nums">{total}</span> 个条目
+            <h1 className="mt-1.5 text-[clamp(26px,3.6vw,36px)] font-semibold leading-tight tracking-tight">软件下载中心</h1>
+            <p className="mt-1.5 max-w-[76ch] text-[13px] leading-relaxed text-muted-foreground">
+              每节 4 列 × 4 行，共 16 个；先看「这是什么」，再按设备下载。当前 <span className="font-medium text-foreground tabular-nums">{total}</span> 个条目
               {items && updatedAt ? <>，更新于 <span className="tabular-nums">{updatedAt}</span></> : null}。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button asChild variant="brand" size="sm">
-              <a href="/downloads/rembg/index.html"><Package />批量抠图教程</a>
-            </Button>
-            <Button asChild variant="secondary" size="sm">
-              <a href="/shop/"><Sparkles />充值积分</a>
-            </Button>
+            <Button variant="brand" size="sm" onClick={() => setDeviceOpen(true)}><Smartphone />帮我选安装包</Button>
+            <Button variant="secondary" size="sm" onClick={() => setGlossaryOpen(true)}><HelpCircle />EXE / APK 是什么</Button>
           </div>
         </div>
 
-        <div className="mt-5 flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-3 text-[12px] leading-relaxed text-muted-foreground">
+        <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-border bg-muted/40 p-2.5 text-[11.5px] leading-relaxed text-muted-foreground">
           <Info className="mt-0.5 size-4 shrink-0 text-brand" />
           <div>
-            <b className="text-foreground">镜像计费说明</b>：标注「{DL_PRICE} 积分」的按钮需登录后点击，系统扣除 {DL_PRICE} 积分并签发 1 小时有效链接；
-            同一文件当天只扣一次，断点续传或重试不重复计费。新用户注册赠送 25 积分。
+            <b className="text-foreground">镜像计费</b>：标「{DL_PRICE} 积分」的按钮登录后点击，扣 {DL_PRICE} 积分并签发 1 小时链接；
+            同一文件当天只扣一次，断点续传不重复计费。新用户注册送 25 积分。
             <a className="ml-1 inline-flex items-center gap-0.5 font-medium text-foreground underline underline-offset-2" href="/shop/#register">注册 / 登录<ArrowUpRight className="size-3" /></a>
           </div>
         </div>
       </header>
 
-      {/* ── body: facets + results ───────────────────────────── */}
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]">
-        {/* facets */}
-        <aside className={cn('min-w-0', filtersOpen ? 'block' : 'hidden lg:block')} aria-label="筛选">
-          <div className="sticky top-4">
-            <div className="flex items-center justify-between pb-1 lg:hidden">
-              <span className="text-sm font-semibold">筛选</span>
-              <Button variant="ghost" size="icon-sm" onClick={() => setFiltersOpen(false)} aria-label="关闭筛选">
-                <X />
-              </Button>
-            </div>
-            <FacetGroup title="平台">
-              {Object.entries(PLATFORM_LABELS).map(([key, label]) => (
-                <FacetOption
-                  key={key}
-                  label={label}
-                  icon={PLATFORM_ICONS[key]}
-                  count={countFor((i) => (i.platforms || []).includes(key))}
-                  active={platform === key}
-                  onClick={() => pickPlatform(key)}
-                />
-              ))}
-            </FacetGroup>
-            <FacetGroup title="分类">
-              {categories.map(([name, n]) => (
-                <FacetOption
-                  key={name}
-                  label={name}
-                  count={n}
-                  active={category === name}
-                  onClick={() => setCategory(category === name ? '' : name)}
-                />
-              ))}
-            </FacetGroup>
-            <FacetGroup title="下载源" defaultOpen={false}>
-              {channels.map(([name, n]) => (
-                <FacetOption
-                  key={name}
-                  label={name}
-                  count={n}
-                  active={channel === name}
-                  onClick={() => setChannel(channel === name ? '' : name)}
-                />
-              ))}
-            </FacetGroup>
-            {activeFilters.length > 0 && (
-              <Button variant="secondary" size="sm" className="mt-3 w-full" onClick={reset}>
-                <X />清除全部筛选
-              </Button>
+      {/* toolbar */}
+      <section className="mt-5" aria-label="搜索与筛选">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[12rem] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="搜索名称、用途、许可证…"
+              aria-label="搜索软件"
+              className="h-9 pl-9 pr-9"
+            />
+            {q && (
+              <button type="button" onClick={() => setQ('')} aria-label="清空搜索" className="absolute right-2 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+                <X className="size-3.5" />
+              </button>
             )}
           </div>
-        </aside>
+          <Button variant="secondary" size="sm" onClick={() => setFiltersOpen((v) => !v)} aria-expanded={filtersOpen}>
+            <Filter />筛选{activeFilters.length ? ' · ' + activeFilters.length : ''}
+          </Button>
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as typeof sort)}
+            aria-label="排序方式"
+            className="h-9 shrink-0 rounded-md border border-input bg-background px-2.5 text-[13px] shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+          >
+            <option value="default">默认排序</option>
+            <option value="name">按名称</option>
+            <option value="size">按体积</option>
+          </select>
+        </div>
 
-        {/* results */}
-        <section className="min-w-0" aria-label="软件列表">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="搜索名称、用途、许可证…"
-                aria-label="搜索软件"
-                className="h-9 pl-9 pr-9"
-              />
-              {q && (
-                <button
-                  type="button"
-                  onClick={() => setQ('')}
-                  aria-label="清空搜索"
-                  className="absolute right-2 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                >
-                  <X className="size-3.5" />
-                </button>
-              )}
-            </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              className="lg:hidden"
-              onClick={() => setFiltersOpen((v) => !v)}
-            >
-              <Filter />筛选{activeFilters.length ? ' · ' + activeFilters.length : ''}
-            </Button>
-            <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value as typeof sort)}
-              aria-label="排序方式"
-              className="h-9 shrink-0 rounded-md border border-input bg-background px-2.5 text-[13px] shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
-            >
-              <option value="default">默认排序</option>
-              <option value="name">按名称</option>
-              <option value="size">按体积</option>
-            </select>
+        {filtersOpen && (
+          <div className="mt-3 grid grid-cols-1 gap-3 rounded-lg border border-border bg-muted/30 p-3 md:grid-cols-3">
+            <FacetChips
+              title="设备 / 平台"
+              options={PLATFORM_KEYS.map((p) => ({ value: p, label: PLATFORM_LABELS[p], count: countFor((i) => (i.platforms || []).includes(p)) }))}
+              active={platform}
+              onPick={pickPlatform}
+            />
+            <FacetChips
+              title="分类"
+              options={categories.map(([name, n]) => ({ value: name, label: name, count: n }))}
+              active={category}
+              onPick={(v) => setCategory(category === v ? '' : v)}
+            />
+            <FacetChips
+              title="下载源"
+              options={channels.map(([name, n]) => ({ value: name, label: name, count: n }))}
+              active={channel}
+              onPick={(v) => setChannel(channel === v ? '' : v)}
+            />
           </div>
+        )}
 
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-muted-foreground">
-            <span aria-live="polite" className="tabular-nums">
-              {items === null ? '正在加载目录…' : '显示 ' + shown.length + ' / ' + total + ' 项'}
-            </span>
-            {activeFilters.map((f) => (
-              <Badge key={f} variant="soft" className="gap-1">
-                {f}
-              </Badge>
-            ))}
-            {platform === 'ios' && <span className="text-muted-foreground">iPhone / iPad：优先 App Store；未签名 IPA 仅限开发者签名测试。</span>}
-            {platform === 'macos' && <span className="text-muted-foreground">Mac：下载前请确认 Apple Silicon (arm64) 还是 Intel (x64)。</span>}
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11.5px] text-muted-foreground">
+          <span aria-live="polite" className="tabular-nums">
+            {items === null ? '正在加载目录…' : '显示 ' + shown.length + ' / ' + total + ' 项 · 第 ' + (page + 1) + ' / ' + pages + ' 节（4×4 = 16 个）'}
+          </span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {activeFilters.map((f) => <Badge key={f} variant="soft" className="text-[10px]">{f}</Badge>)}
+            {activeFilters.length > 0 && <button type="button" onClick={reset} className="rounded-md px-1.5 py-0.5 hover:bg-accent hover:text-foreground">清除全部</button>}
           </div>
+        </div>
 
-          <Separator className="my-3" />
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-brand/30 bg-brand-soft/40 px-3 py-2 text-[11.5px] leading-relaxed text-foreground">
+          <BookOpen className="size-3.5 shrink-0 text-brand" />
+          <span>不知道 EXE / MSI / APK / DMG 是什么？</span>
+          <button type="button" onClick={() => setGlossaryOpen(true)} className="font-medium text-brand underline underline-offset-2">看 4×4 文件速查表</button>
+          <span className="text-muted-foreground">·</span>
+          <span>不知道手机 / 电脑该下哪个？</span>
+          <button type="button" onClick={() => setDeviceOpen(true)} className="font-medium text-brand underline underline-offset-2">识别设备并推荐（当前：{deviceInfo.label}）</button>
+        </div>
+      </section>
 
-          {error && (
-            <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-              {error}
-            </div>
-          )}
-
-          {items === null && !error && (
-            <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />正在加载目录…
-            </div>
-          )}
-
-          {items !== null && !error && shown.length === 0 && (
-            <div className="rounded-lg border border-dashed border-border p-10 text-center">
-              <p className="text-sm text-muted-foreground">该筛选下没有软件，试试其他平台或关键词。</p>
-              <Button variant="secondary" size="sm" className="mt-3" onClick={reset}>清除筛选</Button>
-            </div>
-          )}
-
-          <ul className="space-y-2.5">
-            {shown.map((item) => (
-              <SoftwareRow
+      {/* 4×4 网格 */}
+      {error && <div className="mt-6 rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">{error}</div>}
+      {items === null && !error && (
+        <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />正在加载目录…</div>
+      )}
+      {items !== null && !error && shown.length === 0 && (
+        <div className="mt-6 rounded-lg border border-dashed border-border p-10 text-center">
+          <p className="text-sm text-muted-foreground">该筛选下没有软件，试试其他平台或关键词。</p>
+          <Button variant="secondary" size="sm" className="mt-3" onClick={reset}>清除筛选</Button>
+        </div>
+      )}
+      {pageItems.length > 0 && (
+        <>
+          <ul className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
+            {pageItems.map((item) => (
+              <SoftwareCard
                 key={item.id}
                 item={item}
-                busy={busySlug === (item.mirror?.slug || '')}
-                onDownload={download}
+                device={device}
+                busy={!!item.mirror?.slug && busySlug === item.mirror.slug}
+                onAction={requestAction}
+                onDetail={setDetail}
               />
             ))}
           </ul>
-        </section>
-      </div>
+          <nav aria-label="分节翻页" className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <Button variant="secondary" size="sm" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
+              <ChevronLeft />上一节
+            </Button>
+            <div className="grid grid-cols-4 gap-1.5">
+              {Array.from({ length: pages }, (_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  aria-current={page === i ? 'page' : undefined}
+                  onClick={() => setPage(i)}
+                  className={cn(
+                    'grid size-8 place-items-center rounded-md border text-[12px] tabular-nums transition-colors',
+                    page === i ? 'border-brand bg-brand font-semibold text-brand-foreground' : 'border-border bg-background text-muted-foreground hover:border-brand/50 hover:text-foreground'
+                  )}
+                >
+                  {i + 1}
+                </button>
+              ))}
+            </div>
+            <Button variant="secondary" size="sm" disabled={page >= pages - 1} onClick={() => setPage((p) => Math.min(pages - 1, p + 1))}>
+              下一节<ChevronRight />
+            </Button>
+          </nav>
+        </>
+      )}
 
-      {/* ── footer sections ──────────────────────────────────── */}
-      <section className="mt-12 grid grid-cols-1 gap-3 md:grid-cols-2">
-        <Card className="bg-muted/40 p-5">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">lain42 API · cc-switch</div>
-          <h2 className="mt-1.5 text-base font-semibold">连接自己的 AI 客户端</h2>
-          <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground">
-            登录后创建个人令牌，在 cc-switch、Zed 或任意 OpenAI-compatible 客户端里加一个 provider。上游密钥只保存在服务端。
-          </p>
-          <code className="mt-3 block overflow-auto rounded-md bg-foreground px-2.5 py-2 text-[12px] text-background">Base URL: https://api.lain42.top/v1</code>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button asChild variant="brand" size="sm"><a href="https://api.lain42.top/keys">创建 API 令牌<ExternalLink /></a></Button>
-            <Button asChild variant="secondary" size="sm"><a href="https://api.lain42.top/playground">打开 Playground</a></Button>
-          </div>
-        </Card>
-        <Card className="bg-muted/40 p-5">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Local first</div>
-          <h2 className="mt-1.5 text-base font-semibold">本地服务无需登录</h2>
-          <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground">
-            客户端支持 OpenAI-compatible 接口。常见默认地址：Ollama <code>127.0.0.1:11434/v1</code>，LM Studio <code>127.0.0.1:1234/v1</code>。
-          </p>
-          <code className="mt-3 block overflow-auto rounded-md bg-foreground px-2.5 py-2 text-[12px] text-background">curl http://127.0.0.1:1234/v1/models</code>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button asChild variant="secondary" size="sm"><a href="/tool/">打开 WASM 工具箱</a></Button>
-          </div>
-        </Card>
+      {/* 底部：一行最多 4 个 */}
+      <section className="mt-10 grid grid-cols-2 gap-2.5 lg:grid-cols-4" aria-label="帮助入口">
+        {[
+          { icon: BookOpen, title: 'AI 网关文档', text: '令牌、模型与计费说明', href: '/docs/' },
+          { icon: Globe, title: '代理入门教程', text: 'Mac 三步导入订阅', href: '/proxy-guide/' },
+          { icon: HelpCircle, title: '常见问题', text: '下载 / 积分 / 登录', href: '/help.html' },
+          { icon: Sparkles, title: '充值与账户', text: '注册送 25 积分', href: '/shop/#register' },
+        ].map((c) => (
+          <a key={c.title} href={c.href} className="flex items-start gap-2 rounded-xl border border-border bg-muted/30 p-3 transition-colors hover:border-brand/50 hover:bg-accent/20">
+            <c.icon className="mt-0.5 size-4 shrink-0 text-brand" />
+            <span className="min-w-0">
+              <span className="block text-[12.5px] font-semibold">{c.title}</span>
+              <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">{c.text}</span>
+            </span>
+          </a>
+        ))}
       </section>
+
+      {/* 设备识别 / 推荐弹窗 */}
+      {deviceOpen && (
+        <Modal titleId="dl-device-title" onClose={closeDevice} wide>
+          <ModalHead
+            id="dl-device-title"
+            title={'识别到你是「' + deviceInfo.label + '」· 该下哪个安装包？'}
+            sub="下面按你的设备挑了 4 个最容易一次装成功的软件。选错系统的文件打不开，下载前我们还会再提醒一次。"
+            onClose={closeDevice}
+          />
+          <div className="p-4">
+            <div className="rounded-lg border border-border bg-muted/40 p-3">
+              <div className="text-[12px] font-semibold">识别错了？点一下换设备</div>
+              <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                {[...PLATFORM_KEYS, 'unknown' as Platform].map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => chooseDevice(p)}
+                    aria-pressed={device === p}
+                    className={cn(
+                      'inline-flex items-center justify-center gap-1 rounded-md border px-2 py-1.5 text-[11.5px] transition-colors',
+                      device === p ? 'border-brand bg-brand-soft font-semibold text-brand' : 'border-border bg-background text-muted-foreground hover:border-brand/50 hover:text-foreground'
+                    )}
+                  >
+                    {(() => { const I = PLATFORM_ICONS[p] || HelpCircle; return <I className="size-3.5" /> })()}
+                    {p === 'unknown' ? '手动选' : PLATFORM_LABELS[p]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="rounded-lg border border-brand/30 bg-brand-soft/40 p-2.5 text-[11.5px] leading-relaxed">
+                <div className="font-semibold text-brand">① 认准文件类型</div>
+                <div className="mt-1 text-muted-foreground">{deviceInfo.file}</div>
+              </div>
+              <div className="rounded-lg border border-border p-2.5 text-[11.5px] leading-relaxed">
+                <div className="font-semibold">② 下载后怎么装</div>
+                <div className="mt-1 text-muted-foreground">{deviceInfo.how}</div>
+              </div>
+              <div className="rounded-lg border border-border p-2.5 text-[11.5px] leading-relaxed">
+                <div className="font-semibold">③ 卡住了看这里</div>
+                <div className="mt-1 text-muted-foreground">{deviceInfo.tip}</div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex items-center justify-between gap-2">
+              <h3 className="text-[13px] font-semibold">给「{deviceInfo.label}」的 4 个推荐</h3>
+              <button type="button" onClick={() => setGlossaryOpen(true)} className="text-[11.5px] text-brand underline underline-offset-2">文件后缀看不懂？</button>
+            </div>
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {RECOMMENDATIONS[device].length === 0 && (
+                <div className="col-span-full rounded-lg border border-dashed border-border p-4 text-center text-[12px] text-muted-foreground">
+                  先在上面选一个设备，我们再给你推荐。
+                </div>
+              )}
+              {RECOMMENDATIONS[device].map((r) => {
+                const it = byId.get(r.id)
+                if (!it) return null
+                const info = fileInfo(it)
+                const ok = compatibility(it, device).ok
+                return (
+                  <div key={r.id} className="flex min-w-0 flex-col gap-1.5 rounded-lg border border-border bg-card p-2.5">
+                    <div className="truncate text-[12.5px] font-semibold" title={it.name}>{it.name}</div>
+                    <div className="text-[10.5px] text-muted-foreground">{info.ext} · {info.label.split(' · ')[1] || info.label}</div>
+                    <p className="line-clamp-3 min-h-[3.6em] text-[11px] leading-snug text-muted-foreground">{r.why}</p>
+                    {!ok && <div className="inline-flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-300"><AlertTriangle className="size-3" />需要侧载 / 非普通安装</div>}
+                    <Button size="xs" variant="brand" className="mt-auto w-full" onClick={() => { closeDevice(); setDetail(it) }}>
+                      查看并下载<ArrowUpRight />
+                    </Button>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+              <label className="inline-flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+                <input type="checkbox" checked={skipWarn} onChange={(e) => toggleSkipWarn(e.target.checked)} className="size-3.5 accent-[var(--brand)]" />
+                本次会话下载前不再提醒选错系统
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {device !== 'unknown' && (
+                  <Button variant="secondary" size="sm" onClick={() => { pickPlatform(device); closeDevice() }}>
+                    <Check />只看适合 {deviceInfo.label} 的软件
+                  </Button>
+                )}
+                <Button variant="brand" size="sm" onClick={closeDevice}>我自己逛逛</Button>
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 文件类型速查：4 列 × 4 行 = 16 个 */}
+      {glossaryOpen && (
+        <Modal titleId="dl-glossary-title" onClose={() => setGlossaryOpen(false)} wide>
+          <ModalHead
+            id="dl-glossary-title"
+            title="文件类型速查 · 4×4"
+            sub="看到 .exe / .apk / .dmg 不用猜：先看它是什么，再看怎么装。App Store 的应用没有文件后缀。"
+            onClose={() => setGlossaryOpen(false)}
+          />
+          <div className="p-4">
+            <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              {FILE_GLOSSARY.map((f) => (
+                <li key={f.ext} className="rounded-lg border border-border bg-card p-2.5">
+                  <div className="inline-flex items-center rounded-md bg-brand-soft px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-brand">{f.ext}</div>
+                  <div className="mt-1.5 text-[11.5px] font-semibold leading-snug">{f.label}</div>
+                  <p className="mt-1 text-[10.5px] leading-snug text-muted-foreground">{f.what}</p>
+                  <p className="mt-1 text-[10.5px] leading-snug text-foreground/80">{f.how}</p>
+                  {f.risk && <p className="mt-1 text-[10px] leading-snug text-amber-700 dark:text-amber-300">{f.risk}</p>}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-[11.5px] text-muted-foreground">
+              <span>还是不知道选哪个？让页面按设备推荐，下载前也会提醒装错系统。</span>
+              <Button variant="brand" size="sm" onClick={() => { setGlossaryOpen(false); setDeviceOpen(true) }}><Smartphone />帮我选安装包</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 详情：文件解释 + 安装步骤 + 教程 + 多版本选择 */}
+      {detail && (
+        <Modal titleId="dl-detail-title" onClose={() => setDetail(null)} wide>
+          <ModalHead
+            id="dl-detail-title"
+            title={detail.name + (detail.version ? ' · ' + fmtVersion(detail.version) : '')}
+            sub={detail.summary}
+            onClose={() => setDetail(null)}
+          />
+          <DetailBody
+            item={detail}
+            device={device}
+            busy={busySlug}
+            onAction={requestAction}
+          />
+        </Modal>
+      )}
+
+      {/* 选错平台警告 */}
+      {warning && (
+        <Modal titleId="dl-warning-title" onClose={() => setWarning(null)}>
+          <ModalHead id="dl-warning-title" title="等一下，这个文件可能装不上" sub="小白最容易在这里卡住，先确认一下再继续。" onClose={() => setWarning(null)} />
+          <div className="p-4">
+            <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-[12.5px] leading-relaxed text-foreground">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-300" />
+              <div>
+                <p>{warning.reason}</p>
+                <p className="mt-1.5 text-[11.5px] text-muted-foreground">
+                  当前识别为「{deviceInfo.label}」。{deviceInfo.file}。{deviceInfo.how}
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="rounded-lg border border-border p-2.5 text-[11px] leading-relaxed text-muted-foreground"><b className="text-foreground">① 别下错</b><br />回到推荐里选适合 {deviceInfo.label} 的版本。</div>
+              <div className="rounded-lg border border-border p-2.5 text-[11px] leading-relaxed text-muted-foreground"><b className="text-foreground">② 看教程</b><br />安装步骤和常见问题都写在教程里。</div>
+              <div className="rounded-lg border border-border p-2.5 text-[11px] leading-relaxed text-muted-foreground"><b className="text-foreground">③ 仍要下</b><br />如果你是在帮别的设备下载，可以继续。</div>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+              <label className="inline-flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+                <input type="checkbox" checked={skipWarn} onChange={(e) => toggleSkipWarn(e.target.checked)} className="size-3.5 accent-[var(--brand)]" />
+                本次会话不再提醒
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="secondary" size="sm" onClick={() => { setWarning(null); setDeviceOpen(true) }}><Smartphone />按设备推荐</Button>
+                <Button variant="brand" size="sm" onClick={() => { const a = warning.action; setWarning(null); executeAction(a) }}>仍然继续<ArrowUpRight /></Button>
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
 
-function fmtUpdated(iso?: string) {
-  if (!iso) return ''
-  // manifest 目前只写 YYYY-MM-DD；不要补一个假的 00:00 时间。
-  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  const p = (n: number) => String(n).padStart(2, '0')
-  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes())
-}
-
-function SoftwareRow({
-  item, busy, onDownload,
-}: { item: Item; busy: boolean; onDownload: (slug: string, name: string) => void }) {
-  const rows = Array.isArray(item.downloads) ? item.downloads : []
+/* 详情内容单独成组件，避免主 App 嵌套过深 */
+function DetailBody({
+  item, device, busy, onAction,
+}: {
+  item: Item
+  device: Platform
+  busy: string
+  onAction: (a: Action) => void
+}) {
+  const info = fileInfo(item)
+  const check = compatibility(item, device)
+  const guide = generalGuide(item)
   const badge = sourceBadge(item)
-  const primaryHref = item.mirror ? item.mirror.url : (item.download_url || item.official || '')
-  const platforms = item.platforms || []
+  const d = DEVICE_INFO[device]
+  const rows = Array.isArray(item.downloads) ? item.downloads : []
+  const [onlyFit, setOnlyFit] = useState(true)
+  const ranked = useMemo(() => rows
+    .map((r) => ({ r, ok: compatibility(item, device, r.file, rowHint(r)).ok }))
+    .sort((a, b) => Number(b.ok) - Number(a.ok)), [rows, item, device])
+  const visible = onlyFit ? ranked.filter((x) => x.ok) : ranked
+  const shownRows = visible.length ? visible : ranked
+
+  function rowAction(r: DownloadRow): Action {
+    if (r.slug) {
+      return { kind: 'ticket', item, slug: r.slug, file: r.file, hint: rowHint(r), label: '下载 · ' + DL_PRICE + ' 积分' }
+    }
+    return { kind: 'link', item, href: r.url || item.official || '', file: r.file, hint: rowHint(r), label: '下载 ' + (r.file || r.platform), external: true }
+  }
+
+  const primary = primaryFor(item)
+  const links = [
+    item.guide ? { label: '使用教程', href: item.guide } : null,
+    item.official ? { label: '版本与说明', href: item.official } : null,
+    item.release && item.release !== item.official ? { label: '官方发布页', href: item.release } : null,
+    item.repository ? { label: '源码仓库', href: item.repository } : null,
+    item.originMirror ? { label: '源站备用', href: item.originMirror } : null,
+    item.r2Mirror ? { label: 'R2 备用', href: item.r2Mirror } : null,
+    item.landing_page ? { label: '产品介绍', href: item.landing_page } : null,
+    { label: '新手帮助', href: '/help.html' },
+  ].filter(Boolean) as Array<{ label: string; href: string }>
 
   return (
-    <li id={'software-' + item.id} className="scroll-mt-20">
-      <Card className="gap-0 p-0 transition-colors hover:border-border-strong hover:bg-accent/20">
-        <div className="flex items-start gap-3 p-4">
-          {item.icon ? (
-            <img src={item.icon} alt="" loading="lazy" className="size-11 shrink-0 rounded-lg border border-border object-cover" />
-          ) : (
-            <div className="grid size-11 shrink-0 place-items-center rounded-lg border border-border bg-muted text-[15px] font-semibold text-muted-foreground">
-              {item.name.slice(0, 1).toUpperCase()}
-            </div>
-          )}
+    <div className="p-4">
+      <div className={cn('flex items-start gap-2.5 rounded-lg border p-3 text-[12px] leading-relaxed', check.ok ? 'border-brand/30 bg-brand-soft/40' : 'border-amber-500/50 bg-amber-500/10')}>
+        {check.ok ? <Check className="mt-0.5 size-4 shrink-0 text-brand" /> : <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-300" />}
+        <div>
+          <b>{check.ok ? '这个文件和你的设备匹配' : '注意：' + check.reason}</b>
+          <div className="mt-1 text-muted-foreground">当前设备：{d.label}。{d.file}</div>
+        </div>
+      </div>
 
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <h2 className="text-[15px] font-semibold leading-snug tracking-tight">
-                <a href={'#'} onClick={(e) => e.preventDefault()} className="hover:underline">{item.name}</a>
-              </h2>
-              {item.version && <Badge variant="outline" className="font-mono">{item.version}</Badge>}
-              <Badge variant={badge.tone}>{badge.label}</Badge>
-              {item.disabled && <Badge variant="secondary">已暂停</Badge>}
-            </div>
+      {/* 这个文件是什么 / 怎么装 / 教程：一行 3 个，不超过 4 */}
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-3">
+          <div className="inline-flex rounded-md bg-brand-soft px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-brand">{info.ext}</div>
+          <div className="mt-1.5 text-[12.5px] font-semibold">{info.label}</div>
+          <h3 className="mt-1 text-[11px] font-medium text-foreground/80">{info.ext} 是什么？</h3>
+          <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{info.what}</p>
+          {info.risk && <p className="mt-1 text-[10.5px] leading-snug text-amber-700 dark:text-amber-300">{info.risk}</p>}
+        </div>
+        <div className="rounded-lg border border-border bg-card p-3">
+          <div className="text-[12.5px] font-semibold">下载后怎么装</div>
+          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{info.how}</p>
+          <p className="mt-1.5 text-[10.5px] leading-snug text-muted-foreground">{d.how}</p>
+        </div>
+        <div className="rounded-lg border border-brand/30 bg-brand-soft/30 p-3">
+          <div className="text-[12.5px] font-semibold text-brand">跟着教程做</div>
+          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">小白不用记命令：点开教程，按截图一步一步来。{d.tip}</p>
+          <a href={guide.href} className="mt-2 inline-flex items-center gap-1 rounded-md bg-brand px-2.5 py-1.5 text-[11.5px] font-medium text-brand-foreground hover:opacity-90">
+            <BookOpen className="size-3.5" />{guide.label}<ArrowUpRight className="size-3" />
+          </a>
+        </div>
+      </div>
 
-            <p className="mt-1 line-clamp-2 text-[13px] leading-relaxed text-muted-foreground">{item.summary}</p>
-
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              {platforms.map((p) => {
-                const Icon = PLATFORM_ICONS[p] || Globe
-                return (
-                  <Badge key={p} variant="soft" className="gap-1 text-muted-foreground">
-                    <Icon className="size-3" />{PLATFORM_LABELS[p] || p}
-                  </Badge>
-                )
-              })}
-              {item.category && <Badge variant="outline">{item.category}</Badge>}
-              {item.license && <Badge variant="outline" className="max-w-[22ch] truncate" title={item.license}>{item.license}</Badge>}
-              {item.mirror && <span className="text-[11px] tabular-nums text-muted-foreground">{formatSize(item.mirror.size)}</span>}
-            </div>
-
-            {rows.length > 0 && (
-              <div className="mt-3 overflow-hidden rounded-lg border border-border">
-                {rows.map((r, idx) => (
-                  <div key={(r.slug || r.file || r.platform) + idx} className="flex items-center gap-3 border-t border-border px-3 py-2 first:border-t-0 even:bg-muted/40">
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[12.5px] font-medium">{r.platform}</div>
-                      <div className="truncate text-[11px] text-muted-foreground">
-                        {r.file || ''}{r.size ? ' · ' + formatSize(r.size) : ''}{r.note ? ' · ' + r.note : ''}
-                      </div>
-                    </div>
-                    {r.slug ? (
-                      <Button variant="brand" size="xs" onClick={() => onDownload(r.slug!, r.file || item.name)}>
-                        {DL_PRICE} 积分
-                      </Button>
-                    ) : (
-                      <Button asChild variant="secondary" size="xs">
-                        <a href={r.url} rel="noopener noreferrer">下载</a>
-                      </Button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {item.mirror && (
-              <div className="mt-2.5 rounded-lg bg-muted/60 px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                <div className="flex flex-wrap items-center gap-x-1.5">
-                  <ShieldCheck className="size-3 shrink-0 text-brand" />
-                  <span className="font-medium text-foreground">{item.mirror.platform}</span>
-                  <span>·</span>
-                  <span className="truncate font-mono">{item.mirror.file}</span>
-                  {item.mirror.size ? <><span>·</span><span className="tabular-nums">{formatSize(item.mirror.size)}</span></> : null}
+      {/* 多版本：每行最多 4 个 */}
+      {rows.length > 0 && (
+        <div className="mt-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-[13px] font-semibold">选版本（共 {rows.length} 个，按你的设备排在前面）</h3>
+            <label className="inline-flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+              <input type="checkbox" checked={onlyFit} onChange={(e) => setOnlyFit(e.target.checked)} className="size-3.5 accent-[var(--brand)]" />
+              只看适合 {d.label} 的版本
+            </label>
+          </div>
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {shownRows.map(({ r, ok }, idx) => {
+              const fi = fileInfo(item, r.file)
+              const a = rowAction(r)
+              return (
+                <div key={(r.slug || r.file || r.platform) + idx} className={cn('flex min-w-0 flex-col gap-1 rounded-lg border p-2.5', ok ? 'border-border bg-card' : 'border-amber-500/40 bg-amber-500/5')}>
+                  <div className="truncate text-[11.5px] font-semibold" title={r.platform}>{r.platform}</div>
+                  <div className="truncate font-mono text-[10px] text-muted-foreground" title={r.file}>{r.file || fi.ext}</div>
+                  <div className="text-[10px] text-muted-foreground">{r.size ? formatSize(r.size) + ' · ' : ''}{fi.ext}{r.note ? ' · ' + r.note : ''}</div>
+                  {!ok && <div className="text-[10px] text-amber-700 dark:text-amber-300">非当前设备的版本</div>}
+                  <Button size="xs" variant={ok ? 'brand' : 'secondary'} className="mt-auto w-full" disabled={busy === r.slug} onClick={() => onAction(a)}>
+                    {busy === r.slug ? <Loader2 className="animate-spin" /> : <Download />}{r.slug ? DL_PRICE + ' 积分' : '下载'}
+                  </Button>
                 </div>
-                <div className="mt-0.5 break-all font-mono text-[10.5px] leading-snug opacity-80">SHA-256 {item.mirror.sha256}</div>
-              </div>
-            )}
-
-            {item.note && (
-              <p className="mt-2.5 rounded-md border-l-2 border-brand/60 bg-muted/50 px-2.5 py-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
-                {item.note}
-              </p>
-            )}
-
-            {item.install && (
-              <code className="mt-2.5 block overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-muted-foreground">
-                {item.install}
-              </code>
-            )}
-
-            <div className="mt-3 flex flex-wrap items-center gap-1.5">
-              {rows.length > 0 ? (
-                <Button asChild variant="secondary" size="sm">
-                  <a href={item.release || item.official} target="_blank" rel="noopener noreferrer">官方发布页 / 校验值<ArrowUpRight /></a>
-                </Button>
-              ) : item.disabled ? (
-                <Button variant="secondary" size="sm" disabled>已暂停下载</Button>
-              ) : item.mirror?.slug ? (
-                <Button variant="brand" size="sm" disabled={busy} onClick={() => onDownload(item.mirror!.slug!, item.mirror!.file)}>
-                  {busy ? <Loader2 className="animate-spin" /> : <Download />}下载 · {DL_PRICE} 积分
-                </Button>
-              ) : item.mirror ? (
-                <Button asChild variant="brand" size="sm"><a href={primaryHref}>下载校验文件<Download /></a></Button>
-              ) : item.channel === '开发者测试' ? (
-                <Button asChild variant="brand" size="sm"><a href={primaryHref} target="_blank" rel="noopener noreferrer">获取未签名 IPA<ArrowUpRight /></a></Button>
-              ) : item.download_url ? (
-                <Button asChild variant="brand" size="sm"><a href={primaryHref} target="_blank" rel="noopener noreferrer">下载官方文件<Download /></a></Button>
-              ) : (
-                <Button asChild variant="brand" size="sm">
-                  <a href={primaryHref} target="_blank" rel="noopener noreferrer">
-                    {item.channel === 'App Store' ? '前往 App Store' : '前往官网下载'}<ArrowUpRight />
-                  </a>
-                </Button>
-              )}
-
-              {item.guide && (
-                <Button asChild variant="secondary" size="sm">
-                  <a href={item.guide}>{item.guideLabel || '使用步骤'}</a>
-                </Button>
-              )}
-              {!item.disabled && item.originMirror && (
-                <Button asChild variant="secondary" size="sm">
-                  <a href={item.originMirror} target="_blank" rel="noopener noreferrer">源站备用<ArrowUpRight /></a>
-                </Button>
-              )}
-              {item.official && item.official !== primaryHref && (
-                <Button asChild variant="ghost" size="sm"><a href={item.official} target="_blank" rel="noopener noreferrer">版本与说明<ArrowUpRight /></a></Button>
-              )}
-              {item.repository && (
-                <Button asChild variant="ghost" size="sm"><a href={item.repository} target="_blank" rel="noopener noreferrer" aria-label="源码仓库"><Github />源码</a></Button>
-              )}
-            </div>
+              )
+            })}
           </div>
         </div>
-      </Card>
-    </li>
+      )}
+
+      {/* 镜像 / 备注 / 安装命令 */}
+      {item.mirror && (
+        <div className="mt-4 rounded-lg border border-border bg-muted/40 p-3 text-[11px] leading-relaxed">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <ShieldCheck className="size-3.5 shrink-0 text-brand" />
+            <b className="text-[12px]">{item.mirror.platform}</b>
+            <span className="truncate font-mono">{item.mirror.file}</span>
+            {item.mirror.size ? <span className="tabular-nums">{formatSize(item.mirror.size)}</span> : null}
+            <Badge variant={badge.tone} className="text-[10px]">{badge.label}</Badge>
+          </div>
+          <div className="mt-1.5 break-all font-mono text-[10px] opacity-75">SHA-256 {item.mirror.sha256}</div>
+        </div>
+      )}
+      {item.note && <p className="mt-2 rounded-md border-l-2 border-brand/60 bg-muted/50 px-2.5 py-2 text-[11.5px] leading-relaxed text-muted-foreground">{item.note}</p>}
+      {item.install && <code className="mt-2 block overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted px-2.5 py-2 font-mono text-[11px] leading-relaxed text-muted-foreground">{item.install}</code>}
+
+      {/* 相关链接：一行最多 4 个 */}
+      <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+        {links.slice(0, 8).map((l) => (
+          <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center gap-1 truncate rounded-md border border-border bg-background px-2 py-1.5 text-[10.5px] text-muted-foreground hover:border-brand/50 hover:text-foreground">
+            {l.label.includes('源码') ? <Github className="size-3" /> : <ExternalLink className="size-3" />}{l.label}
+          </a>
+        ))}
+      </div>
+
+      {rows.length === 0 && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+            <HardDrive className="size-3.5" />{item.category}{item.license ? ' · ' + item.license : ''}{item.release ? ' · ' + item.release : ''}
+            {item.disabled ? <Badge variant="secondary" className="text-[10px]">已暂停下载</Badge> : null}
+          </div>
+          {item.disabled ? (
+            <Button variant="secondary" size="sm" disabled>已暂停下载</Button>
+          ) : (
+            <Button variant="brand" size="sm" disabled={busy === item.mirror?.slug} onClick={() => onAction(primary.action)}>
+              {busy === item.mirror?.slug ? <Loader2 className="animate-spin" /> : <Download />}{primary.action.label}
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }

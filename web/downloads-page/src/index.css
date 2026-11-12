@@ -75,3 +75,10 @@
   .dl-page :where(a) { text-decoration: none; }
   .dl-page :where(code, pre) { font-size: inherit; background: none; padding: 0; font-weight: inherit; }
 }
+
+
+/* 修复搜索框图标与占位文字重叠：/assets/studio.css 的未分层 input:not([type]){padding:0 .75rem} 会压过 Tailwind 分层 utilities 的 pl-9/pr-9。此规则必须留在 @layer 之外（unlayered）才能与 studio.css 同层竞争。 */
+.dl-page input[aria-label="搜索软件"] {
+  padding-left: 2.25rem !important;
+  padding-right: 2.25rem !important;
+}
