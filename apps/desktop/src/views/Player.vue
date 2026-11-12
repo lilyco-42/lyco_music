@@ -11,7 +11,7 @@
  * 数据全部来自 usePlayer()，不再有写死的示例歌词：
  * 歌词由内核的 parseLyric 解析 LRC，再用二分定位当前行。
  */
-import { computed, onBeforeUnmount, ref, watch, nextTick } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { findLineIndex, getSource, hasSource, parseCommentContent, type MusicComment, type MusicItem, type SourceId } from '@lxmn/core'
 import { viewLyric } from '@/lib/lyric-view'
@@ -19,8 +19,12 @@ import { prefs } from '@/lib/prefs'
 import { findSameSong } from '@/lib/same-song'
 import { lyricScrollDelta, type LyricScrollMode } from '@/lib/lyric-style'
 import { buildLrc } from '@/lib/lrc-export'
-import { saveText, safeFileName } from '@/lib/download'
+import { audioExt, saveText, safeFileName, saveUrl } from '@/lib/download'
 import { toast } from '@/lib/toast'
+import { enqueueDownload } from '@/lib/downloads'
+import { useSleepTimer } from '@/lib/sleep-timer'
+import { useEqualizer } from '@/lib/equalizer'
+import { useSoundEffect } from '@/lib/sound-effect'
 import { useSync } from '@/lib/sync'
 import { useI18n } from '@/lib/i18n'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -28,7 +32,7 @@ import { usePlayer } from '@/lib/player'
 import WindowControls from '@/components/layout/WindowControls.vue'
 import QualityMenu from '@/components/layout/QualityMenu.vue'
 import IconButton from '@/components/ui/IconButton.vue'
-import { Download, ListMusic, Maximize2, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, ThumbsDown } from 'lucide-vue-next'
+import { Check, Download, ListMusic, Maximize2, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, ThumbsDown } from 'lucide-vue-next'
 
 const router = useRouter()
 const player = usePlayer()
@@ -367,6 +371,8 @@ const lyricFontSize = computed(() => prefs.playLyricFontSize)
 
 function setLyricFont(v: number): void {
   prefs.playLyricFontSize = Math.max(FONT_MIN, Math.min(FONT_MAX, Math.round(v)))
+  // 纯音乐/无歌词时字号变化看不见，给个 toast，免得用户以为按钮坏了
+  toast('歌词字号 ' + prefs.playLyricFontSize + 'px')
   void nextTick().then(() => centerActiveLine())
 }
 
@@ -500,7 +506,7 @@ const album = computed(() => current.value?.albumName ?? '')
 /* ---------------- 评论 ---------------- */
 
 
-const { library, favorites, dislikes, isDisliked, dislike, undislike } = useSync()
+const { library, playlists, favorites, dislikes, isDisliked, dislike, undislike } = useSync()
 
 /**
  * 当前这首是否已被标记「不喜欢」。
@@ -714,6 +720,252 @@ const vinylStyle = computed(() => ({
   background: 'repeating-radial-gradient(circle, #111 0, #111 2px, #181818 3px, #181818 4px)',
   boxShadow: '0 10px 30px rgba(0,0,0,.35), inset 0 0 0 2px rgba(255,255,255,.04)',
 }))
+
+/* ---------------- 桌面歌词 / 播放队列 / 更多菜单 ---------------- */
+/**
+ * 播放器模式是独立全屏页（App.vue 在这里只渲染 RouterView，没有 PlayBar），
+ * 底栏按钮得自己接。以前「播放列表」「…」只画了图标没有 @click，
+ * 「词」只把 activeTab 设成 lyric（本来就在歌词页，点了等于没反应）——
+ * 真机逐个点过，这三个就是「好多按钮无法使用」的来源。
+ * 动作与主界面 PlayBar 保持一致，面板配色换成深色。
+ */
+const sleep = useSleepTimer()
+const eq = useEqualizer()
+const sound = useSoundEffect()
+
+const nativeLyric = typeof window !== 'undefined' ? window.lxmnNative?.lyric : undefined
+const lyricWindowOpen = ref(false)
+const showLyric = computed(() => state.lyricOpen)
+const lyricActive = computed(() => (nativeLyric ? lyricWindowOpen.value : showLyric.value))
+
+async function toggleLyric(): Promise<void> {
+  if (!nativeLyric) {
+    player.toggleLyric()
+    return
+  }
+  if (lyricWindowOpen.value) {
+    // 锁定后歌词窗口鼠标穿透，它自己解不了锁，「词」是唯一逃生通道
+    const locked = await nativeLyric.isLocked().catch(() => false)
+    if (locked) {
+      await nativeLyric.setLock(false).catch(() => false)
+      return
+    }
+    await nativeLyric.close()
+    lyricWindowOpen.value = false
+    return
+  }
+  await nativeLyric.open({
+    name: current.value?.name ?? '',
+    singer: current.value?.singer ?? '',
+    lyric: state.lyric,
+    tlyric: state.tlyric,
+    romalrc: state.romalrc,
+    currentTime: state.currentTime,
+    playing: state.playing,
+  })
+  lyricWindowOpen.value = true
+}
+
+onMounted(async () => {
+  if (!nativeLyric) return
+  lyricWindowOpen.value = await nativeLyric.isOpen().catch(() => false)
+})
+
+type Panel = 'none' | 'more' | 'queue' | 'addto' | 'source' | 'rate' | 'sleep' | 'eq'
+const openPanel = ref<Panel>('none')
+
+/** 面板互斥：同时只开一个，避免两层浮层叠在一起 */
+function togglePanel(name: 'more' | 'queue'): void {
+  openPanel.value = openPanel.value === name ? 'none' : name
+}
+
+function fmtRate(r: number): string {
+  return String(Number(r.toFixed(2))) + '×'
+}
+
+function pickRate(r: number): void {
+  player.setRate(r)
+  openPanel.value = 'none'
+  toast('播放速度 ' + fmtRate(r))
+}
+
+/** 播放模式切档后给个明确反馈：只换图标，很多人以为没点上 */
+function cycleMode(): void {
+  player.cycleMode()
+  toast('播放模式：' + player.modeLabel())
+}
+
+const moreItems = computed(() => {
+  const t = current.value
+  const lyricItem = { key: 'lyric', label: lyricActive.value ? '关闭桌面歌词' : '打开桌面歌词', hint: '' }
+  const rateItem = { key: 'rate', label: '播放速度', hint: fmtRate(state.rate) }
+  const eqItem = { key: 'eq', label: '音效 / 均衡器', hint: eq.enabled.value ? eq.currentPreset.value.name : (sound.active.value ? '环境音效' : '关闭') }
+  const sleepItem = sleep.active.value
+    ? { key: 'sleep', label: '定时暂停', hint: sleep.label.value + ' 后暂停' }
+    : { key: 'sleep', label: '定时暂停', hint: '到时自动暂停' }
+  const queueItem = { key: 'queue', label: '播放队列（' + state.queue.length + '）', hint: '' }
+  // 没在播放时也要给出可用动作：空菜单会让「…」看起来又是一个死按钮
+  if (!t) {
+    return [
+      lyricItem, rateItem, eqItem, sleepItem, queueItem,
+      { key: 'idle', label: '当前没有播放歌曲', hint: '先从歌单或搜索里选一首' },
+    ]
+  }
+  return [
+    { key: 'singer', label: '歌手：' + (t.singer || '未知'), hint: '在搜索里查看这位歌手' },
+    { key: 'album', label: '专辑：' + (t.albumName || '未知'), hint: '在搜索里查看这张专辑' },
+    { key: 'addto', label: '添加到歌单', hint: playlists.value.length ? '共 ' + playlists.value.length + ' 个歌单' : '还没有歌单，可以直接新建' },
+    { key: 'download', label: '下载歌曲', hint: downloading.value ? '正在下载…' : '另存为音频文件' },
+    { key: 'enqueue', label: '下载到音乐库', hint: '进下载管理，可暂停 / 续传' },
+    { key: 'copy', label: '复制歌名 - 歌手', hint: '粘贴到别处分享' },
+    disliked.value
+      ? { key: 'dislike', label: '取消不喜欢', hint: '恢复推荐与播放' }
+      : { key: 'dislike', label: '不喜欢这首歌', hint: '加入屏蔽规则，之后自动跳过' },
+    lyricItem,
+    { key: 'source', label: '歌曲换源', hint: '当前 ' + t.source.toUpperCase() },
+    rateItem,
+    eqItem,
+    sleepItem,
+    queueItem,
+  ]
+})
+/* ---- 添加到歌单 ---- */
+const addHint = ref('')
+const addNewName = ref('')
+const addBusy = ref(false)
+
+async function addCurrentTo(playlistId: string): Promise<void> {
+  const t = current.value
+  if (!t) return
+  const pl = playlists.value.find(x => x.id === playlistId)
+  const ok = await library.addToPlaylist(playlistId, t)
+  addHint.value = ok
+    ? '已加入「' + (pl?.name ?? '歌单') + '」'
+    : '「' + (pl?.name ?? '歌单') + '」里已经有这首了'
+}
+
+async function addCurrentToNew(): Promise<void> {
+  const t = current.value
+  if (!t || addBusy.value) return
+  addBusy.value = true
+  try {
+    const baseName = addNewName.value.replace(/\s+/g, ' ').trim().slice(0, 32) || '新建歌单'
+    const used = new Set(playlists.value.map(x => x.name))
+    let name = baseName
+    let i = 2
+    while (used.has(name)) {
+      name = baseName + ' ' + i
+      i++
+    }
+    const pl = await library.createPlaylist(name)
+    await library.addToPlaylist(pl.id, t)
+    addNewName.value = ''
+    addHint.value = '已新建「' + pl.name + '」并加入'
+  } finally {
+    addBusy.value = false
+  }
+}
+
+/* ---- 下载当前歌曲：地址现取现用，签名链接几分钟就过期 ---- */
+const downloading = ref(false)
+
+async function downloadCurrent(): Promise<void> {
+  const t = current.value
+  if (!t || downloading.value) return
+  downloading.value = true
+  toast('正在准备下载…', 60000)
+  try {
+    const url = await player.ensureStreamUrl()
+    const filename = safeFileName(t.name + ' - ' + t.singer) + '.' + audioExt(url)
+    const res = await saveUrl(filename, url)
+    if (res.canceled) {
+      toast('已取消下载')
+      return
+    }
+    toast(res.ok ? '已保存' : '下载失败：' + (res.error ?? '未知错误'))
+  } catch (e) {
+    toast('下载失败：' + (e instanceof Error ? e.message : String(e)))
+  } finally {
+    downloading.value = false
+  }
+}
+
+async function onMore(key: string): Promise<void> {
+  // 不依赖当前歌曲的动作先分派：没播放时也能开桌面歌词、调音效、看队列
+  openPanel.value = 'none'
+  if (key === 'idle') {
+    toast('当前没有播放歌曲，先从歌单或搜索里选一首')
+    return
+  }
+  if (key === 'lyric') { await toggleLyric(); return }
+  if (key === 'rate') { openPanel.value = 'rate'; return }
+  if (key === 'sleep') { openPanel.value = 'sleep'; return }
+  if (key === 'eq') { openPanel.value = 'eq'; return }
+  if (key === 'queue') { openPanel.value = 'queue'; return }
+  const t = current.value
+  if (!t) {
+    toast('当前没有播放歌曲')
+    return
+  }
+  if (key === 'singer' || key === 'album') {
+    const q = key === 'singer' ? t.singer : t.albumName
+    if (!q) return
+    void router.push({ name: 'search', query: { q } })
+    return
+  }
+  if (key === 'copy') {
+    try {
+      await navigator.clipboard.writeText(t.name + ' - ' + t.singer)
+      toast('已复制：' + t.name + ' - ' + t.singer)
+    } catch {
+      toast('复制失败：浏览器不允许访问剪贴板')
+    }
+    return
+  }
+  if (key === 'addto') { addHint.value = ''; openPanel.value = 'addto'; return }
+  if (key === 'download') { await downloadCurrent(); return }
+  if (key === 'enqueue') {
+    const added = await enqueueDownload([t], state.quality)
+    toast(added ? '已加入下载队列' : '这首已经在下载列表里了')
+    return
+  }
+  if (key === 'dislike') { await toggleDislike(); return }
+  if (key === 'source') { openPanel.value = 'source'; return }
+}
+/* ---- 歌曲换源 ---- */
+const SOURCE_LABELS: Record<string, string> = { wy: '网易云', kw: '酷我', kg: '酷狗', mg: '咪咕' }
+const switching = ref('')
+
+async function switchSource(source: string): Promise<void> {
+  const t = current.value
+  if (!t || switching.value) return
+  if (t.source === source) { openPanel.value = 'none'; return }
+  switching.value = source
+  try {
+    const found = await findSameSong(t, source as never)
+    if (!found) {
+      toast((SOURCE_LABELS[source] ?? source) + ' 里没找到这首歌')
+      return
+    }
+    const queue = [...state.queue]
+    const at = queue.findIndex(x => x.source === t.source && String(x.songmid) === String(t.songmid))
+    if (at >= 0) queue[at] = found
+    openPanel.value = 'none'
+    await player.play(found, queue.length ? queue : undefined)
+    toast('已换到 ' + (SOURCE_LABELS[source] ?? source))
+  } catch (e) {
+    // 未捕获的拒绝会让 Vue 组件树报错、底栏整个消失，必须自己兜住
+    toast('换源失败：' + (e instanceof Error ? e.message : String(e)))
+  } finally {
+    switching.value = ''
+  }
+}
+
+function playFromQueue(i: number): void {
+  const item = state.queue[i]
+  if (!item) return
+  void player.play(item)
+}
 </script>
 
 <template>
@@ -1168,7 +1420,7 @@ const vinylStyle = computed(() => ({
 
       <!-- 中央控制区：中心 x=960，按钮间距 29~34px -->
       <div class="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-[31px]">
-        <IconButton :label="modeLabel" tone="dark" size="lg" @click="player.cycleMode()">
+        <IconButton :label="modeLabel" tone="dark" size="lg" @click="cycleMode()">
           <template #default="{ size, stroke }">
             <component :is="modeIcon" :size="size" :stroke-width="stroke" aria-hidden="true" />
           </template>
@@ -1189,7 +1441,7 @@ const vinylStyle = computed(() => ({
         <IconButton label="下一首" tone="dark" size="lg" :disabled="!state.queue.length" @click="player.next()">
           <template #default="{ size, stroke }"><SkipForward :size="size" :stroke-width="stroke" aria-hidden="true" /></template>
         </IconButton>
-        <IconButton label="播放列表" tone="dark" size="lg">
+        <IconButton label="播放列表" tone="dark" size="lg" :class="openPanel === 'queue' ? 'text-ncmd-accent' : ''" @click="togglePanel('queue')">
           <template #default="{ size, stroke }"><ListMusic :size="size" :stroke-width="stroke" aria-hidden="true" /></template>
         </IconButton>
       </div>
@@ -1197,7 +1449,14 @@ const vinylStyle = computed(() => ({
       <!-- 右：音质 / 词 / 音量 / 更多，从 x≈1642 起 -->
       <div class="absolute right-[49px] top-1/2 flex -translate-y-1/2 items-center gap-[29px] text-ncmd-muted">
         <QualityMenu tone="dark" />
-        <button type="button" class="text-[15px] hover:text-ncmd-fg" @click="activeTab = 'lyric'">词</button>
+        <button
+          type="button"
+          aria-label="桌面歌词"
+          title="桌面歌词（窗口锁定时点此解锁）"
+          :aria-pressed="lyricActive"
+          :class="lyricActive ? 'text-ncmd-accent' : 'hover:text-ncmd-fg'"
+          @click="toggleLyric"
+        >词</button>
         <div class="flex items-center gap-2">
           <svg viewBox="0 0 24 24" class="size-[19px] stroke-current" fill="none" stroke-width="1.8">
             <path d="M4 9v6h3l4 3V6L7 9H4ZM16 9a4 4 0 0 1 0 6" stroke-linecap="round" stroke-linejoin="round" />
@@ -1212,8 +1471,249 @@ const vinylStyle = computed(() => ({
             @input="onVolume"
           />
         </div>
-        <button type="button" class="text-[18px] leading-none hover:text-ncmd-fg">…</button>
+        <button
+          type="button"
+          aria-label="更多"
+          title="更多操作"
+          :class="openPanel === 'more' ? 'text-ncmd-accent' : 'hover:text-ncmd-fg'"
+          @click="togglePanel('more')"
+        >…</button>
       </div>
     </div>
+
+    <!-- 面板互斥遮罩：点空白处收起，不挡播放页本身的控件 -->
+    <div v-if="openPanel !== 'none'" class="fixed inset-0 z-40" @click="openPanel = 'none'" />
+
+    <!-- 「…」菜单：只放真能用的动作，不做占位项 -->
+    <div
+      v-if="openPanel === 'more'"
+      class="absolute bottom-[112px] right-[28px] z-50 w-[300px] overflow-hidden rounded-2xl border border-ncmd-elevated bg-ncmd-surface py-1 shadow-[0_12px_32px_rgba(0,0,0,.55)]"
+    >
+      <button
+        v-for="it in moreItems"
+        :key="it.key"
+        type="button"
+        class="flex w-full items-start justify-between gap-3 px-4 py-2 text-left transition-colors hover:bg-white/5"
+        @click="onMore(it.key)"
+      >
+        <span class="min-w-0">
+          <span class="block truncate text-[14px] text-ncmd-fg">{{ it.label }}</span>
+          <span v-if="it.hint" class="block truncate text-[11px] text-ncmd-dim">{{ it.hint }}</span>
+        </span>
+      </button>
+    </div>
+
+    <!-- 添加到歌单 -->
+    <div
+      v-if="openPanel === 'addto'"
+      class="absolute bottom-[112px] right-[28px] z-50 flex max-h-[420px] w-[320px] flex-col overflow-hidden rounded-2xl border border-ncmd-elevated bg-ncmd-surface shadow-[0_12px_32px_rgba(0,0,0,.55)]"
+    >
+      <div class="border-b border-ncmd-elevated px-4 py-2.5 text-[14px] text-ncmd-fg">添加到歌单</div>
+      <div class="min-h-0 flex-1 overflow-y-auto py-1">
+        <p v-if="!playlists.length" class="px-4 py-6 text-center text-[13px] text-ncmd-dim">还没有歌单，在下面直接建一个</p>
+        <button
+          v-for="pl in playlists"
+          :key="pl.id"
+          type="button"
+          class="flex w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-white/5"
+          @click="addCurrentTo(pl.id)"
+        >
+          <ListMusic :size="16" :stroke-width="1.8" class="shrink-0 text-ncmd-muted" aria-hidden="true" />
+          <span class="min-w-0 flex-1 truncate text-[13px] text-ncmd-fg">{{ pl.name }}</span>
+          <span class="shrink-0 text-[11px] text-ncmd-dim">{{ pl.items.length }}</span>
+        </button>
+      </div>
+      <p v-if="addHint" class="border-t border-ncmd-elevated bg-ncmd-accent/10 px-4 py-1.5 text-[12px] text-ncmd-accent">{{ addHint }}</p>
+      <form class="flex items-center gap-2 border-t border-ncmd-elevated p-2.5" @submit.prevent="addCurrentToNew">
+        <input
+          v-model="addNewName"
+          type="text"
+          maxlength="40"
+          placeholder="新建歌单并加入…"
+          class="min-w-0 flex-1 rounded-[6px] border border-ncmd-elevated bg-ncmd-bg px-2 py-1 text-[13px] text-ncmd-fg outline-none placeholder:text-ncmd-dim focus:border-ncmd-accent"
+        />
+        <button type="submit" class="shrink-0 rounded-full bg-ncmd-accent px-3 py-1 text-[12px] text-white disabled:opacity-50" :disabled="addBusy">创建并加入</button>
+      </form>
+    </div>
+
+    <!-- 歌曲换源 -->
+    <div
+      v-if="openPanel === 'source' && current"
+      class="absolute bottom-[112px] right-[28px] z-50 w-[200px] overflow-hidden rounded-2xl border border-ncmd-elevated bg-ncmd-surface py-1 shadow-[0_12px_32px_rgba(0,0,0,.55)]"
+    >
+      <div class="px-4 py-1.5 text-[12px] text-ncmd-dim">换到哪个音源</div>
+      <button
+        v-for="s in ['wy', 'kw', 'kg', 'mg']"
+        :key="s"
+        type="button"
+        class="flex w-full items-center justify-between px-4 py-1.5 text-left text-[13px] transition-colors hover:bg-white/5 disabled:opacity-40"
+        :class="current.source === s ? 'text-ncmd-accent' : 'text-ncmd-fg'"
+        :disabled="current.source === s || switching !== ''"
+        @click="switchSource(s)"
+      >
+        <span>{{ SOURCE_LABELS[s] }}</span>
+        <span class="text-[11px] text-ncmd-dim">{{ current.source === s ? '当前' : (switching === s ? '查找中…' : '') }}</span>
+      </button>
+    </div>
+
+    <!-- 定时暂停 -->
+    <div
+      v-if="openPanel === 'sleep'"
+      class="absolute bottom-[112px] right-[28px] z-50 w-[210px] overflow-hidden rounded-2xl border border-ncmd-elevated bg-ncmd-surface py-1 shadow-[0_12px_32px_rgba(0,0,0,.55)]"
+    >
+      <div class="px-4 py-1.5 text-[12px] text-ncmd-dim">
+        定时暂停{{ sleep.active.value ? '（剩余 ' + sleep.label.value + '）' : '' }}
+      </div>
+      <button
+        v-for="m in sleep.OPTIONS"
+        :key="m"
+        type="button"
+        class="flex w-full items-center justify-between px-4 py-1.5 text-left text-[13px] text-ncmd-fg transition-colors hover:bg-white/5"
+        @click="sleep.start(m); openPanel = 'none'"
+      >{{ m }} 分钟后暂停</button>
+      <button
+        v-if="sleep.active.value"
+        type="button"
+        class="flex w-full items-center justify-between border-t border-ncmd-elevated px-4 py-1.5 text-left text-[13px] text-ncmd-accent transition-colors hover:bg-white/5"
+        @click="sleep.cancel(); openPanel = 'none'"
+      >取消定时</button>
+    </div>
+
+    <!-- 播放速度 -->
+    <div
+      v-if="openPanel === 'rate'"
+      class="absolute bottom-[112px] right-[28px] z-50 w-[190px] overflow-hidden rounded-2xl border border-ncmd-elevated bg-ncmd-surface py-1 shadow-[0_12px_32px_rgba(0,0,0,.55)]"
+    >
+      <div class="px-4 py-1.5 text-[12px] text-ncmd-dim">播放速度</div>
+      <button
+        v-for="r in player.RATE_OPTIONS"
+        :key="r"
+        type="button"
+        class="flex w-full items-center justify-between px-4 py-1.5 text-left text-[13px] transition-colors hover:bg-white/5"
+        :class="state.rate === r ? 'text-ncmd-accent' : 'text-ncmd-fg'"
+        @click="pickRate(r)"
+      >
+        <span>{{ fmtRate(r) }}</span>
+        <Check v-if="state.rate === r" :size="14" aria-hidden="true" />
+      </button>
+    </div>
+
+    <!-- 音效 / 均衡器 -->
+    <div
+      v-if="openPanel === 'eq'"
+      class="absolute bottom-[112px] right-[28px] z-50 w-[430px] rounded-2xl border border-ncmd-elevated bg-ncmd-surface p-4 shadow-[0_12px_32px_rgba(0,0,0,.55)]"
+    >
+      <div class="flex items-center justify-between">
+        <span class="text-[14px] text-ncmd-fg">音效 / 均衡器</span>
+        <button
+          type="button"
+          class="rounded-full px-3 py-1 text-[12px] transition-colors"
+          :class="eq.enabled.value ? 'bg-ncmd-accent text-white' : 'border border-ncmd-elevated text-ncmd-muted hover:bg-white/5'"
+          @click="eq.setEnabled(!eq.enabled.value)"
+        >{{ eq.enabled.value ? '已开启' : '开启' }}</button>
+      </div>
+      <p v-if="!eq.available.value" class="mt-2 text-[12px] text-red-400">当前环境不支持 Web Audio，音效不可用。</p>
+      <div class="mt-3 flex flex-wrap gap-1.5">
+        <button
+          v-for="ps in eq.presets"
+          :key="ps.id"
+          type="button"
+          class="rounded-full px-2.5 py-1 text-[12px] transition-colors"
+          :class="eq.presetId.value === ps.id ? 'bg-ncmd-accent/10 text-ncmd-accent' : 'text-ncmd-muted hover:bg-white/5'"
+          :disabled="!eq.enabled.value"
+          @click="eq.setPreset(ps.id)"
+        >{{ ps.name }}</button>
+      </div>
+      <div class="mt-3 flex items-end justify-between gap-1">
+        <div v-for="(band, i) in eq.bands" :key="band" class="flex flex-1 flex-col items-center gap-1">
+          <span class="text-[10px] tabular-nums text-ncmd-dim">{{ (eq.gains.value[i] ?? 0) > 0 ? '+' : '' }}{{ eq.gains.value[i] ?? 0 }}</span>
+          <input
+            type="range" min="-12" max="12" step="0.5"
+            :value="eq.gains.value[i] ?? 0"
+            :disabled="!eq.enabled.value"
+            class="h-[104px] w-3 accent-[#e83a45] disabled:opacity-40"
+            style="writing-mode: vertical-lr; direction: rtl;"
+            :aria-label="band + 'Hz 增益'"
+            @input="eq.setBand(i, Number(($event.target as HTMLInputElement).value))"
+          />
+          <span class="text-[10px] text-ncmd-dim">{{ band >= 1000 ? band / 1000 + 'k' : band }}</span>
+        </div>
+      </div>
+      <div class="mt-2 flex items-center justify-between">
+        <span class="text-[11px] text-ncmd-dim">拉任意一段会切到「自定义」</span>
+        <button
+          type="button"
+          class="rounded-full border border-ncmd-elevated px-3 py-1 text-[12px] text-ncmd-muted hover:bg-white/5 disabled:opacity-40"
+          :disabled="!eq.enabled.value"
+          @click="eq.reset()"
+        >重置</button>
+      </div>
+      <div class="mt-3 border-t border-ncmd-elevated pt-3">
+        <div class="flex items-center justify-between">
+          <span class="text-[13px] text-ncmd-fg">环境音效</span>
+          <button type="button" class="rounded-full border border-ncmd-elevated px-2.5 py-0.5 text-[11px] text-ncmd-muted hover:bg-white/5" @click="sound.reset()">全部关闭</button>
+        </div>
+        <p v-if="sound.failure.value" class="mt-1 text-[11px] text-red-400">{{ sound.failure.value }}</p>
+        <div class="mt-2 flex items-center gap-2">
+          <span class="w-[52px] shrink-0 text-[12px] text-ncmd-muted">混响</span>
+          <input type="range" min="0" max="100" step="1" :value="Math.round(sound.reverb.value * 100)" class="h-1 flex-1 accent-[#e83a45]" aria-label="混响强度" @input="sound.setReverbAmount(Number(($event.target as HTMLInputElement).value) / 100)" />
+          <span class="w-[36px] shrink-0 text-right text-[11px] tabular-nums text-ncmd-dim">{{ Math.round(sound.reverb.value * 100) }}%</span>
+        </div>
+        <div class="mt-2 flex items-center gap-2">
+          <span class="w-[52px] shrink-0 text-[12px] text-ncmd-muted">环绕</span>
+          <input type="range" min="0" max="100" step="1" :value="Math.round(sound.panner.value * 100)" class="h-1 flex-1 accent-[#e83a45]" aria-label="环绕强度" @input="sound.setPannerAmount(Number(($event.target as HTMLInputElement).value) / 100)" />
+          <span class="w-[36px] shrink-0 text-right text-[11px] tabular-nums text-ncmd-dim">{{ Math.round(sound.panner.value * 100) }}%</span>
+        </div>
+        <div class="mt-2 flex items-center gap-2">
+          <span class="w-[52px] shrink-0 text-[12px] text-ncmd-muted">变调</span>
+          <select :value="sound.semitones.value" class="rounded-[6px] border border-ncmd-elevated bg-ncmd-bg px-2 py-1 text-[12px] text-ncmd-fg outline-none focus:border-ncmd-accent" aria-label="升降调" @change="sound.setSemitones(Number(($event.target as HTMLSelectElement).value))">
+            <option v-for="v in sound.PITCH_OPTIONS" :key="v" :value="v">{{ v === 0 ? '原调' : (v > 0 ? '+' + v : String(v)) + ' 半音' }}</option>
+          </select>
+          <span class="text-[11px] leading-[15px] text-ncmd-dim">变调会同时改变速度</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 播放队列 -->
+    <div
+      v-if="openPanel === 'queue'"
+      class="absolute bottom-[112px] right-[28px] z-50 flex max-h-[440px] w-[400px] flex-col overflow-hidden rounded-2xl border border-ncmd-elevated bg-ncmd-surface shadow-[0_12px_32px_rgba(0,0,0,.55)]"
+    >
+      <div class="flex items-center justify-between border-b border-ncmd-elevated px-4 py-2.5">
+        <span class="text-[14px] text-ncmd-fg">播放队列</span>
+        <span class="text-[12px] text-ncmd-dim">{{ state.queue.length }} 首</span>
+      </div>
+      <div class="min-h-0 flex-1 overflow-y-auto">
+        <p v-if="!state.queue.length" class="px-4 py-8 text-center text-[13px] text-ncmd-dim">队列是空的</p>
+        <button
+          v-for="(item, i) in state.queue"
+          :key="item.songmid + item.source + i"
+          type="button"
+          class="flex w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-white/5"
+          :class="i === state.index ? 'bg-ncmd-accent/10' : ''"
+          @click="playFromQueue(i)"
+        >
+          <span class="w-4 shrink-0 text-[12px] tabular-nums" :class="i === state.index ? 'text-ncmd-accent' : 'text-ncmd-dim'">{{ i === state.index ? '♪' : i + 1 }}</span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-[13px]" :class="i === state.index ? 'text-ncmd-accent' : 'text-ncmd-fg'">{{ item.name }}</span>
+            <span class="block truncate text-[11px] text-ncmd-dim">{{ item.singer }}</span>
+          </span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 浏览器回退：没有独立歌词窗口时用浮层（播放器模式没有 PlayBar） -->
+    <div
+      v-if="showLyric && !nativeLyric"
+      class="absolute bottom-[112px] right-[28px] z-50 w-[380px] rounded-2xl border border-ncmd-elevated bg-ncmd-surface px-5 py-4 shadow-[0_12px_32px_rgba(0,0,0,.55)]"
+    >
+      <div class="mb-2 flex items-center justify-between">
+        <span class="truncate text-[13px] text-ncmd-muted">{{ title }} · {{ singer }}</span>
+        <button type="button" class="text-[13px] text-ncmd-muted hover:text-ncmd-fg" @click="toggleLyric">收起</button>
+      </div>
+      <p v-if="!lyrics.length" class="py-6 text-center text-[15px] text-ncmd-dim">暂无歌词</p>
+      <p v-else class="truncate py-1 text-[16px] leading-6 text-ncmd-accent">{{ lyrics[currentLine]?.text || '·' }}</p>
+    </div>
+
   </div>
 </template>
