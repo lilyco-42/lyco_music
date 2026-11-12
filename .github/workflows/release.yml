@@ -610,10 +610,15 @@ jobs:
           done
           # 下载页本身也镜像：页面/样式/manifest 都走边缘（说明条由 Worker 注入）
           mirror "downloads/index.html" "https://lain42.top/downloads/"
-          mirror "downloads/downloads.css" "https://lain42.top/downloads/downloads.css"
           mirror "downloads/manifest.json" "https://lain42.top/downloads/manifest.json"
           mirror "assets/studio.css" "https://lain42.top/assets/studio.css"
           mirror "assets/studio.js" "https://lain42.top/assets/studio.js"
+          # 新版下载页是 Vite 产物，入口 html 引用 /downloads/page/app.<hash>.js 等带哈希
+          # 的资源，不能写死文件名：从刚发布的页面里扫出来逐个镜像。
+          for asset in $(curl -sS --max-time 30 https://lain42.top/downloads/ \
+                          | grep -oE '/downloads/page/[A-Za-z0-9._-]+\.(js|css)' | sort -u); do
+            mirror "${asset#/}" "https://lain42.top${asset}"
+          done
           echo "R2 镜像：成功 $ok，失败 $fail"
           echo "https://lyco-music-dl.m15178682641.workers.dev/$STAGE/"
           [ "$fail" -eq 0 ] || exit 1

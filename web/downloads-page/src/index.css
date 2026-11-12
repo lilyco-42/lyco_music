@@ -1,0 +1,77 @@
+/* Tailwind v4 without preflight: /assets/studio.css already owns the base layer
+   (box-sizing, border-color, body font, :focus-visible) and defines the shadcn
+   token set (--background / --foreground / --card / --border / --ring ...).
+   We only pull theme + utilities so the site shell keeps its exact look. */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-soft: var(--brand-soft);
+  --color-muted-fg: var(--fg-mute);
+  --radius-sm: calc(var(--radius) * .6);
+  --radius-md: calc(var(--radius) * .8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+}
+
+/* The shell inserts a 15rem sidebar; /main/ inside it must not add its own
+   max-width in a way that fights the shell, so the page grid is fluid. */
+.dl-page { width: 100%; }
+
+
+/* Studio shell base (studio.css) targets real elements only through class-based
+   rules (.button/.btn) and a few input[type=…] selectors; it ships no reset.
+   Without preflight the browser defaults leak through: <button> keeps the UA
+   grey background + 2px outset border, <ul> keeps bullets and 40px padding.
+   Everything below is scoped to the page root and lives in the base layer so
+   Tailwind utilities (utilities layer) still win. */
+@layer base {
+  .dl-page :where(button) {
+    appearance: none;
+    -webkit-appearance: none;
+    background-color: transparent;
+    background-image: none;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+    text-align: inherit;
+    cursor: pointer;
+    box-shadow: none;
+  }
+  .dl-page :where(ul, ol) { list-style: none; margin: 0; padding: 0; }
+  .dl-page :where(li) { margin: 0; }
+  .dl-page :where(h1, h2, h3, h4, p, figure) { margin: 0; }
+  .dl-page :where(h1, h2, h3, h4) { font-size: inherit; font-weight: inherit; }
+  .dl-page :where(img, svg, video) { display: block; }
+  .dl-page :where(a) { text-decoration: none; }
+  .dl-page :where(code, pre) { font-size: inherit; background: none; padding: 0; font-weight: inherit; }
+}

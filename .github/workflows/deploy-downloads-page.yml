@@ -1,0 +1,122 @@
+name: Deploy downloads page
+
+# 下载页是独立的 Vite/React 应用：改 web/downloads-page/ 不需要重新发安装包。
+# 流程：构建 → 带哈希资源先上传 → 原子替换 index.html → 验证 → 镜像到 R2。
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/downloads-page/**"
+      - "scripts/mirror-downloads-page.py"
+      - ".github/workflows/deploy-downloads-page.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-downloads-page-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build, deploy and mirror
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/downloads-page/package-lock.json
+
+      - name: Install page dependencies
+        working-directory: web/downloads-page
+        run: npm ci
+
+      - name: Build page
+        working-directory: web/downloads-page
+        run: npm run build
+
+      - name: Validate build output
+        working-directory: web/downloads-page
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q "/downloads/page/app\." dist/index.html
+          grep -q "id=\"root\"" dist/index.html
+          count=$(find dist/page -maxdepth 1 -type f | wc -l)
+          echo "page assets: $count"
+          [ "$count" -ge 2 ] || { echo "::error::Vite 产物缺少 page/ 资源"; exit 1; }
+          echo "--- dist/index.html 引用 ---"
+          grep -oE "/downloads/page/[A-Za-z0-9._-]+\.(js|css)" dist/index.html | sort -u
+
+      - name: Deploy to lain42.top
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.LAIN42_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SSH_KEY" ]; then
+            echo "::error::LAIN42_SSH_KEY 未配置，无法部署下载页"
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf "%s\n" "$SSH_KEY" > ~/.ssh/id_lain42
+          chmod 600 ~/.ssh/id_lain42
+          ssh-keyscan -H lain42.top >> ~/.ssh/known_hosts 2>/dev/null || true
+          cd web/downloads-page
+          HOST=root@lain42.top
+          ROOT=/var/www/studio/downloads
+          # 先传带哈希的新资源，再原子换 html：旧页面在切换瞬间仍能读到自己的资源。
+          ssh -i ~/.ssh/id_lain42 "$HOST" "mkdir -p $ROOT/page"
+          scp -q -i ~/.ssh/id_lain42 dist/page/* "$HOST:$ROOT/page/"
+          scp -q -i ~/.ssh/id_lain42 dist/index.html "$HOST:$ROOT/index.html.upload"
+          ssh -i ~/.ssh/id_lain42 "$HOST" "
+            set -e
+            cd /var/www/studio/downloads
+            test -s index.html.upload
+            STAMP=\$(date +%Y%m%d-%H%M%S)
+            cp -a index.html index.html.bak-\$STAMP
+            mv index.html.upload index.html
+            # 保留一周的旧哈希资源，给浏览器缓存的旧 html 留退路，再清理更老的。
+            find page -maxdepth 1 -type f -mtime +7 -delete || true
+            ls -la page | head -20
+          "
+
+      - name: Verify live page
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 等待 CDN/网关返回新入口，最多 60 秒。
+          for i in $(seq 1 12); do
+            html=$(curl -fsS --max-time 20 https://lain42.top/downloads/ || true)
+            if [ -n "$html" ] && echo "$html" | grep -q "id=\"root\""; then break; fi
+            sleep 5
+          done
+          echo "$html" | grep -q "id=\"root\"" || { echo "::error::线上页面未切到新版入口"; exit 1; }
+          assets=$(echo "$html" | grep -oE "/downloads/page/[A-Za-z0-9._-]+\.(js|css)" | sort -u)
+          test -n "$assets" || { echo "::error::线上页面没有引用 page 资源"; exit 1; }
+          echo "$assets"
+          for a in $assets; do
+            curl -fsSIL --max-time 30 "https://lain42.top$a" >/dev/null
+            echo "  OK $a"
+          done
+
+      - name: Mirror page to Cloudflare R2
+        shell: bash
+        env:
+          R2_UPLOAD_TOKEN: ${{ secrets.R2_UPLOAD_TOKEN }}
+          R2_MIRROR_ENDPOINT: ${{ secrets.R2_MIRROR_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          if [ -z "$R2_UPLOAD_TOKEN" ]; then
+            echo "R2_UPLOAD_TOKEN 未配置，跳过页面镜像（主站已部署）"
+            exit 0
+          fi
+          python3 -m py_compile scripts/mirror-downloads-page.py
+          python3 scripts/mirror-downloads-page.py
+

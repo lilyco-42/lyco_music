@@ -219,54 +219,69 @@ print('manifest: %d -> %d items (added %d, replaced %d)' % (
     before, len(man['items']), len(items), len(old_ids & {x['id'] for x in items})))
 print('backup', bak)
 
-# ---- 下载页徽标：识别 GitHub 直链 ----
-# 主按钮切到 GitHub 后，badge() 仍只认 dl.lilyco42.top / *.workers.dev，
-# 会把这批文件标成「本站文件」，与实际下载源不符。这里就地补一条分支（幂等）。
-h = open(HTML, encoding='utf-8').read()
-_badge_old = "if(item.mirror)return (/dl\\.lilyco42\\.top|\\.workers\\.dev/.test(item.mirror.url))?'Cloudflare R2 · 积分下载':'本站文件';"
-_badge_new = ("if(item.mirror)return (/github\\.com/.test(item.mirror.url))?'GitHub 直链 · 支持断点续传'"
-              ":((/dl\\.lilyco42\\.top|\\.workers\\.dev/.test(item.mirror.url))?'Cloudflare R2 · 积分下载':'本站文件');")
-if _badge_new in h:
-    print('downloads page: github badge already present')
-elif _badge_old in h:
-    hbak = HTML + '.bak-lxmusic-' + time.strftime('%Y%m%d-%H%M%S')
-    shutil.copy2(HTML, hbak)
-    h = h.replace(_badge_old, _badge_new, 1)
-    open(HTML, 'w', encoding='utf-8').write(h)
-    print('downloads page: github badge added, backup', hbak)
-else:
-    print('WARNING: badge anchor not found, skip github badge patch')
+# ---- 新版下载页（web/downloads-page，Vite + shadcn/ui）跳过字符串补丁 ----
+# 新版页面是编译产物（/downloads/page/app.<hash>.js），没有 badge()/platform-tab
+# 这些内联脚本锚点，也不再有「批量抠图使用步骤」硬编码文案。下面三段补丁只对
+# 旧版静态页生效；这里显式识别，避免 assert 抛异常把整次发布打断。
+_MODERN_PAGE_MARKERS = ('/downloads/page/', 'id="root"')
+_MODERN_PAGE = False
+try:
+    _h0 = open(HTML, encoding='utf-8').read()
+    _MODERN_PAGE = all(m in _h0 for m in _MODERN_PAGE_MARKERS)
+except OSError:
+    _MODERN_PAGE = False
+if _MODERN_PAGE:
+    print('downloads page: modern build detected, skip legacy html patches')
 
-# ---- 下载页加 Linux 标签 ----
-h = open(HTML, encoding='utf-8').read()
-if 'data-platform="linux"' not in h:
-    old = '<button type="button" class="platform-tab" data-platform="android" aria-pressed="false">Android <small>0</small></button>'
-    assert h.count(old) == 1, 'android tab anchor x%d' % h.count(old)
-    new = old + '\n        <button type="button" class="platform-tab" data-platform="linux" aria-pressed="false">Linux <small>0</small></button>'
-    h = h.replace(old, new, 1)
-    old2 = "labels={windows:'Windows',macos:'macOS',ios:'iOS / iPadOS',android:'Android'}"
-    assert h.count(old2) == 1, 'labels anchor x%d' % h.count(old2)
-    h = h.replace(old2, "labels={windows:'Windows',macos:'macOS',ios:'iOS / iPadOS',android:'Android',linux:'Linux'}", 1)
-    hbak = HTML + '.bak-lxmusic-' + time.strftime('%Y%m%d-%H%M%S')
-    shutil.copy2(HTML, hbak)
-    open(HTML, 'w', encoding='utf-8').write(h)
-    print('downloads page: linux tab added, backup', hbak)
-else:
-    print('downloads page: linux tab already present')
+if not _MODERN_PAGE:
+    # ---- 下载页徽标：识别 GitHub 直链 ----
+    # 主按钮切到 GitHub 后，badge() 仍只认 dl.lilyco42.top / *.workers.dev，
+    # 会把这批文件标成「本站文件」，与实际下载源不符。这里就地补一条分支（幂等）。
+    h = open(HTML, encoding='utf-8').read()
+    _badge_old = "if(item.mirror)return (/dl\\.lilyco42\\.top|\\.workers\\.dev/.test(item.mirror.url))?'Cloudflare R2 · 积分下载':'本站文件';"
+    _badge_new = ("if(item.mirror)return (/github\\.com/.test(item.mirror.url))?'GitHub 直链 · 支持断点续传'"
+                  ":((/dl\\.lilyco42\\.top|\\.workers\\.dev/.test(item.mirror.url))?'Cloudflare R2 · 积分下载':'本站文件');")
+    if _badge_new in h:
+        print('downloads page: github badge already present')
+    elif _badge_old in h:
+        hbak = HTML + '.bak-lxmusic-' + time.strftime('%Y%m%d-%H%M%S')
+        shutil.copy2(HTML, hbak)
+        h = h.replace(_badge_old, _badge_new, 1)
+        open(HTML, 'w', encoding='utf-8').write(h)
+        print('downloads page: github badge added, backup', hbak)
+    else:
+        print('WARNING: badge anchor not found, skip github badge patch')
 
-# ---- 下载页教程链接文案可配置 ----
-# manifest 里 Lyco Music 安装包带 guideLabel，下载页原来把文案写死成
-# 「批量抠图使用步骤」，这里改成读字段（缺省保持旧文案），幂等。
-h = open(HTML, encoding='utf-8').read()
-_guide_old = "var guide=item.guide?'<a class=\"button secondary\" href=\"'+esc(item.guide)+'\">批量抠图使用步骤 →</a>':'';"
-_guide_new = "var guide=item.guide?'<a class=\"button secondary\" href=\"'+esc(item.guide)+'\">'+esc(item.guideLabel||'批量抠图使用步骤 →')+'</a>':'';"
-if _guide_new in h:
-    print('downloads page: guideLabel already present')
-elif _guide_old in h:
-    hbak = HTML + '.bak-lyco-tutorial-' + time.strftime('%Y%m%d-%H%M%S')
-    shutil.copy2(HTML, hbak)
-    h = h.replace(_guide_old, _guide_new, 1)
-    open(HTML, 'w', encoding='utf-8').write(h)
-    print('downloads page: guideLabel added, backup', hbak)
-else:
-    print('WARNING: guide anchor not found, skip guideLabel patch')
+    # ---- 下载页加 Linux 标签 ----
+    h = open(HTML, encoding='utf-8').read()
+    if 'data-platform="linux"' not in h:
+        old = '<button type="button" class="platform-tab" data-platform="android" aria-pressed="false">Android <small>0</small></button>'
+        assert h.count(old) == 1, 'android tab anchor x%d' % h.count(old)
+        new = old + '\n        <button type="button" class="platform-tab" data-platform="linux" aria-pressed="false">Linux <small>0</small></button>'
+        h = h.replace(old, new, 1)
+        old2 = "labels={windows:'Windows',macos:'macOS',ios:'iOS / iPadOS',android:'Android'}"
+        assert h.count(old2) == 1, 'labels anchor x%d' % h.count(old2)
+        h = h.replace(old2, "labels={windows:'Windows',macos:'macOS',ios:'iOS / iPadOS',android:'Android',linux:'Linux'}", 1)
+        hbak = HTML + '.bak-lxmusic-' + time.strftime('%Y%m%d-%H%M%S')
+        shutil.copy2(HTML, hbak)
+        open(HTML, 'w', encoding='utf-8').write(h)
+        print('downloads page: linux tab added, backup', hbak)
+    else:
+        print('downloads page: linux tab already present')
+
+    # ---- 下载页教程链接文案可配置 ----
+    # manifest 里 Lyco Music 安装包带 guideLabel，下载页原来把文案写死成
+    # 「批量抠图使用步骤」，这里改成读字段（缺省保持旧文案），幂等。
+    h = open(HTML, encoding='utf-8').read()
+    _guide_old = "var guide=item.guide?'<a class=\"button secondary\" href=\"'+esc(item.guide)+'\">批量抠图使用步骤 →</a>':'';"
+    _guide_new = "var guide=item.guide?'<a class=\"button secondary\" href=\"'+esc(item.guide)+'\">'+esc(item.guideLabel||'批量抠图使用步骤 →')+'</a>':'';"
+    if _guide_new in h:
+        print('downloads page: guideLabel already present')
+    elif _guide_old in h:
+        hbak = HTML + '.bak-lyco-tutorial-' + time.strftime('%Y%m%d-%H%M%S')
+        shutil.copy2(HTML, hbak)
+        h = h.replace(_guide_old, _guide_new, 1)
+        open(HTML, 'w', encoding='utf-8').write(h)
+        print('downloads page: guideLabel added, backup', hbak)
+    else:
+        print('WARNING: guide anchor not found, skip guideLabel patch')
