@@ -6,15 +6,17 @@
  * -> 调内核的 musicSearch -> 点条目播放。
  */
 import { computed, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
-import { Play } from 'lucide-vue-next'
+import { useRoute, useRouter } from 'vue-router'
+import { ListMusic, Play } from 'lucide-vue-next'
 import { getSource, hasSource, type MusicItem } from '@lxmn/core'
 import { usePlayer } from '@/lib/player'
 import { useSync } from '@/lib/sync'
 import { useI18n } from '@/lib/i18n'
+import PlaylistSearchPanel from '@/components/PlaylistSearchPanel.vue'
 
 const { t, tf } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const player = usePlayer()
 const { library, favorites } = useSync()
 
@@ -37,6 +39,20 @@ const SOURCE_LABELS: Record<string, string> = {
 
 
 const keyword = computed(() => String(route.query.q ?? '').trim())
+
+/**
+ * 搜索页以前只能搜单曲，想找歌单得先想起来去「发现」页再搜一次。
+ * 现在同一个关键词同时给「单曲 / 歌单」两个结果页签；歌单面板与发现页
+ * 共用，所以命中类型标注、只看创建者这些能力两边一致。
+ */
+type SearchTab = 'songs' | 'playlists'
+const searchTab = ref<SearchTab>('songs')
+const playlistTotal = ref(0)
+
+/** 点歌单卡片：详情页在 Discover.vue，带 id 跳过去直接展开 */
+function openWyPlaylist(id: string, name: string, cover: string): void {
+  void router.push({ path: '/discover', query: { pl: id, name, cover } })
+}
 
 /* ---------- 音源筛选（对齐 lx-music 的「全部 / 网易云 / 酷狗 / 酷我 / 咪咕」） ---------- */
 
@@ -105,7 +121,7 @@ async function run(): Promise<void> {
   }
 }
 
-watch(keyword, run, { immediate: true })
+watch(keyword, () => { playlistTotal.value = 0; void run() }, { immediate: true })
 
 /**
  * 搜索结果里点一首歌 → 走单曲点播（先进试听列表，再从试听列表播）。
@@ -134,13 +150,14 @@ function fmtDuration(v: unknown): string {
   <div class="pt-2">
     <div class="mb-4 flex items-baseline gap-3">
       <h1 class="text-[26px] font-bold text-ncm-fg">{{ tf('search.title', { q: keyword }, '搜索「' + keyword + '」') }}</h1>
-      <span v-if="total" class="text-[14px] text-ncm-faint">{{ tf('search.total', { n: total }, '共 ' + total + ' 首') }}</span>
+      <span v-if="searchTab === 'songs' && total" class="text-[14px] text-ncm-faint">{{ tf('search.total', { n: total }, '共 ' + total + ' 首') }}</span>
+      <span v-else-if="searchTab === 'playlists' && playlistTotal" class="text-[14px] text-ncm-faint">共 {{ playlistTotal }} 个歌单</span>
       <!--
         「播放全部」不是装饰：点单曲会把队列切成试听列表（lx 的心智模型），
         想连着听当前这批搜索结果就必须从这里进。
       -->
       <button
-        v-if="filtered.length"
+        v-if="searchTab === 'songs' && filtered.length"
         type="button"
         class="ml-auto flex items-center gap-1.5 rounded-pill bg-ncm-accent px-3.5 py-1.5 text-[13px] text-white transition-opacity hover:opacity-90"
         @click="playAll"
@@ -150,8 +167,34 @@ function fmtDuration(v: unknown): string {
       </button>
     </div>
 
+    <!-- 单曲 / 歌单：同一个关键词，不用再绕去「发现」页搜一遍 -->
+    <div v-if="keyword" class="mb-4 flex items-center gap-2">
+      <button
+        type="button"
+        class="flex items-center gap-1.5 rounded-pill px-4 py-1.5 text-[13px] transition-colors"
+        :class="searchTab === 'songs' ? 'bg-ncm-accent text-white' : 'border border-ncm-divider text-ncm-muted hover:bg-black/5'"
+        :aria-pressed="searchTab === 'songs'"
+        @click="searchTab = 'songs'"
+      >单曲<span v-if="total" class="opacity-70">{{ total }}</span></button>
+      <button
+        type="button"
+        class="flex items-center gap-1.5 rounded-pill px-4 py-1.5 text-[13px] transition-colors"
+        :class="searchTab === 'playlists' ? 'bg-ncm-accent text-white' : 'border border-ncm-divider text-ncm-muted hover:bg-black/5'"
+        :aria-pressed="searchTab === 'playlists'"
+        @click="searchTab = 'playlists'"
+      ><ListMusic :size="14" aria-hidden="true" />歌单<span v-if="playlistTotal" class="opacity-70">{{ playlistTotal }}</span></button>
+    </div>
+
+    <PlaylistSearchPanel
+      v-if="searchTab === 'playlists' && keyword"
+      :initial-keyword="keyword"
+      auto
+      @open="openWyPlaylist"
+      @result="playlistTotal = $event"
+    />
+
     <!-- 音源筛选：一条结果里混着四个源，按源过滤（与 lx-music 一致） -->
-    <div v-if="sourceTabs.length > 1" class="mb-3 flex flex-wrap items-center gap-2">
+    <div v-else-if="sourceTabs.length > 1" class="mb-3 flex flex-wrap items-center gap-2">
       <button
         v-for="t in sourceTabs"
         :key="t.id"
@@ -168,6 +211,7 @@ function fmtDuration(v: unknown): string {
       </button>
     </div>
 
+    <template v-if="searchTab === 'songs'">
     <p v-if="loading" class="text-[15px] text-ncm-faint">{{ t('search.loading', '搜索中…') }}</p>
     <p v-else-if="error" class="text-[15px] text-ncm-accent">{{ error }}</p>
     <p v-else-if="!keyword" class="text-[15px] text-ncm-faint">在上方输入关键词后回车</p>
@@ -243,5 +287,6 @@ function fmtDuration(v: unknown): string {
     <p v-if="filtered.length" class="mt-4 text-[13px] text-ncm-fainter">
       双击播放。搜索已整合多个音源，可优先选择有播放权限的版本；VIP 专享或下架歌曲需遵守原平台版权要求。
     </p>
+    </template>
   </div>
 </template>

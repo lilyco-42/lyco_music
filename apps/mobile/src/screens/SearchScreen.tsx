@@ -11,6 +11,7 @@ import { playSong, usePlayerState } from '../player'
 import { library } from '../sync'
 import { safe } from '../lib/safe'
 import { colors, useTopInset } from '../theme'
+import PlaylistResults from '../components/PlaylistResults'
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const DEFAULT_COVER = require('../assets/art/cover-default.jpg') as number
@@ -34,7 +35,14 @@ const HOT_KEYWORDS = [
   '华语流行', '轻音乐', '说唱', '摇滚',
 ]
 
-export default function SearchScreen({ initialKeyword }: { initialKeyword?: string }) {
+export default function SearchScreen({
+  initialKeyword,
+  onOpenPlaylist,
+}: {
+  initialKeyword?: string
+  /** 点歌单结果：交给 App 切到发现页详情，不必在搜索页再实现一份详情 */
+  onOpenPlaylist?: (id: string, name: string, cover: string) => void
+}) {
   const insetTop = useTopInset()
   const [keyword, setKeyword] = useState(initialKeyword ?? '')
   const [list, setList] = useState<MusicItem[]>([])
@@ -49,6 +57,17 @@ export default function SearchScreen({ initialKeyword }: { initialKeyword?: stri
   const [history, setHistory] = useState<string[]>([])
   /** 是否已经搜过一次：用来区分「还没搜」和「搜了没结果」 */
   const [searched, setSearched] = useState(false)
+
+  /**
+   * 以前这个页面只能搜单曲，想找歌单得记着跑去「发现」页再输一遍。
+   * 现在同一个关键词给「单曲 / 歌单」两个页签：歌单面板与发现页共用，
+   * 命中类型标注、只看创建者这些能力两边完全一致。
+   */
+  const [searchTab, setSearchTab] = useState<'songs' | 'playlists'>('songs')
+  /** 提交后的关键词（输入框边改边变，不该让结果跟着抖） */
+  const [submittedKeyword, setSubmittedKeyword] = useState('')
+  /** 每次提交 +1，触发共用面板重新搜一次歌单 */
+  const [playlistNonce, setPlaylistNonce] = useState(0)
 
   /** 结果里真实出现过的音源（带数量），点「全部」恢复 */
   const sourceTabs = useMemo(() => {
@@ -122,6 +141,8 @@ export default function SearchScreen({ initialKeyword }: { initialKeyword?: stri
     setSourceFilter('all')
     setSearched(true)
     setKeyword(q)
+    setSubmittedKeyword(q)
+    setPlaylistNonce(n => n + 1)
     pushHistory(q)
     try {
       // 和桌面端同一策略：并发查所有能搜索的音源，去重合并。
@@ -201,6 +222,30 @@ export default function SearchScreen({ initialKeyword }: { initialKeyword?: stri
         </Pressable>
       </View>
 
+      {/* 单曲 / 歌单：同一个关键词，不用再跑去发现页 */}
+      <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 20, paddingBottom: 8 }}>
+        {([['songs', '单曲'], ['playlists', '歌单']] as const).map(([k, label]) => (
+          <Pressable
+            key={k}
+            onPress={() => setSearchTab(k)}
+            style={{
+              borderRadius: 20, paddingHorizontal: 16, paddingVertical: 7,
+              backgroundColor: searchTab === k ? colors.accent : colors.surface,
+            }}
+          >
+            <Text style={{ color: searchTab === k ? '#fff' : colors.muted, fontSize: 13 }}>{label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {searchTab === 'playlists' ? (
+        <PlaylistResults
+          keyword={submittedKeyword}
+          nonce={playlistNonce}
+          onOpen={(id, name, cover) => onOpenPlaylist?.(id, name, cover)}
+        />
+      ) : (
+        <>
       {/* 音源筛选：一条结果里混着四个源 */}
       {sourceTabs.length > 1 && (
         <ScrollView
@@ -336,6 +381,8 @@ export default function SearchScreen({ initialKeyword }: { initialKeyword?: stri
             )
           }}
         />
+      )}
+        </>
       )}
     </View>
   )

@@ -4,11 +4,9 @@ name: Release
 # 产物：Windows msi/exe、macOS dmg、Android apk、iOS ipa、Linux AppImage。
 on:
   push:
+    # 发版统一由 tag 或手动触发。以前 main 上改 package.json 也会自动跑 Release，
+    # 与「推 main + 推 tag」叠加会并发两个同名发布、互相删资产。
     tags: ['v*']
-    # Automatically release only on root-version changes merged to main.
-    branches: [main]
-    paths:
-      - 'package.json'
   workflow_dispatch:
 
 permissions:

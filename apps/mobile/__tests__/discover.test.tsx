@@ -16,11 +16,15 @@ const TRACKS = [
 const mockSearch = jest.fn(async () => ({
   total: 462,
   list: [
-    { id: '6792103822', name: '周杰伦-Jay 精选', cover: '', trackCount: 144, creator: 'Buradarrr', playCount: 34660852 },
-    { id: '906055009', name: '周杰伦全收录', cover: '', trackCount: 88, creator: '某人', playCount: 12000 },
+    { id: '6792103822', name: '周杰伦-Jay 精选', cover: '', trackCount: 144, creator: 'Buradarrr', playCount: 34660852, match: 'name' },
+    { id: '906055009', name: '周杰伦全收录', cover: '', trackCount: 88, creator: '周杰伦', playCount: 12000, match: 'creator' },
   ],
 }))
 const mockFetch = jest.fn(async () => ({ id: '3778678', name: '热歌榜', cover: '', total: 2, tracks: TRACKS }))
+const mockSearchByCreator = jest.fn(async () => ({
+  creator: '周杰伦', creatorId: 42, total: 1,
+  list: [{ id: '42', name: '周杰伦的自建歌单', cover: '', trackCount: 12, creator: '周杰伦', playCount: 100, match: 'creator', creatorId: 42 }],
+}))
 const mockPlay = jest.fn(async () => undefined)
 
 jest.mock('@lxmn/core', () => ({
@@ -30,6 +34,7 @@ jest.mock('@lxmn/core', () => ({
   ],
   fetchWyPlaylist: (...a: unknown[]) => mockFetch(...(a as [])),
   searchWyPlaylists: (...a: unknown[]) => mockSearch(...(a as [])),
+  searchWyPlaylistsByCreator: (...a: unknown[]) => mockSearchByCreator(...(a as [])),
 }))
 
 jest.mock('../src/player', () => ({
@@ -52,6 +57,7 @@ jest.mock('../src/sync', () => ({
 beforeEach(() => {
   mockSearch.mockClear()
   mockFetch.mockClear()
+  mockSearchByCreator.mockClear()
   mockPlay.mockClear()
   mockCreatePlaylist.mockClear()
   mockAddToPlaylist.mockClear()
@@ -114,5 +120,22 @@ describe('发现页 · 歌单搜索', () => {
     await waitFor(() => expect(mockSearch).toHaveBeenCalledWith('轻音乐', 1, 24))
     expect(await screen.findByText('周杰伦-Jay 精选')).toBeTruthy()
     expect(onSeedConsumed).toHaveBeenCalled()
+  }, 20000)
+
+  it('歌单结果按命中位置筛选，并可按创建者精确搜', async () => {
+    render(<DiscoverScreen />)
+
+    fireEvent.press(await screen.findByText('歌单搜索'))
+    fireEvent.changeText(await screen.findByPlaceholderText('搜歌单，例如「通勤」「爵士」'), '周杰伦')
+    fireEvent.press(screen.getByText('搜索'))
+
+    expect(await screen.findByText('周杰伦-Jay 精选')).toBeTruthy()
+    fireEvent.press(screen.getByText(/创建者 1/))
+    await waitFor(() => expect(screen.queryByText('周杰伦-Jay 精选')).toBeNull())
+    expect(screen.getByText('周杰伦全收录')).toBeTruthy()
+
+    fireEvent.press(screen.getByText('只看 TA 的歌单'))
+    await waitFor(() => expect(mockSearchByCreator).toHaveBeenCalledWith('周杰伦'))
+    expect(await screen.findByText(/已排除 TA 收藏的别人的歌单/)).toBeTruthy()
   }, 20000)
 })

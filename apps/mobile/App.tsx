@@ -71,6 +71,8 @@ export default function App() {
   const [seedKeyword, setSeedKeyword] = useState('')
   /** 首页「推荐歌单」卡带来的词：交给「发现」页去搜歌单（不是搜歌） */
   const [seedPlaylist, setSeedPlaylist] = useState('')
+  /** 搜索页点中的歌单：切到「发现」页复用那份详情/播放/存为歌单 UI */
+  const [seedPlaylistId, setSeedPlaylistId] = useState<{ id: string; name: string; cover?: string } | null>(null)
   const [playerOpen, setPlayerOpen] = useState(false)
 
   useEffect(() => {
@@ -112,9 +114,21 @@ export default function App() {
                 }}
               />
             ) : tab === 'discover' ? (
-              <DiscoverScreen initialKeyword={seedPlaylist} onSeedConsumed={() => setSeedPlaylist('')} />
+              <DiscoverScreen
+                initialKeyword={seedPlaylist}
+                onSeedConsumed={() => setSeedPlaylist('')}
+                initialPlaylist={seedPlaylistId ?? undefined}
+                onPlaylistConsumed={() => setSeedPlaylistId(null)}
+              />
             ) : tab === 'search' ? (
-              <SearchScreen initialKeyword={seedKeyword} />
+              <SearchScreen
+                initialKeyword={seedKeyword}
+                onOpenPlaylist={(id, name, cover) => {
+                  setSeedPlaylist('')
+                  setSeedPlaylistId({ id, name, cover })
+                  setTab('discover')
+                }}
+              />
             ) : tab === 'my' ? (
               <MyMusicScreen
                 onOpenAccount={() => setTab('account')}

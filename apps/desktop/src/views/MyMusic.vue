@@ -11,13 +11,14 @@
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowDown, ArrowUp, ChevronLeft, Download, ListMusic, Pencil, Play, Plus, X, CloudDownload } from 'lucide-vue-next'
+import { ArrowDown, ArrowUp, Check, ChevronLeft, Download, ListMusic, Pencil, Play, Plus, X, CloudDownload } from 'lucide-vue-next'
 import { enqueueDownload } from '@/lib/downloads'
 import { usePlayer } from '@/lib/player'
 import { useSync } from '@/lib/sync'
 import { useSharing } from '@/lib/share'
 import { importWyPlaylist } from '@/lib/playlist-import'
 import { useI18n } from '@/lib/i18n'
+import { toast } from '@/lib/toast'
 import { trackKey, type MusicItem, type SourceId } from '@lxmn/core'
 
 const { t } = useI18n()
@@ -198,12 +199,62 @@ function coverOf(pl: { items: MusicItem[] }): string {
   return first?.picUrl ? String(first.picUrl) : ''
 }
 
+/* ------------------------------------------------ 歌单批量删除
+ *
+ * 导入一串网易云歌单之后，用户常常想一次剔掉其中几张。以前只能一张张
+ * 点进详情再删；这里给列表加多选，确认后走内核 deletePlaylists —— 一次
+ * 落盘、一次通知，不会触发一串云同步。
+ */
+
+const batchMode = ref(false)
+const selected = ref<string[]>([])
+const confirmBatchDelete = ref(false)
+const batchBusy = ref(false)
+
+function exitBatch(): void {
+  batchMode.value = false
+  selected.value = []
+  confirmBatchDelete.value = false
+}
+
 function setTab(t: Tab): void {
   tab.value = t
   creating.value = false
   if (t !== 'playlist') {
+    exitBatch()
     openId.value = null
     if (route.query.pl) void router.replace({ query: {} })
+  }
+}
+
+function toggleSelect(id: string): void {
+  const at = selected.value.indexOf(id)
+  if (at >= 0) selected.value.splice(at, 1)
+  else selected.value.push(id)
+  confirmBatchDelete.value = false
+}
+
+function selectAll(): void {
+  selected.value = playlists.value.map(p => p.id)
+  confirmBatchDelete.value = false
+}
+
+function onPlaylistCard(id: string): void {
+  if (batchMode.value) toggleSelect(id)
+  else openPlaylist(id)
+}
+
+async function doBatchDelete(): Promise<void> {
+  if (batchBusy.value || !selected.value.length) return
+  batchBusy.value = true
+  try {
+    const n = await library.deletePlaylists([...selected.value])
+    toast(n ? `已删除 ${n} 张歌单` : '没有可删除的歌单')
+    exitBatch()
+  } catch (e) {
+    toast(e instanceof Error ? e.message : String(e))
+  } finally {
+    batchBusy.value = false
   }
 }
 
@@ -379,6 +430,7 @@ function applyRoute(): void {
   const want = typeof q === 'string' ? q : ''
   if (want) {
     if (playlists.value.some(p => p.id === want)) {
+      exitBatch()
       tab.value = 'playlist'
       openId.value = want
     }
@@ -432,6 +484,10 @@ async function doWyImport(): Promise<void> {
 onMounted(applyRoute)
 watch(() => [route.query.pl, route.query.new], applyRoute)
 watch(playlists, () => {
+  // 外部（云同步、别的页面）删掉的歌单不该继续留在选中集合里
+  const ids = new Set(playlists.value.map(p => p.id))
+  selected.value = selected.value.filter(id => ids.has(id))
+  if (!playlists.value.length) exitBatch()
   const q = route.query.pl
   if (typeof q === 'string' && q && !openId.value) applyRoute()
 })
@@ -557,6 +613,39 @@ watch(playlists, () => {
 
     <!-- ============ 歌单列表 ============ -->
     <div v-if="tab === 'playlist' && !opened" class="mt-6">
+      <!-- 批量管理：勾选后一次删掉多张导入/自建歌单 -->
+      <div v-if="playlists.length" class="mb-4 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          class="rounded-pill border px-3.5 py-1.5 text-[13px] transition-colors"
+          :class="batchMode ? 'border-ncm-accent bg-ncm-accent/10 text-ncm-accent' : 'border-ncm-divider text-ncm-muted hover:bg-black/5'"
+          :aria-pressed="batchMode"
+          @click="batchMode ? exitBatch() : (batchMode = true)"
+        >{{ batchMode ? '退出批量管理' : '批量管理' }}</button>
+        <template v-if="batchMode">
+          <button type="button" class="rounded-pill border border-ncm-divider px-3.5 py-1.5 text-[13px] text-ncm-muted hover:bg-black/5" @click="selectAll">全选</button>
+          <span class="text-[13px] text-ncm-faint">已选 {{ selected.length }} 张</span>
+          <template v-if="!confirmBatchDelete">
+            <button
+              type="button"
+              class="rounded-pill border border-red-300 px-3.5 py-1.5 text-[13px] text-red-600 transition-colors hover:bg-red-50 disabled:opacity-40"
+              :disabled="!selected.length || batchBusy"
+              @click="confirmBatchDelete = true"
+            >删除选中</button>
+          </template>
+          <template v-else>
+            <span class="text-[13px] text-ncm-fg">确认删除选中的 {{ selected.length }} 张歌单？不可恢复。</span>
+            <button
+              type="button"
+              class="rounded-pill bg-red-500 px-3.5 py-1.5 text-[13px] text-white disabled:opacity-40"
+              :disabled="batchBusy"
+              @click="doBatchDelete"
+            >{{ batchBusy ? '删除中…' : '确认删除' }}</button>
+            <button type="button" class="rounded-pill border border-ncm-divider px-3.5 py-1.5 text-[13px] text-ncm-muted hover:bg-black/5" @click="confirmBatchDelete = false">取消</button>
+          </template>
+        </template>
+      </div>
+
       <div v-if="!playlists.length" class="mt-10 flex flex-col items-center">
         <img :src="'./art/empty-favorites.jpg'" alt="" class="w-[180px] rounded-cover opacity-90" loading="lazy" />
         <p class="mt-4 text-[15px] text-ncm-faint">{{ t('my.emptyPlaylists', '还没有歌单。点右上角「新建歌单」建一个。') }}</p>
@@ -567,9 +656,10 @@ watch(playlists, () => {
           :key="pl.id"
           type="button"
           class="group flex flex-col text-left"
-          @click="openPlaylist(pl.id)"
+          :aria-pressed="batchMode ? selected.includes(pl.id) : undefined"
+          @click="onPlaylistCard(pl.id)"
         >
-          <div class="relative aspect-square w-full overflow-hidden rounded-cover bg-ncm-fainter/30">
+          <div class="relative aspect-square w-full overflow-hidden rounded-cover bg-ncm-fainter/30" :class="batchMode && selected.includes(pl.id) ? 'ring-2 ring-ncm-accent' : ''">
             <img
               v-if="coverOf(pl)"
               :src="coverOf(pl)"
@@ -581,6 +671,12 @@ watch(playlists, () => {
             <img v-else :src="'./art/cover-default.jpg'" alt="" class="size-full object-cover" loading="lazy" />
             <span class="tex-img" aria-hidden="true" />
             <span class="absolute right-2 top-2 rounded-pill bg-black/45 px-2 py-0.5 text-[12px] text-white">{{ pl.items.length }} 首</span>
+            <span
+              v-if="batchMode"
+              class="absolute left-2 top-2 flex size-6 items-center justify-center rounded-full border-2 border-white shadow"
+              :class="selected.includes(pl.id) ? 'bg-ncm-accent' : 'bg-black/35'"
+              aria-hidden="true"
+            ><Check v-if="selected.includes(pl.id)" :size="14" :stroke-width="3" class="text-white" /></span>
           </div>
           <span class="mt-2 line-clamp-2 text-[14px] leading-5 text-ncm-fg group-hover:text-ncm-accent">{{ pl.name }}</span>
         </button>

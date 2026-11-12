@@ -352,6 +352,8 @@ export { WY_SONG_URL, WY_SEARCH_URL, WY_LEVEL, defaultGetMusicUrl, handleSearchI
 export { eapi, linuxapi, weapi, eapiDecrypt, WY_CONSTANTS } from './crypto'
 export { eapiRequest, EAPI_BATCH_URL, EAPI_UA } from './utils'
 export {
-  parsePlaylistId, resolvePlaylistId, fetchWyPlaylist, searchWyPlaylists, WY_BOARDS,
-  type WyPlaylist, type WyPlaylistBrief, type WyBoard,
+  parsePlaylistId, resolvePlaylistId, fetchWyPlaylist, searchWyPlaylists,
+  searchWyPlaylistsByCreator, classifyPlaylistMatch, WY_BOARDS,
+  type WyPlaylist, type WyPlaylistBrief, type WyPlaylistMatch,
+  type WyCreatorPlaylists, type WyBoard,
 } from './playlist'

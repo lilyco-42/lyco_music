@@ -396,6 +396,27 @@ export class Library {
     this.emit()
   }
 
+  /**
+   * 批量删歌单。
+   *
+   * 刻意不写成「for (id of ids) await deletePlaylist(id)」：那样每个 id 都要
+   * load + persist + emit 一遍，删 20 张就是 20 次落盘、20 次界面刷新，云同步
+   * 也会被触发一串。这里一次过滤、一次落盘、一次通知。
+   * 返回真正删掉的张数（重复/不存在的 id 不算）。
+   */
+  async deletePlaylists(playlistIds: string[]): Promise<number> {
+    const ids = new Set((playlistIds ?? []).map(x => String(x ?? '')).filter(Boolean))
+    if (!ids.size) return 0
+    await this.load()
+    const before = this.state.playlists.length
+    this.state.playlists = this.state.playlists.filter(p => !ids.has(p.id))
+    const removed = before - this.state.playlists.length
+    if (!removed) return 0
+    await this.persist()
+    this.emit()
+    return removed
+  }
+
   // ------------------------------------------------------------ 试听列表
 
   /** 试听列表快照（有序） */

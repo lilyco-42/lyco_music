@@ -11,23 +11,27 @@ const { t } = useI18n()
  * 数据都来自网易云：榜单是静态 id 表（见内核 WY_BOARDS），歌单搜索走
  * `/api/cloudsearch/pc?type=1000`。**不需要登录**，也不写回网易云 ——
  * 拿到的曲目只是元数据，播放仍走我们自己的四源串流兜底。
+ *
+ * 歌单搜索的 UI 抽成了 PlaylistSearchPanel（搜索页也用它）：type=1000 会同时
+ * 模糊匹配歌单名和创建者昵称，所以面板按关键词给结果打「歌单名 / 创建者」
+ * 标签，并提供「只看同名创建者」（走用户主页接口拿全量，不漏歌单）。
  */
-import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { ListMusic, Play, RefreshCw, Search, Trophy } from 'lucide-vue-next'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ListMusic, Play, Trophy } from 'lucide-vue-next'
 import {
   WY_BOARDS,
   fetchWyPlaylist,
-  searchWyPlaylists,
   type MusicItem,
-  type WyPlaylistBrief,
 } from '@lxmn/core'
 import { usePlayer } from '@/lib/player'
 import { library } from '@/lib/sync'
 import { toast } from '@/lib/toast'
+import PlaylistSearchPanel from '@/components/PlaylistSearchPanel.vue'
 
 const player = usePlayer()
 const router = useRouter()
+const route = useRoute()
 
 type Tab = 'boards' | 'playlists'
 const tab = ref<Tab>('boards')
@@ -63,35 +67,22 @@ async function openDetail(id: string, fallbackName: string, cover = ''): Promise
 function closeDetail(): void {
   detail.value = null
   detailError.value = ''
+  // 从搜索页跳过来时 query 里带着歌单 id，返回列表要把它清掉，
+  // 否则刷新又会自动弹回详情。
+  if (route.query.pl) void router.replace({ query: {} })
 }
 
-/* ---------------- 歌单搜索 ---------------- */
-
-const keyword = ref('')
-const searching = ref(false)
-const searchError = ref('')
-const playlists = ref<WyPlaylistBrief[]>([])
-const searchTotal = ref(0)
-const searched = ref(false)
-
-async function runSearch(): Promise<void> {
-  const q = keyword.value.trim()
-  if (!q) return
-  searching.value = true
-  searchError.value = ''
-  searched.value = true
-  try {
-    const r = await searchWyPlaylists(q, 1, 24)
-    playlists.value = r.list
-    searchTotal.value = r.total
-  } catch (e) {
-    searchError.value = e instanceof Error ? e.message : String(e)
-    playlists.value = []
-    searchTotal.value = 0
-  } finally {
-    searching.value = false
-  }
-}
+/**
+ * 搜索页点歌单结果会跳到 /discover?pl=<id>&name=…&cover=…。
+ * 这里补上落地：详情页逻辑本来就在这页，不必在搜索页再复制一份。
+ */
+onMounted(() => {
+  const id = typeof route.query.pl === 'string' ? route.query.pl : ''
+  if (!id) return
+  const name = typeof route.query.name === 'string' ? route.query.name : '歌单'
+  const cover = typeof route.query.cover === 'string' ? route.query.cover : ''
+  void openDetail(id, name, cover)
+})
 
 /* ---------------- 播放 / 收藏 ---------------- */
 
@@ -132,20 +123,13 @@ async function saveAsPlaylist(): Promise<void> {
 
 /* ---------------- 展示辅助 ---------------- */
 
-function fmtPlayCount(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return ''
-  if (n >= 1e8) return (n / 1e8).toFixed(1) + ' 亿'
-  if (n >= 1e4) return Math.round(n / 1e4) + ' 万'
-  return String(n)
-}
-
 function fmtDuration(v: unknown): string {
   return typeof v === 'string' && v ? v : '--:--'
 }
 
 const tabs = computed(() => ([
-  { id: 'boards' as const, label: '排行榜', count: WY_BOARDS.length },
-  { id: 'playlists' as const, label: '歌单搜索', count: playlists.value.length },
+  { id: 'boards' as const, label: '排行榜' },
+  { id: 'playlists' as const, label: '歌单搜索' },
 ]))
 </script>
 
@@ -259,62 +243,9 @@ const tabs = computed(() => ([
         </div>
       </div>
 
-      <!-- 歌单搜索 -->
+      <!-- 歌单搜索：与搜索页共用同一面板，命中类型 / 创建者筛选都在面板里 -->
       <div v-else>
-        <div class="mb-4 flex flex-wrap items-center gap-2">
-          <input
-            v-model="keyword"
-            type="search"
-            spellcheck="false"
-            placeholder="搜歌单，例如「通勤」「爵士」「周杰伦」"
-            class="min-w-[260px] flex-1 rounded-[8px] border border-ncm-divider bg-ncm-bg px-3 py-1.5 text-[13px] text-ncm-fg outline-none placeholder:text-ncm-fainter focus:border-ncm-accent"
-            @keydown.enter.prevent="runSearch"
-          />
-          <button
-            type="button"
-            class="flex items-center gap-1.5 rounded-pill bg-ncm-accent px-4 py-1.5 text-[13px] text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-            :disabled="searching || !keyword.trim()"
-            @click="runSearch"
-          >
-            <Search :size="14" aria-hidden="true" />{{ searching ? '搜索中…' : '搜索歌单' }}
-          </button>
-        </div>
-
-        <p v-if="searchError" class="text-[14px] text-ncm-accent">{{ searchError }}</p>
-        <p v-else-if="searched && !searching && !playlists.length" class="text-[14px] text-ncm-faint">没有找到相关歌单</p>
-        <p v-else-if="searchTotal" class="mb-3 text-[12px] text-ncm-faint">共 {{ searchTotal }} 个歌单，显示前 {{ playlists.length }} 个</p>
-
-        <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          <button
-            v-for="p in playlists"
-            :key="p.id"
-            type="button"
-            class="group text-left"
-            @click="openDetail(p.id, p.name, p.cover)"
-          >
-            <div class="relative aspect-square w-full overflow-hidden rounded-cover bg-ncm-fainter/25">
-              <img
-                v-if="p.cover"
-                :src="p.cover"
-                alt=""
-                class="size-full object-cover transition-transform group-hover:scale-[1.03]"
-                loading="lazy"
-                referrerpolicy="no-referrer"
-              />
-              <span
-                v-if="fmtPlayCount(p.playCount)"
-                class="absolute right-1.5 top-1.5 rounded-full bg-black/45 px-1.5 py-0.5 text-[11px] text-white"
-              >{{ fmtPlayCount(p.playCount) }}</span>
-            </div>
-            <p class="mt-2 line-clamp-2 text-[13px] leading-[18px] text-ncm-fg">{{ p.name }}</p>
-            <p class="mt-0.5 truncate text-[11px] text-ncm-faint">{{ p.trackCount }} 首 · {{ p.creator }}</p>
-          </button>
-        </div>
-
-        <div v-if="!searched" class="mt-8 flex flex-col items-center text-ncm-fainter">
-          <RefreshCw :size="30" :stroke-width="1.4" aria-hidden="true" />
-          <p class="mt-3 text-[13px]">输入关键词后回车，搜的是歌单而不是单曲</p>
-        </div>
+        <PlaylistSearchPanel @open="openDetail" />
       </div>
     </template>
   </div>

@@ -10,15 +10,13 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native'
-import {
-  WY_BOARDS, fetchWyPlaylist, searchWyPlaylists,
-  type MusicItem, type WyPlaylistBrief,
-} from '@lxmn/core'
+import { WY_BOARDS, fetchWyPlaylist, type MusicItem } from '@lxmn/core'
 import { play, usePlayerState } from '../player'
 import { library } from '../sync'
 import { colors, useTopInset } from '../theme'
+import PlaylistResults from '../components/PlaylistResults'
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const DEFAULT_COVER = require('../assets/art/cover-default.jpg') as number
@@ -29,14 +27,6 @@ interface Detail {
   cover: string
   total: number
   tracks: MusicItem[]
-}
-
-/** 播放量：和桌面端一样按「万 / 亿」缩写，小数字直接不显示 */
-function fmtPlayCount(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return ''
-  if (n >= 1e8) return (n / 1e8).toFixed(1) + '亿'
-  if (n >= 1e4) return Math.round(n / 1e4) + '万'
-  return String(n)
 }
 
 function fmtDuration(v: unknown): string {
@@ -70,19 +60,20 @@ function Cover({ size, uri }: { size?: number; uri?: string }) {
 export default function DiscoverScreen({
   initialKeyword,
   onSeedConsumed,
+  initialPlaylist,
+  onPlaylistConsumed,
 }: {
   initialKeyword?: string
   /** 搜完一次就把种子词清掉：否则从别的标签切回来会莫名其妙再搜一遍 */
   onSeedConsumed?: () => void
+  /** 搜索页点歌单卡片：直接打开详情，不必再在发现页搜一遍 */
+  initialPlaylist?: { id: string; name: string; cover?: string }
+  /** 关掉深链详情后把种子清掉，避免切回来又弹一次 */
+  onPlaylistConsumed?: () => void
 }) {
   const insetTop = useTopInset()
-  const [tab, setTab] = useState<'boards' | 'playlists'>(initialKeyword ? 'playlists' : 'boards')
-  const [keyword, setKeyword] = useState(initialKeyword ?? '')
-  const [busy, setBusy] = useState(false)
+  const [tab, setTab] = useState<'boards' | 'playlists'>(initialKeyword || initialPlaylist ? 'playlists' : 'boards')
   const [error, setError] = useState('')
-  const [playlists, setPlaylists] = useState<WyPlaylistBrief[]>([])
-  const [total, setTotal] = useState(0)
-  const [searched, setSearched] = useState(false)
   const [detail, setDetail] = useState<Detail | null>(null)
   const [detailBusy, setDetailBusy] = useState(false)
   /** 存歌单后的反馈：RN 没有 toast，用顶部的条自己顶一下 */
@@ -92,26 +83,6 @@ export default function DiscoverScreen({
 
   /* ---------------- 搜索歌单 ---------------- */
 
-  const runSearch = useCallback(async (raw?: string) => {
-    const q = (raw ?? keyword).trim()
-    if (!q || busy) return
-    setBusy(true)
-    setError('')
-    setMsg('')
-    setSearched(true)
-    try {
-      const r = await searchWyPlaylists(q, 1, 24)
-      setPlaylists(r.list)
-      setTotal(r.total)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-      setPlaylists([])
-      setTotal(0)
-    } finally {
-      setBusy(false)
-    }
-  }, [keyword, busy])
-
   /** 防止同一个种子词重复触发（重渲染不该重新搜一遍） */
   const lastSeed = useRef('')
 
@@ -120,10 +91,8 @@ export default function DiscoverScreen({
     if (!seed || seed === lastSeed.current) return
     lastSeed.current = seed
     setTab('playlists')
-    setKeyword(seed)
-    void runSearch(seed)
     onSeedConsumed?.()
-    // runSearch 依赖 keyword/busy，这里只认种子词的变化
+    // 关键词交给共用面板，它自己会搜；这里只认种子词的变化
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialKeyword])
 
@@ -147,7 +116,21 @@ export default function DiscoverScreen({
   const closeDetail = useCallback(() => {
     setDetail(null)
     setError('')
-  }, [])
+    onPlaylistConsumed?.()
+  }, [onPlaylistConsumed])
+
+  /** 搜索页深链：带 id 进来就直接开详情，不用再手搜一次 */
+  const lastDeepLink = useRef('')
+  useEffect(() => {
+    const p = initialPlaylist
+    if (!p?.id) { lastDeepLink.current = ''; return }
+    if (p.id === lastDeepLink.current) return
+    lastDeepLink.current = p.id
+    setTab('playlists')
+    void openDetail(p.id, p.name, p.cover ?? '')
+    // openDetail 是稳定引用；这里只认新 id
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPlaylist])
 
   /* ---------------- 播放 / 收藏 ---------------- */
 
@@ -277,41 +260,20 @@ export default function DiscoverScreen({
       </View>
 
       {tab === 'playlists' ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingTop: 14 }}>
-          <TextInput
-            value={keyword}
-            onChangeText={setKeyword}
-            placeholder="搜歌单，例如「通勤」「爵士」"
-            placeholderTextColor={colors.fainter}
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="search"
-            onSubmitEditing={() => void runSearch()}
-            style={{
-              flex: 1, backgroundColor: colors.surface, borderRadius: 12,
-              paddingHorizontal: 14, paddingVertical: 10, color: colors.fg, fontSize: 14,
-              borderWidth: 1, borderColor: colors.divider,
-            }}
-          />
-          <Pressable
-            onPress={() => void runSearch()}
-            disabled={busy || !keyword.trim()}
-            style={{
-              backgroundColor: colors.accent, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10,
-              opacity: busy || !keyword.trim() ? 0.4 : 1,
-            }}
-          >
-            <Text style={{ color: '#fff', fontSize: 13 }}>{busy ? '搜索中…' : '搜索'}</Text>
-          </Pressable>
-        </View>
+        <PlaylistResults
+          withInput
+          seed={initialKeyword ?? ''}
+          onOpen={(id, name, cover) => void openDetail(id, name, cover)}
+        />
       ) : null}
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
-        {error ? (
-          <Text style={{ color: colors.accent, fontSize: 13, paddingHorizontal: 20, paddingTop: 14 }}>{error}</Text>
-        ) : null}
 
-        {tab === 'boards' ? (
+      {error ? (
+        <Text style={{ color: colors.accent, fontSize: 13, paddingHorizontal: 20, paddingTop: 14 }}>{error}</Text>
+      ) : null}
+
+      {tab === 'boards' ? (
+        <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
           <View style={{ paddingHorizontal: 20, paddingTop: 16, gap: 10 }}>
             <Text style={{ color: colors.fainter, fontSize: 12, lineHeight: 18 }}>
               网易云官方榜，点开就是完整曲目。榜单每天更新，想留住某一期用「存为歌单」。
@@ -330,44 +292,8 @@ export default function DiscoverScreen({
               </Pressable>
             ))}
           </View>
-        ) : searched && !busy && !playlists.length && !error ? (
-          <Text style={{ color: colors.fainter, fontSize: 13, paddingHorizontal: 20, paddingTop: 18 }}>
-            没有找到相关歌单
-          </Text>
-        ) : !searched ? (
-          <Text style={{ color: colors.fainter, fontSize: 13, paddingHorizontal: 20, paddingTop: 18, lineHeight: 19 }}>
-            输入关键词搜歌单（不是单曲）。点开任意一张，整张都能播、也能存成自己的歌单。
-          </Text>
-        ) : (
-          <View style={{ paddingHorizontal: 20, paddingTop: 14 }}>
-            {total ? (
-              <Text style={{ color: colors.fainter, fontSize: 12, marginBottom: 10 }}>
-                共 {total} 个歌单，显示前 {playlists.length} 个
-              </Text>
-            ) : null}
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14 }}>
-              {playlists.map(p => (
-                <Pressable
-                  key={p.id}
-                  onPress={() => void openDetail(p.id, p.name, p.cover)}
-                  style={{ width: '46%' }}
-                >
-                  <View style={{ width: '100%', aspectRatio: 1, borderRadius: 8, overflow: 'hidden' }}>
-                    <Cover uri={p.cover} />
-                  </View>
-                  <Text numberOfLines={2} style={{ color: colors.fg, fontSize: 13, lineHeight: 18, marginTop: 6 }}>
-                    {p.name}
-                  </Text>
-                  <Text numberOfLines={1} style={{ color: colors.fainter, fontSize: 11, marginTop: 2 }}>
-                    {p.trackCount} 首 · {p.creator}
-                    {fmtPlayCount(p.playCount) ? ' · ' + fmtPlayCount(p.playCount) : ''}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        )}
-      </ScrollView>
+        </ScrollView>
+      ) : null}
     </View>
   )
 }

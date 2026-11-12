@@ -7,6 +7,13 @@ import React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import SearchScreen from '../src/screens/SearchScreen'
 
+const mockPlaylistSearch = jest.fn(async () => ({
+  total: 1,
+  list: [{ id: 'pl-1', name: '测试歌单', cover: '', trackCount: 2, creator: '甲', playCount: 0, match: 'name' }],
+}))
+const mockCreatorPlaylistSearch = jest.fn(async () => ({ creator: '', creatorId: 0, total: 0, list: [] }))
+const mockOpenPlaylist = jest.fn()
+
 // 用两源混合的假结果替换真实搜索，避免测试依赖网络
 jest.mock('../src/player', () => {
   const actual = jest.requireActual('../src/player')
@@ -32,6 +39,8 @@ jest.mock('@lxmn/core', () => {
     }),
     parseLyric: () => ({ lines: [], hasTranslation: false }),
     findLineIndex: () => -1,
+    searchWyPlaylists: (...a: unknown[]) => mockPlaylistSearch(...(a as [])),
+    searchWyPlaylistsByCreator: (...a: unknown[]) => mockCreatorPlaylistSearch(...(a as [])),
   }
 })
 
@@ -42,6 +51,12 @@ jest.mock('../src/sync', () => ({
     toggleFavorite: jest.fn(async () => undefined),
   },
 }))
+
+beforeEach(() => {
+  mockPlaylistSearch.mockClear()
+  mockCreatorPlaylistSearch.mockClear()
+  mockOpenPlaylist.mockClear()
+})
 
 describe('搜索页音源筛选', () => {
   it('渲染筛选条并能按音源过滤', async () => {
@@ -60,5 +75,18 @@ describe('搜索页音源筛选', () => {
     })
     expect(screen.getByText('酷我的歌')).toBeTruthy()
     expect(screen.getByText('酷我的第二首')).toBeTruthy()
+  }, 20000)
+
+  it('搜索页切到歌单 tab 会直接用同一个关键词搜歌单', async () => {
+    render(<SearchScreen initialKeyword="测试" onOpenPlaylist={mockOpenPlaylist} />)
+
+    await waitFor(() => expect(screen.getByText('网易的歌')).toBeTruthy())
+    fireEvent.press(screen.getByText('歌单'))
+
+    await waitFor(() => expect(mockPlaylistSearch).toHaveBeenCalledWith('测试', 1, 24))
+    expect(await screen.findByText('测试歌单')).toBeTruthy()
+
+    fireEvent.press(screen.getByText('测试歌单'))
+    expect(mockOpenPlaylist).toHaveBeenCalledWith('pl-1', '测试歌单', '')
   }, 20000)
 })
