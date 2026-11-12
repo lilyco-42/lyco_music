@@ -26,7 +26,7 @@ export * from './trial'
 export * from './text/s2t'
 export * from './text/comment'
 
-export const CORE_VERSION = '0.2.57'
+export const CORE_VERSION = '0.2.58'
 
 /**
  * 应用对外版本号。与根 package.json 同源 —— 发版时两处一起改，
