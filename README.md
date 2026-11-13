@@ -113,6 +113,17 @@ Test Files  10 passed | 5 skipped (15)
 
 本机只做代码编写与提交，产物从 Actions artifacts 与 GitHub Release 下载。
 
+## 文档
+
+| 文件 | 内容 |
+|---|---|
+| [`docs/PARITY.md`](./docs/PARITY.md) | 对 **lx-music** 的功能超集清单（99 项） |
+| [`docs/NETEASE-TODO.md`](./docs/NETEASE-TODO.md) | 对 **网易云音乐官方** 的能力对照与分优先级 TODO（含开源参照项目与风控踩坑） |
+| [`docs/TECH-SPEC.md`](./docs/TECH-SPEC.md) | 技术选型与架构 |
+| [`docs/API.md`](./docs/API.md) | lain42.top 后端接口（会员 / OAuth / 音源下发） |
+| [`docs/DECRYPT.md`](./docs/DECRYPT.md) | 加密音频格式说明 |
+| [`docs/RELEASE.md`](./docs/RELEASE.md) | 发版流程与兜底 |
+
 ## 下载
 
 **主入口：<https://lain42.top/downloads/>**（按版本列出各平台安装包与 SHA256）
@@ -129,20 +140,22 @@ Test Files  10 passed | 5 skipped (15)
 | iOS | `*-ios-unsigned.ipa` | 未签名，需自签或 AltStore 侧载 |
 | Linux | `*.AppImage` | `chmod +x` 后运行 |
 
-> **当前平台状态（2026-10-22）**：Windows 与 Android 已由本机构建并发布到
-> lain42.top 的 `v0.2.43-20261022`。macOS / iOS / Linux 的产物仍停在 **v0.2.37** ——
-> GitHub Actions 的 Release 运行长时间处于 queued 状态，这三个平台需要在
-> macOS / Linux 上构建，本机（Windows）无法交叉出包。详见
+> **当前平台状态（2026-11-13）**：全平台产物统一由 GitHub Actions 构建，
+> 最新版 `v0.2.59-20261113` 的 Release workflow 6 个 job（Windows / macOS / Linux / Android / iOS 构建 + 发布）全部成功，
+> 并自动同步到 lain42.top 的 `/downloads/` 与 Cloudflare R2 镜像。构建排队的坑与手工兜底步骤见
 > [`docs/RELEASE.md`](./docs/RELEASE.md)。
 
 ### 发布
 
-正常路径（打 tag 或 push 带 package.json 变更的提交）会自动构建全平台并发布：
+正常路径由 **`v*` tag** 或 GitHub Actions 手动触发 `workflow_dispatch`；push 到 main 只跑 CI，不再自动跑 Release（避免与 tag 并发两个同名发布）。
 
 ```bash
 pnpm bump 0.2.44 && pnpm test
-git add -A && git commit -m "chore(release): 0.2.44"
+git add -- package.json packages/ apps/ # 按需列文件，勿用 git add .
+git commit -m "chore(release): 0.2.44"
 git push origin main
+git tag -a v0.2.44-YYYYMMDD -m "Lyco Music v0.2.44"
+git push origin v0.2.44-YYYYMMDD
 ```
 
 CI 卡住时的本机构建 + 手工上传步骤见 [`docs/RELEASE.md`](./docs/RELEASE.md)。
