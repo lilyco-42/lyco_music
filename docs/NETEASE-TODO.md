@@ -135,9 +135,9 @@
 ### P0 — 影响日常使用，先做
 
 **P0-1 播放队列可编辑**
-- 现状：`apps/desktop/src/lib/player.ts` 只有 `shuffleQueue()` / `play(item, queue?)`，队列面板只能点播。
-- 做：`player.ts` 增加 `removeFromQueue(index)`、`moveQueue(from, to)`、`clearQueue()`，改后要同步 `resumePosition` 与 `currentIndex`；桌面 `Player.vue:1677-1703` 队列行加删除按钮 + `draggable` 拖拽；移动 `PlayerScreen.tsx:679-706` 队列行加滑动删除（`react-native-gesture-handler` 或长按菜单，注意当前未装该依赖）。
-- 验收：拖拽后顺序与 localStorage 恢复一致；删掉正在播的歌自动播下一首；`tests/` 补 `player-queue.test.ts` 覆盖 3 个新方法的边界（删到空、删当前、越界索引）。
+- 现状（0.2.60 部分完成）：`apps/mobile/src/player.ts` 已有 `removeFromQueue(index)` / `clearQueue()`，移动端队列面板有「移除 / 清空」按钮；桌面 `apps/desktop/src/lib/player.ts` 仍只有 `shuffleQueue()` / `play(item, queue?)`，队列面板只能点播。
+- 做：桌面 `player.ts` 增加 `removeFromQueue(index)`、`moveQueue(from, to)`、`clearQueue()`，改后要同步 `resumePosition` 与 `currentIndex`；桌面 `Player.vue:1677-1703` 队列行加删除按钮 + `draggable` 拖拽；移动端如需手势滑动删除再评估 `react-native-gesture-handler`（当前未装该依赖），按钮删除已可用。
+- 验收：拖拽后顺序与 localStorage 恢复一致；删掉正在播的歌自动播下一首；桌面 `tests/player-queue.test.ts` 覆盖 3 个新方法的边界（删到空、删当前、越界索引）。移动端已有 `apps/mobile/__tests__/queue-edit.test.ts` 覆盖删前 / 删后 / 删当前 / 越界与清空。
 
 **P0-2 网易云账号登录（带开关与降级）**
 - 现状：全仓无网易云登录，`Account.vue` 是 lain42.top OAuth。
@@ -172,9 +172,9 @@
 - 做：`prefs.ts` 加 `downloadQuality: Quality`（默认 `320k`）；`Downloads.vue` 加 `QualityMenu` 同款下拉；`lib/downloads.ts` 读 prefs 而不是播放态。
 - 验收：设置 `flac` 后新任务文件名/元数据与 `parseQuality` 一致；已有任务不被篡改；`tests/download-quality.test.ts`。
 
-**P1-5 移动端补齐三项已有能力**
+**P1-5 移动端补齐已有能力（0.2.60 已补定时关闭，剩两项）**
 - 逐字歌词：复用 `packages/core/src/lyric.ts` 的 `parseYrc`/`mergeWords`（桌面已用，`Player.vue:1270-1275`），`PlayerScreen.tsx` 加逐字染色。
-- 定时关闭：`apps/desktop/src/lib/sleep-timer.ts:14` 的 `[15,30,45,60]` 逻辑可移进 `packages/core`，移动端接 `TrackPlayer` 的 pause。
+- 定时关闭（0.2.60 已完成）：`apps/mobile/src/lib/sleep-timer.ts` 用绝对时间戳 + 1s ticker 实现 `[15,30,45,60]`，`PlayerScreen.tsx` 到期调用 `toggle()` 暂停；与桌面行为一致，不再列为本项待做。
 - 音效：`docs/PARITY.md:95` 已注明移动端 TrackPlayer 无音效接口，需原生模块（`react-native-track-player` 不支持 EQ）。先做**如实置灰 + 说明**，不要做假开关。
 - 验收：移动 `jest` 补 3 个用例；真机点一遍。
 

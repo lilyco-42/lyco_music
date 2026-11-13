@@ -29,6 +29,7 @@ import {
   type Quality,
 } from '@lxmn/core'
 import { library } from './sync'
+import { removeQueueAt } from './lib/queue'
 
 /** 播放模式：顺序 / 列表循环 / 单曲循环 / 随机（与桌面端一致） */
 export type PlayMode = 'order' | 'loop' | 'single' | 'shuffle'
@@ -312,6 +313,50 @@ export async function play(item: MusicItem, queue?: MusicItem[]): Promise<void> 
   }
   emit()
   await Promise.all([resolveAndPlay(item), loadMeta(item)])
+}
+
+/**
+ * 从播放队列里移除一首。
+ *
+ * 移除的是当前曲目时切到「补位」的那首继续播；队列被删空则停播并清掉
+ * 歌词/封面，避免 UI 还挂着上一首歌的信息。下标修正交给纯函数
+ * lib/queue.ts，单测覆盖「删当前 / 删前面 / 删后面 / 越界」四种情况。
+ */
+export function removeFromQueue(removeAt: number): void {
+  const result = removeQueueAt(state.queue, state.index, removeAt)
+  if (!result.changed) return
+  state.queue = result.queue
+  state.index = result.index
+  emit()
+  if (!state.queue.length) {
+    stopPlayback()
+    return
+  }
+  if (result.removedCurrent) {
+    const nextItem = state.queue[state.index]
+    if (nextItem) void play(nextItem)
+  }
+}
+
+/** 清空播放队列：只停播，不碰收藏/最近播放等用户数据。 */
+export function clearQueue(): void {
+  if (!state.queue.length) return
+  state.queue = []
+  state.index = -1
+  emit()
+  stopPlayback()
+}
+
+function stopPlayback(): void {
+  state.playing = false
+  state.loading = false
+  state.lyric = ''
+  state.tlyric = ''
+  state.picUrl = ''
+  emit()
+  if (nativePlayerReady) {
+    void safePlayerAction('清空播放列表', async () => { await TrackPlayer.reset() })
+  }
 }
 
 /**

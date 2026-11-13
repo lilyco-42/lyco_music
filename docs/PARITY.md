@@ -10,7 +10,7 @@
 |---|---|
 | 基准 A | `lx-music-desktop` **v2.12.6**（本地源码 `/d/demo/lx-music/lx-music-desktop`） |
 | 基准 B | `lx-music-mobile` **v1.9.1**（本地源码 `/d/demo/lx-music/lx-music-mobile`） |
-| 对照 | Lyco Music **0.2.55** |
+| 对照 | Lyco Music **0.2.60** |
 | 判定依据 | 逐个读取 lx 的 `src/renderer/views/`、`src/renderer/views/Setting/components/`、`src/lang/zh-cn.json`（**316 个 `setting__*` 键**）、`src/main/modules/openApi/`、`src/renderer/core/useApp/useDeeplink/` |
 | 统计口径 | 只统计**用户可感知的能力**，不把「一个设置项拆成多个」重复计数 |
 
@@ -267,6 +267,19 @@ lx 实际拥有的能力 = 99 − 7（我们独有）= **92 项**。
 | 9.5 网易云歌单导入 | lx 也没有，但用户明确提过。**已完成**：贴链接/短链 → 拉歌单 → 直接建成自建歌单，**不做逐首跨源匹配**（播放链路的三层兜底会处理换源），导入是秒级的。见第 9.5 行 |
 
 ---
+
+## 0.2.60 六项体验修复（2026-11-13）
+
+| 反馈 | 处理 | 落点 / 验收 |
+| --- | --- | --- |
+| 桌面端没有搜索历史 | 顶栏下拉最多 12 条，支持单条删除、清空、点选复用；localStorage 持久化 | `apps/desktop/src/lib/search-history.ts`、`TopBar.vue`；`tests/search-history.test.ts` |
+| 看歌词收起回主页、结果要重搜 | 进播放器前记 fullPath，收起原路返回；最近一次结果 / 页签 / 音源筛选缓存 5 分钟，提供「重新搜索」 | `player-return.ts`、`search-cache.ts`、`PlayBar.vue`、`Player.vue`、`Search.vue`；三组 vitest |
+| 歌词逐字变色当「已读」不准 | 删除按字数均分的伪逐字；默认整行高亮，可选用「逐字高亮（仅精确时间轴）」且只对 `line.words` 生效 | `lyric-karaoke.ts`、`prefs.ts`、`PrefsSettings.vue`、`Player.vue`；`tests/lyric-karaoke.test.ts` |
+| 桌面评论文字颜色过浅 | 正文实色前景，用户名 / 时间 / 赞数 / 排序 / 空态统一提亮 | `Player.vue` 评论 tab；源码断言 + 视觉 token |
+| 手机端评论是半屏 | 去掉 76% 抽屉与遮罩，改 statusBarTranslucent 全屏页 + 独立安全区 | `PlayerScreen.tsx`；`player-comments.test.tsx` 断言无 76% 高度 |
+| 手机端功能不全 | 本轮补齐评论热门 / 最新 + 同名借源 + 时间点赞 + 图片点开、播放队列移除 / 清空、定时暂停（15/30/45/60 分钟） | `apps/mobile/src/lib/{comments,queue,sleep-timer}.ts`、`player.ts`、`PlayerScreen.tsx`；`queue-edit` / `sleep-timer` / `comments` / `player-comments` jest |
+
+本地验收：`./node_modules/.bin/vitest run`（49 passed / 13 skipped）、`./node_modules/.bin/jest --config apps/mobile/jest.config.js --runInBand --silent`（44 passed）、桌面 `vue-tsc` + `vite build`、移动端 `tsc` 全绿。移动端逐字歌词、音效 / 均衡器、歌手 / 专辑 / 百科页、评论发布、下载音质选择、云盘与 MV 仍未做，按 `NETEASE-TODO.md` P1 / P2 继续排期。
 
 ## 工作量判断
 

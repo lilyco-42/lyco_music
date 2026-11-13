@@ -6,7 +6,7 @@
  * 右侧从 x≈1642 起：音质 / 词 / 音量 / 更多
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { Check, ListMusic, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward } from 'lucide-vue-next'
 import { findLineIndex } from '@lxmn/core'
 import { viewLyric } from '@/lib/lyric-view'
@@ -21,9 +21,11 @@ import { useSleepTimer } from '@/lib/sleep-timer'
 import { useEqualizer } from '@/lib/equalizer'
 import { useSoundEffect } from '@/lib/sound-effect'
 import { prefs } from '@/lib/prefs'
+import { rememberReturnPath } from '@/lib/player-return'
 import { toast } from '@/lib/toast'
 
 const router = useRouter()
+const route = useRoute()
 const player = usePlayer()
 const { library, playlists, dislikes, isDisliked, dislike, undislike } = useSync()
 const sleep = useSleepTimer()
@@ -42,6 +44,8 @@ const playing = computed(() => player.state.playing)
 const cover = computed(() => player.state.picUrl || './art/cover-default.jpg')
 
 function openPlayer(): void {
+  // 记下从哪进的播放器模式：收起时原路返回，不再掉回首页丢掉搜索结果
+  rememberReturnPath(route.fullPath)
   void router.push({ name: 'player' })
 }
 

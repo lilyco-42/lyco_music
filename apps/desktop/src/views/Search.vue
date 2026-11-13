@@ -7,12 +7,18 @@
  */
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ListMusic, Play } from 'lucide-vue-next'
+import { ListMusic, Play, RotateCw } from 'lucide-vue-next'
 import { getSource, hasSource, type MusicItem } from '@lxmn/core'
 import { usePlayer } from '@/lib/player'
 import { useSync } from '@/lib/sync'
 import { useI18n } from '@/lib/i18n'
 import PlaylistSearchPanel from '@/components/PlaylistSearchPanel.vue'
+import {
+  readSearchSnapshot,
+  saveSearchSnapshot,
+  patchSearchSnapshot,
+  clearSearchSnapshot,
+} from '@/lib/search-cache'
 
 const { t, tf } = useI18n()
 const route = useRoute()
@@ -102,26 +108,84 @@ async function hydratePics(items: MusicItem[]): Promise<void> {
   await Promise.all([worker(), worker(), worker()])
 }
 
+/**
+ * 同一关键词在 5 分钟内回到搜索页时，直接还原上次的结果与筛选状态。
+ * 痛点：点进播放器模式看歌词，收起时组件被重建，原来会重新联网搜一遍；
+ * 现在收起动作也会原路回到 /search?q=...，这里命中缓存即可瞬间显示。
+ */
+let requestSeq = 0
+
 async function run(): Promise<void> {
+  const q = keyword.value
+  const seq = ++requestSeq
+  error.value = ''
+  if (!q) {
+    list.value = []
+    total.value = 0
+    playlistTotal.value = 0
+    activeSource.value = 'all'
+    loading.value = false
+    clearSearchSnapshot()
+    return
+  }
+
+  const cached = readSearchSnapshot(q)
+  if (cached) {
+    list.value = cached.list
+    total.value = cached.total
+    activeSource.value = cached.source
+    searchTab.value = cached.tab
+    playlistTotal.value = cached.playlistTotal
+    loading.value = false
+    // 组件重建后封面缓存也没了，补一次
+    void hydratePics(cached.list)
+    // 刷新 TTL：从现在起再给五分钟
+    saveSearchSnapshot({
+      keyword: q,
+      list: cached.list,
+      total: cached.total,
+      source: cached.source,
+      tab: cached.tab,
+      playlistTotal: cached.playlistTotal,
+    })
+    return
+  }
+
   list.value = []
   total.value = 0
-  error.value = ''
+  playlistTotal.value = 0
   activeSource.value = 'all'
-  if (!keyword.value) return
+  searchTab.value = 'songs'
+  clearSearchSnapshot()
   loading.value = true
   try {
-    const r = await player.search(keyword.value, 1, 30)
+    const r = await player.search(q, 1, 30)
+    if (seq !== requestSeq) return
     list.value = r.list
     total.value = r.total
+    loading.value = false
+    saveSearchSnapshot({
+      keyword: q,
+      list: r.list,
+      total: r.total,
+      source: activeSource.value,
+      tab: searchTab.value,
+      playlistTotal: playlistTotal.value,
+    })
     void hydratePics(r.list)
   } catch (e) {
+    if (seq !== requestSeq) return
     error.value = e instanceof Error ? e.message : String(e)
-  } finally {
     loading.value = false
   }
 }
 
-watch(keyword, () => { playlistTotal.value = 0; void run() }, { immediate: true })
+watch(keyword, () => { void run() }, { immediate: true })
+
+/** 筛选状态也要跟着还原，否则回来后「歌单 / 网易云」页签又跳回默认 */
+watch(searchTab, tab => { patchSearchSnapshot({ tab }) })
+watch(activeSource, source => { patchSearchSnapshot({ source }) })
+watch(playlistTotal, n => { patchSearchSnapshot({ playlistTotal: n }) })
 
 /**
  * 搜索结果里点一首歌 → 走单曲点播（先进试听列表，再从试听列表播）。
@@ -141,6 +205,12 @@ async function playAll(): Promise<void> {
   await player.play(first, items)
 }
 
+/** 手动刷新：清掉会话缓存再搜一次，避免五分钟内一直看旧结果 */
+function refresh(): void {
+  clearSearchSnapshot()
+  void run()
+}
+
 function fmtDuration(v: unknown): string {
   return typeof v === 'string' && v ? v : '--:--'
 }
@@ -156,15 +226,25 @@ function fmtDuration(v: unknown): string {
         「播放全部」不是装饰：点单曲会把队列切成试听列表（lx 的心智模型），
         想连着听当前这批搜索结果就必须从这里进。
       -->
-      <button
-        v-if="searchTab === 'songs' && filtered.length"
-        type="button"
-        class="ml-auto flex items-center gap-1.5 rounded-pill bg-ncm-accent px-3.5 py-1.5 text-[13px] text-white transition-opacity hover:opacity-90"
-        @click="playAll"
-      >
-        <Play :size="14" :stroke-width="2.4" aria-hidden="true" />
-        <span>{{ t('search.playAll', '播放全部') }}</span>
-      </button>
+      <div class="ml-auto flex shrink-0 items-center gap-2">
+        <button
+          v-if="keyword"
+          type="button"
+          class="flex items-center gap-1.5 rounded-pill border border-ncm-divider px-3 py-1.5 text-[13px] text-ncm-muted transition-colors hover:border-ncm-accent hover:text-ncm-accent"
+          :disabled="loading"
+          aria-label="重新搜索"
+          @click="refresh"
+        ><RotateCw :size="13" :stroke-width="2" aria-hidden="true" />刷新</button>
+        <button
+          v-if="searchTab === 'songs' && filtered.length"
+          type="button"
+          class="flex items-center gap-1.5 rounded-pill bg-ncm-accent px-3.5 py-1.5 text-[13px] text-white transition-opacity hover:opacity-90"
+          @click="playAll"
+        >
+          <Play :size="14" :stroke-width="2.4" aria-hidden="true" />
+          <span>{{ t('search.playAll', '播放全部') }}</span>
+        </button>
+      </div>
     </div>
 
     <!-- 单曲 / 歌单：同一个关键词，不用再绕去「发现」页搜一遍 -->

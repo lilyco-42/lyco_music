@@ -70,6 +70,13 @@ export interface DesktopPrefs {
   lyricScrollDelay: number
   /** 允许拖拽歌词行调整进度（3.7） */
   lyricSeekByDrag: boolean
+  /**
+   * 逐字高亮（只有拿到网易云逐字时间轴 yrc 时才生效）。
+   *
+   * 默认关闭：没有 yrc 的歌按字数均分猜「唱到第几个字」会和人声对不上，
+   * 看起来像不准的「已读标记」。开了也只对真有逐字时间的行上色。
+   */
+  lyricWordHighlight: boolean
 
   /* ---- 下载 ---- */
   /** 原源下载失败时自动换源（1.6） */
@@ -153,6 +160,7 @@ function defaults(): DesktopPrefs {
     playLyricFontSize: 16,
     lyricScrollDelay: 0,
     lyricSeekByDrag: true,
+    lyricWordHighlight: false,
     autoSwitchOnDownloadFail: true,
     proxy: { enabled: false, host: '', port: '', username: '', password: '' },
     api: { enabled: false, port: 23330 },
@@ -214,6 +222,7 @@ function merge(raw: unknown): DesktopPrefs {
     playLyricFontSize: num(src.playLyricFontSize, base.playLyricFontSize, 12, 32),
     lyricScrollDelay: num(src.lyricScrollDelay, 0, 0, 3000),
     lyricSeekByDrag: bool(src.lyricSeekByDrag, base.lyricSeekByDrag),
+    lyricWordHighlight: bool(src.lyricWordHighlight, base.lyricWordHighlight),
     autoSwitchOnDownloadFail: bool(src.autoSwitchOnDownloadFail, base.autoSwitchOnDownloadFail),
     proxy: {
       enabled: bool(proxy.enabled, false),

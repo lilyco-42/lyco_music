@@ -245,6 +245,25 @@ export function MoreIcon({ size = 22, color = '#f0f0f0' }: IconProps) {
   )
 }
 
+export function TimerIcon({ size = 22, color = '#f0f0f0' }: IconProps) {
+  return (
+    <View
+      style={{
+        width: size * 0.74,
+        height: size * 0.74,
+        borderRadius: size * 0.37,
+        borderWidth: 1.6,
+        borderColor: color,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <View style={{ width: 1.6, height: size * 0.2, backgroundColor: color, position: 'absolute', top: size * 0.14 }} />
+      <View style={{ width: 1.6, height: size * 0.24, backgroundColor: color, transform: [{ rotate: '45deg' }], marginTop: -size * 0.08 }} />
+    </View>
+  )
+}
+
 /** 几何 Logo：红色圆 + 三条白色均衡器（非任何既有品牌标识） */
 export function Logo({ size = 34 }: { size?: number }) {
   return (

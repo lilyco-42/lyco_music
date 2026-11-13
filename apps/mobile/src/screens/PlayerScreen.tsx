@@ -15,12 +15,12 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ActivityIndicator, FlatList, Image, Modal, NativeModules, PanResponder, Pressable,
+  ActivityIndicator, FlatList, Image, Linking, Modal, NativeModules, PanResponder, Pressable,
   Dimensions, ScrollView, Share, StatusBar, Text, useWindowDimensions, View,
 } from 'react-native'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import {
-  ChevronDownIcon, HeartIcon, CommentIcon, ShareIcon, ListIcon, BlockIcon,
+  ChevronDownIcon, HeartIcon, CommentIcon, ShareIcon, ListIcon, BlockIcon, TimerIcon,
   LoopIcon, ShuffleIcon, SkipIcon, PlayIcon, PauseIcon,
 } from '../components/Icons'
 import { colors } from '../theme'
@@ -28,10 +28,13 @@ import { library } from '../sync'
 import { safe } from '../lib/safe'
 import Ambient, { useCoverColor } from '../components/Ambient'
 import {
-  currentItem, cycleMode, cycleQuality, modeLabel, next, play, prev, seek, setRate, toggle,
+  clearQueue, currentItem, cycleMode, cycleQuality, modeLabel, next, play, prev, seek, setRate, toggle,
+  removeFromQueue,
   RATES, useLyricLines, usePlayerState, useProgressState,
 } from '../player'
 import { getSource, hasSource, parseCommentContent, type MusicComment } from '@lxmn/core'
+import { fmtCommentTime, fmtLikes, resolveCommentTarget, type CommentSort, type CommentTarget } from '../lib/comments'
+import { useMobileSleepTimer } from '../lib/sleep-timer'
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const DEFAULT_COVER = require('../assets/art/cover-default.jpg') as number
@@ -227,20 +230,38 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
   const [commentLoading, setCommentLoading] = useState(false)
   const [commentError, setCommentError] = useState('')
   const [commentMore, setCommentMore] = useState(false)
+  const [commentSort, setCommentSort] = useState<CommentSort>('hot')
+  const [commentTarget, setCommentTarget] = useState<CommentTarget | null>(null)
+  const [commentResolving, setCommentResolving] = useState(false)
   const [queueOpen, setQueueOpen] = useState(false)
+  const [sleepOpen, setSleepOpen] = useState(false)
   // 倍速面板（2.3）：档位多，不适合像音质那样循环点
   const [rateOpen, setRateOpen] = useState(false)
 
-  const canComment = !!item && hasSource(item.source) && Boolean(getSource(item.source).getComments)
+  /**
+   * 评论来源不一定是当前音源：酷我/酷狗等没有评论接口时，
+   * 去网易云找同名歌曲借评论（UI 会标注「来自网易云同名歌曲」）。
+   * 匹配与放弃条件都在 lib/comments.ts，避免在 UI 里悄悄串错歌。
+   */
+  const canComment = Boolean(commentTarget)
 
-  const loadComments = useCallback(async (reset: boolean) => {
-    if (!item) return
-    if (!hasSource(item.source) || !getSource(item.source).getComments) return
+  // 到期只暂停、不切歌；桌面端 useSleepTimer 是同一套语义。
+  const sleep = useMobileSleepTimer(() => { void toggle() })
+
+  const loadComments = useCallback(async (reset: boolean, target: CommentTarget | null, sort: CommentSort) => {
+    if (!target) {
+      setComments([])
+      setCommentTotal(0)
+      setCommentMore(false)
+      return
+    }
+    const source = getSource(target.source)
+    if (!source.getComments) return
     const pageNo = reset ? 1 : commentPage
     setCommentLoading(true)
     setCommentError('')
     try {
-      const res = await getSource(item.source).getComments!(item, pageNo, 20)
+      const res = await source.getComments(target.item, pageNo, 20, sort)
       setComments(prev => (reset ? res.list : [...prev, ...res.list]))
       setCommentTotal(res.total)
       setCommentMore(res.more)
@@ -250,15 +271,27 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
     } finally {
       setCommentLoading(false)
     }
-  }, [item, commentPage])
+  }, [commentPage])
 
   useEffect(() => {
     if (!commentOpen) return
+    let cancelled = false
     setComments([])
     setCommentPage(1)
-    void loadComments(true)
+    setCommentTotal(0)
+    setCommentMore(false)
+    setCommentError('')
+    setCommentTarget(null)
+    setCommentResolving(true)
+    void resolveCommentTarget(item, getSource, hasSource).then(target => {
+      if (cancelled) return
+      setCommentTarget(target)
+      setCommentResolving(false)
+      void loadComments(true, target, commentSort)
+    })
+    return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [commentOpen, item?.songmid, item?.source])
+  }, [commentOpen, item?.songmid, item?.source, commentSort])
 
   const onShare = useCallback(() => {
     if (!item) return
@@ -658,7 +691,7 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
         <View
           style={{
             flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
-            paddingHorizontal: 60, paddingTop: 6, paddingBottom: 14,
+            paddingHorizontal: 36, paddingTop: 6, paddingBottom: 14,
           }}
         >
           <Pressable hitSlop={10} onPress={safe('收藏', onToggleFav)} accessibilityLabel={fav ? '取消收藏' : '收藏'}>
@@ -669,6 +702,12 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
           </Pressable>
           <Pressable hitSlop={10} onPress={safe('查看评论', () => setCommentOpen(true))} accessibilityLabel="评论">
             <CommentIcon size={22} color={colors.muted} />
+          </Pressable>
+          <Pressable hitSlop={10} onPress={safe('定时关闭', () => setSleepOpen(true))} accessibilityLabel={sleep.active ? '定时暂停 ' + sleep.label : '定时关闭'}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+              <TimerIcon size={22} color={sleep.active ? colors.accent : colors.muted} />
+              {sleep.active ? <Text style={{ color: colors.accent, fontSize: 10 }}>{sleep.label}</Text> : null}
+            </View>
           </Pressable>
           <Pressable hitSlop={10} onPress={safe('分享', onShare)} accessibilityLabel="分享">
             <ShareIcon size={22} color={colors.muted} />
@@ -684,22 +723,38 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16 }}>
                 <Text style={{ color: colors.fg, fontSize: 15.5, fontWeight: '600' }}>播放列表（{st.queue.length}）</Text>
-                <Pressable onPress={() => setQueueOpen(false)} hitSlop={10}>
-                  <Text style={{ color: colors.muted, fontSize: 14 }}>关闭</Text>
-                </Pressable>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                  {st.queue.length ? (
+                    <Pressable onPress={safe('清空播放列表', () => clearQueue())} hitSlop={10} accessibilityLabel="清空播放列表">
+                      <Text style={{ color: colors.accent, fontSize: 13 }}>清空</Text>
+                    </Pressable>
+                  ) : null}
+                  <Pressable onPress={() => setQueueOpen(false)} hitSlop={10}>
+                    <Text style={{ color: colors.muted, fontSize: 14 }}>关闭</Text>
+                  </Pressable>
+                </View>
               </View>
               <ScrollView>
                 {st.queue.map((q, i) => (
-                  <Pressable
-                    key={q.source + '-' + String(q.songmid) + '-' + i}
-                    onPress={safe('队列选歌', () => { setQueueOpen(false); return play(q) })}
-                    style={{ paddingHorizontal: 20, paddingVertical: 11 }}
-                  >
-                    <Text numberOfLines={1} style={{ color: i === st.index ? colors.accent : colors.fg, fontSize: 14.5 }}>
-                      {q.name}
-                    </Text>
-                    <Text numberOfLines={1} style={{ color: colors.fainter, fontSize: 12, marginTop: 2 }}>{q.singer}</Text>
-                  </Pressable>
+                  <View key={q.source + '-' + String(q.songmid) + '-' + i} style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 8 }}>
+                    <Pressable
+                      onPress={safe('队列选歌', () => { setQueueOpen(false); return play(q) })}
+                      style={{ flex: 1, paddingHorizontal: 20, paddingVertical: 11 }}
+                    >
+                      <Text numberOfLines={1} style={{ color: i === st.index ? colors.accent : colors.fg, fontSize: 14.5 }}>
+                        {q.name}
+                      </Text>
+                      <Text numberOfLines={1} style={{ color: colors.fainter, fontSize: 12, marginTop: 2 }}>{q.singer}</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={safe('移出播放列表', () => removeFromQueue(i))}
+                      hitSlop={10}
+                      accessibilityLabel={'移出播放列表：' + q.name}
+                      style={{ paddingHorizontal: 10, paddingVertical: 8 }}
+                    >
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>移除</Text>
+                    </Pressable>
+                  </View>
                 ))}
                 {!st.queue.length ? <Text style={{ color: colors.fainter, padding: 20, fontSize: 13 }}>队列为空</Text> : null}
               </ScrollView>
@@ -707,35 +762,55 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
           </Pressable>
         </Modal>
 
-        {/* 评论弹层 */}
-        <Modal visible={commentOpen} animationType="slide" transparent onRequestClose={() => setCommentOpen(false)}>
-          <Pressable style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }} onPress={() => setCommentOpen(false)}>
-            <Pressable
-              style={{ backgroundColor: colors.surface, borderTopLeftRadius: 18, borderTopRightRadius: 18, height: '76%', paddingBottom: 20 }}
-              onPress={() => undefined}
-            >
+        {/* 评论弹层：整屏，不再是 76% 的半屏抽屉。
+            播放页本身就是 statusBarTranslucent 的全屏 Modal，这个 Modal 是另一个窗口，
+            必须自带 SafeAreaProvider 量自己的 inset，否则顶部会被状态栏压住。 */}
+        <Modal visible={commentOpen} animationType="slide" onRequestClose={() => setCommentOpen(false)} statusBarTranslucent>
+          <SafeAreaProvider>
+            <SafeAreaView edges={['top', 'bottom']} style={{ flex: 1, backgroundColor: colors.surface }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, gap: 8 }}>
-                <Text style={{ color: colors.fg, fontSize: 15.5, fontWeight: '600' }}>评论</Text>
-                {commentTotal > 0 ? <Text style={{ color: colors.fainter, fontSize: 12 }}>{commentTotal}</Text> : null}
-                {!canComment ? <Text style={{ color: colors.fainter, fontSize: 12 }}>当前音源不提供评论</Text> : null}
+                <Text style={{ color: colors.fg, fontSize: 16, fontWeight: '600' }}>评论</Text>
+                {commentTotal > 0 ? <Text style={{ color: colors.muted, fontSize: 12 }}>{commentTotal}</Text> : null}
                 <View style={{ flex: 1 }} />
                 <Pressable onPress={() => setCommentOpen(false)} hitSlop={10}>
                   <Text style={{ color: colors.muted, fontSize: 14 }}>关闭</Text>
                 </Pressable>
               </View>
-              {commentLoading && !comments.length ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingBottom: 10, gap: 8 }}>
+                {commentTarget?.borrowed ? (
+                  <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11.5, flexShrink: 1 }}>来自网易云同名歌曲</Text>
+                ) : null}
+                <View style={{ flex: 1 }} />
+                {(['hot', 'new'] as CommentSort[]).map(s => (
+                  <Pressable
+                    key={s}
+                    onPress={safe('切换评论排序', () => setCommentSort(s))}
+                    accessibilityLabel={'切换评论排序：' + (s === 'hot' ? '热门' : '最新')}
+                    accessibilityState={{ selected: commentSort === s }}
+                    style={{
+                      paddingHorizontal: 11, paddingVertical: 5, borderRadius: 12,
+                      backgroundColor: commentSort === s ? colors.accent : colors.elevated,
+                    }}
+                  >
+                    <Text style={{ color: commentSort === s ? '#fff' : colors.muted, fontSize: 12 }}>
+                      {s === 'hot' ? '热门' : '最新'}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              {commentResolving || (commentLoading && !comments.length) ? (
                 <View style={{ paddingTop: 30, alignItems: 'center' }}><ActivityIndicator color={colors.accent} /></View>
               ) : commentError ? (
                 <Text style={{ color: colors.accent, paddingHorizontal: 20, fontSize: 13 }}>{commentError}</Text>
               ) : !comments.length ? (
                 <Text style={{ color: colors.fainter, paddingHorizontal: 20, fontSize: 13 }}>
-                  {canComment ? '还没有评论' : '换一个音源试试'}
+                  {canComment ? '还没有评论' : '当前音源不提供评论，也没找到网易云同名歌曲'}
                 </Text>
               ) : (
                 <FlatList
                   data={comments}
                   keyExtractor={(x, i) => x.id + '-' + i}
-                  contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12 }}
+                  contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 }}
                   renderItem={({ item: cm }) => (
                     <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
                       {cm.avatar ? (
@@ -753,12 +828,13 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 4 }}>
                           {parseCommentContent(cm.content).map((seg, si) =>
                             seg.type === 'image' ? (
-                              <Image
-                                key={si}
-                                source={{ uri: seg.url }}
-                                style={{ width: 132, height: 132, borderRadius: 6, marginVertical: 4, marginRight: 4, backgroundColor: colors.elevated }}
-                                resizeMode="cover"
-                              />
+                              <Pressable key={si} onPress={safe('查看评论图片', () => Linking.openURL(seg.url))}>
+                                <Image
+                                  source={{ uri: seg.url }}
+                                  style={{ width: 132, height: 132, borderRadius: 6, marginVertical: 4, marginRight: 4, backgroundColor: colors.elevated }}
+                                  resizeMode="cover"
+                                />
+                              </Pressable>
                             ) : (
                               <Text key={si} style={{ color: colors.fg, fontSize: seg.type === 'emoji' ? 16 : 14, lineHeight: 21 }}>
                                 {seg.type === 'emoji' ? seg.char : seg.text}
@@ -766,14 +842,17 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
                             ),
                           )}
                         </View>
-                        <Text style={{ color: colors.fainter, fontSize: 11, marginTop: 5 }}>赞 {cm.likedCount}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 5 }}>
+                          {fmtCommentTime(cm.time) ? <Text style={{ color: colors.fainter, fontSize: 11 }}>{fmtCommentTime(cm.time)}</Text> : null}
+                          {fmtLikes(cm.likedCount) ? <Text style={{ color: colors.fainter, fontSize: 11 }}>赞 {fmtLikes(cm.likedCount)}</Text> : null}
+                        </View>
                       </View>
                     </View>
                   )}
                   ListFooterComponent={
                     commentMore ? (
                       <Pressable
-                        onPress={() => void loadComments(false)}
+                        onPress={() => void loadComments(false, commentTarget, commentSort)}
                         disabled={commentLoading}
                         style={{ borderWidth: 1, borderColor: colors.divider, borderRadius: 10, paddingVertical: 9, alignItems: 'center', marginBottom: 12 }}
                       >
@@ -783,8 +862,8 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
                   }
                 />
               )}
-            </Pressable>
-          </Pressable>
+            </SafeAreaView>
+          </SafeAreaProvider>
         </Modal>
 
         {/* 倍速面板（2.3） */}
@@ -823,6 +902,46 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
               </View>
               <Text style={{ color: colors.fainter, fontSize: 12, paddingHorizontal: 20, paddingTop: 12, lineHeight: 18 }}>
                 变速不变调（ExoPlayer 的 PlaybackParameters 默认 pitch=1）。听播客/有声书时 1.25–1.5 倍最自然。
+              </Text>
+            </Pressable>
+          </Pressable>
+        </Modal>
+        {/* 定时暂停：默认不启动；到期只暂停，不切歌也不清空队列 */}
+        <Modal visible={sleepOpen} animationType="slide" transparent onRequestClose={() => setSleepOpen(false)}>
+          <Pressable style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }} onPress={() => setSleepOpen(false)}>
+            <Pressable
+              style={{ backgroundColor: colors.surface, borderTopLeftRadius: 18, borderTopRightRadius: 18, paddingBottom: 26 }}
+              onPress={() => undefined}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16 }}>
+                <Text style={{ color: colors.fg, fontSize: 15.5, fontWeight: '600' }}>定时暂停</Text>
+                <Pressable onPress={() => setSleepOpen(false)} hitSlop={10}>
+                  <Text style={{ color: colors.muted, fontSize: 14 }}>关闭</Text>
+                </Pressable>
+              </View>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 20 }}>
+                {sleep.OPTIONS.map(m => (
+                  <Pressable
+                    key={m}
+                    onPress={safe('设置定时暂停', () => { sleep.start(m); setSleepOpen(false) })}
+                    accessibilityLabel={'定时暂停 ' + m + ' 分钟'}
+                    style={{ minWidth: 66, paddingVertical: 10, borderRadius: 12, alignItems: 'center', backgroundColor: colors.elevated }}
+                  >
+                    <Text style={{ color: colors.fg, fontSize: 14 }}>{m} 分钟</Text>
+                  </Pressable>
+                ))}
+              </View>
+              {sleep.active ? (
+                <Pressable
+                  onPress={safe('取消定时暂停', () => { sleep.cancel(); setSleepOpen(false) })}
+                  accessibilityLabel="取消定时暂停"
+                  style={{ marginHorizontal: 20, marginTop: 14, paddingVertical: 10, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: colors.divider }}
+                >
+                  <Text style={{ color: colors.accent, fontSize: 13 }}>取消定时（剩余 {sleep.label}）</Text>
+                </Pressable>
+              ) : null}
+              <Text style={{ color: colors.fainter, fontSize: 12, paddingHorizontal: 20, paddingTop: 12, lineHeight: 18 }}>
+                到时间后暂停播放，不会切歌或清空播放列表；后台冻结后按真实时间校准。
               </Text>
             </Pressable>
           </Pressable>

@@ -17,6 +17,8 @@ import { findLineIndex, getSource, hasSource, parseCommentContent, type MusicCom
 import { viewLyric } from '@/lib/lyric-view'
 import { prefs } from '@/lib/prefs'
 import { findSameSong } from '@/lib/same-song'
+import { karaokeSpans } from '@/lib/lyric-karaoke'
+import { takeReturnPath } from '@/lib/player-return'
 import { lyricScrollDelta, type LyricScrollMode } from '@/lib/lyric-style'
 import { buildLrc } from '@/lib/lrc-export'
 import { audioExt, saveText, safeFileName, saveUrl } from '@/lib/download'
@@ -66,38 +68,12 @@ const nowTime = ref(0)
 let raf = 0
 let audioEl: HTMLAudioElement | null = null
 
-/**
- * 当前行已经唱到第几个字。
- *
- * 单独用一个 ref 存「已唱字数」而不是让模板直接读 nowTime：
- * 后者会让整个歌词列表每帧重渲染一次，而实际上只有「字数变化」的那一刻
- * 才需要动 DOM（一行最多几十个字，一秒也就变几次）。
- */
-const litChars = ref(0)
-
-function updateKaraoke(t: number): void {
-  const i = currentLine.value
-  const line = lyrics.value[i]
-  if (!line || isPlainLyric.value) {
-    if (litChars.value !== 0) litChars.value = 0
-    return
-  }
-  // 这一行唱到下一行开始为止；最后一行没有下一行，按 4 秒估
-  const next = lyrics.value[i + 1]?.time ?? (line.time + 4)
-  const span = Math.max(0.4, next - line.time)
-  const ratio = Math.min(1, Math.max(0, (t - line.time) / span))
-  const total = [...line.text].length
-  const n = Math.round(ratio * total)
-  if (n !== litChars.value) litChars.value = n
-}
-
 function tick(): void {
   if (!audioEl) audioEl = document.querySelector('audio')
   const t = audioEl?.currentTime
-  if (typeof t === 'number' && Number.isFinite(t)) {
-    nowTime.value = t
-    updateKaraoke(t)
-  }
+  // 只有「真的要做逐字」时才需要帧级时间：整行高亮由 currentLine 驱动，
+  // 每帧写 nowTime 会把整个歌词列表每帧都重渲染一次（白白耗电）
+  if (typeof t === 'number' && Number.isFinite(t) && prefs.lyricWordHighlight) nowTime.value = t
   raf = requestAnimationFrame(tick)
 }
 
@@ -115,9 +91,16 @@ onBeforeUnmount(() => {
   raf = 0
 })
 
-/** 这个字是否已经唱到（唱到的字变亮，其余保持暗色） */
-function wordSung(w: { time: number }): boolean {
-  return nowTime.value >= w.time
+/**
+ * 当前行要逐字上色的字块（已唱 / 未唱）。
+ *
+ * 只有「用户打开了逐字高亮」且「这一行确实有网易云的逐字时间轴」才返回字块；
+ * 其余情况返回空数组，模板退回整行高亮 —— 不再按字数均分瞎猜。
+ */
+function currentKaraoke(): { text: string; sung: boolean }[] {
+  const line = lyrics.value[currentLine.value]
+  if (!line || isPlainLyric.value) return []
+  return karaokeSpans(line.text, line.words, nowTime.value, prefs.lyricWordHighlight) ?? []
 }
 
 /**
@@ -696,8 +679,17 @@ function toggleFullscreen(): void {
   else void doc.exitFullscreen().catch(() => undefined)
 }
 
+/**
+ * 收起播放器模式：回到**进来之前**的那一页。
+ *
+ * 原来写死 router.push({ name: 'home' })：用户在搜索结果里点开一首歌、
+ * 进来看完歌词再收起，搜索结果就没了，只能重新搜一遍。
+ * PlayBar.openPlayer() 会先记下当前 fullPath，这里取出来原样回去。
+ */
 function close(): void {
-  router.push({ name: 'home' })
+  const back = takeReturnPath()
+  if (back) void router.replace(back)
+  else router.push({ name: 'home' })
 }
 
 /** 点进度条跳转：按点击位置换算成秒数 */
@@ -1265,25 +1257,18 @@ function playFromQueue(i: number): void {
                       : (i === currentLine ? 'text-ncmd-muted' : 'text-ncmd-darker'),
                   ]"
                 >
-                  <!-- 逐字染色：只在「原文 + 当前行」上做，副行（罗马音/翻译）不参与 -->
-                  <template v-if="li === 0 && i === currentLine && layers.original">
-                    <template v-if="line.words?.length">
-                      <span
-                        v-for="(w, wi) in line.words"
-                        :key="wi"
-                        class="transition-colors duration-150"
-                        :class="wordSung(w) ? 'text-ncmd-fg' : 'text-ncmd-darker'"
-                      >{{ w.text }}</span>
-                    </template>
-                    <!-- 没有逐字时间轴时按整行时长均分：唱到第几个字，第几个字变亮 -->
-                    <template v-else>
-                      <span
-                        v-for="(ch, ci) in [...line.text]"
-                        :key="ci"
-                        class="transition-colors duration-150"
-                        :class="ci < litChars ? 'text-ncmd-fg' : 'text-ncmd-darker'"
-                      >{{ ch }}</span>
-                    </template>
+                  <!--
+                    逐字高亮：只在「原文 + 当前行」上做，副行（罗马音/翻译）不参与。
+                    只有拿到真实逐字时间轴（网易云 yrc）且用户在设置里打开开关时才上色；
+                    没有时间轴就退回整行高亮 —— 以前按字数均分猜，看起来像不准的「已读标记」。
+                  -->
+                  <template v-if="li === 0 && i === currentLine && layers.original && currentKaraoke().length">
+                    <span
+                      v-for="(w, wi) in currentKaraoke()"
+                      :key="wi"
+                      class="transition-colors duration-150"
+                      :class="w.sung ? 'text-ncmd-fg' : 'text-ncmd-muted'"
+                    >{{ w.text }}</span>
                   </template>
                   <template v-else>{{ t }}</template>
                 </p>
@@ -1299,19 +1284,19 @@ function playFromQueue(i: number): void {
                   :key="s.id"
                   type="button"
                   class="rounded-full px-2.5 py-[2px] text-[12px] transition-colors"
-                  :class="commentSort === s.id ? 'bg-white/15 text-ncmd-fg' : 'hover:bg-white/10 text-ncmd-dim'"
+                  :class="commentSort === s.id ? 'bg-white/15 text-ncmd-fg' : 'hover:bg-white/10 text-ncmd-muted'"
                   @click="commentSort = s.id; void loadComments(true)"
                 >{{ s.label }}</button>
               </div>
-              <span v-if="commentTotal">{{ fmtLikes(commentTotal) }}</span>
-              <span v-if="commentResolving" class="text-ncmd-dim">{{ t('pl.resolvingComments', '正在找这首歌的评论…') }}</span>
-              <span v-else-if="!commentSource" class="text-ncmd-dim">{{ t('pl.noComments', '这首歌暂时没有可用的评论') }}</span>
-              <span v-else-if="commentTarget?.borrowed" class="text-ncmd-dim">{{ t('pl.borrowed', '来自网易云同名歌曲') }}</span>
+              <span v-if="commentTotal" class="text-ncmd-muted">{{ fmtLikes(commentTotal) }}</span>
+              <span v-if="commentResolving" class="text-ncmd-muted">{{ t('pl.resolvingComments', '正在找这首歌的评论…') }}</span>
+              <span v-else-if="!commentSource" class="text-ncmd-muted">{{ t('pl.noComments', '这首歌暂时没有可用的评论') }}</span>
+              <span v-else-if="commentTarget?.borrowed" class="text-ncmd-muted">{{ t('pl.borrowed', '来自网易云同名歌曲') }}</span>
             </div>
             <div class="min-h-0 flex-1 overflow-y-auto pr-3">
-              <p v-if="commentLoading && !comments.length" class="text-[15px] text-ncmd-dim">{{ t('pl.commentsLoading', '加载评论中…') }}</p>
+              <p v-if="commentLoading && !comments.length" class="text-[15px] text-ncmd-muted">{{ t('pl.commentsLoading', '加载评论中…') }}</p>
               <p v-else-if="commentError" class="text-[15px] text-ncmd-accent">{{ commentError }}</p>
-              <p v-else-if="!comments.length" class="text-[15px] text-ncmd-dim">
+              <p v-else-if="!comments.length" class="text-[15px] text-ncmd-muted">
                 {{ commentResolving ? '正在找这首歌的评论…' : '还没有评论' }}
               </p>
 
@@ -1326,10 +1311,10 @@ function playFromQueue(i: number): void {
                 <span v-else class="size-9 shrink-0 rounded-full bg-ncmd-elevated" />
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-2 text-[13px]">
-                    <span class="truncate text-ncmd-muted">{{ c.userName || '匿名用户' }}</span>
-                    <span v-if="c.hot" class="shrink-0 rounded-[3px] border border-ncmd-muted px-1 text-[10px] leading-[15px] text-ncmd-muted">{{ t('pl.hot', '热评') }}</span>
+                    <span class="truncate text-ncmd-fg/75">{{ c.userName || '匿名用户' }}</span>
+                    <span v-if="c.hot" class="shrink-0 rounded-[3px] border border-ncmd-fg/40 px-1 text-[10px] leading-[15px] text-ncmd-fg/70">{{ t('pl.hot', '热评') }}</span>
                   </div>
-                  <div class="mt-1 whitespace-pre-wrap break-words text-[15px] leading-[24px] text-ncmd-fg/90">
+                  <div class="mt-1 whitespace-pre-wrap break-words text-[15px] leading-[24px] text-ncmd-fg">
                     <template v-for="(seg, si) in commentSegments(c.content)" :key="si">
                       <img
                         v-if="seg.type === 'image'"
@@ -1344,7 +1329,7 @@ function playFromQueue(i: number): void {
                       <span v-else>{{ seg.text }}</span>
                     </template>
                   </div>
-                  <div class="mt-1 flex items-center gap-3 text-[12px] text-ncmd-dim">
+                  <div class="mt-1 flex items-center gap-3 text-[12px] text-ncmd-fg/55">
                     <span>{{ fmtCommentTime(c.time) }}</span>
                     <span class="flex items-center gap-1">
                       <svg viewBox="0 0 24 24" class="size-3.5 stroke-current" fill="none" stroke-width="1.8" aria-hidden="true">
@@ -1359,7 +1344,7 @@ function playFromQueue(i: number): void {
               <button
                 v-if="commentMore && comments.length"
                 type="button"
-                class="mb-6 w-full rounded-lg border border-ncmd-elevated py-2 text-[13px] text-ncmd-muted transition-colors hover:bg-white/5 disabled:opacity-50"
+                class="mb-6 w-full rounded-lg border border-ncmd-elevated py-2 text-[13px] text-ncmd-fg/70 transition-colors hover:bg-white/5 disabled:opacity-50"
                 :disabled="commentLoading"
                 @click="loadComments()"
               >

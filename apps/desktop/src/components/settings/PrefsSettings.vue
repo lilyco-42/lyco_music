@@ -397,6 +397,14 @@ const PROGRESS_STYLES: { id: ProgressStyle; label: string; desc: string }[] = [
           </span>
         </label>
 
+        <label class="flex cursor-pointer items-start gap-3 py-3">
+          <input v-model="prefs.lyricWordHighlight" type="checkbox" class="mt-0.5 size-4 accent-[var(--color-ncm-accent)]" />
+          <span class="min-w-0 flex-1">
+            <span class="block text-[14px] text-ncm-fg">逐字高亮（仅精确时间轴）</span>
+            <span class="mt-0.5 block text-[12px] leading-[18px] text-ncm-faint">默认关闭：只把当前整行提亮，更准确也不晃眼。开启后，只有歌曲带网易云逐字时间轴时才按真实时间逐字上色；普通 LRC 不会再用「按字数均分」去猜唱到第几个字</span>
+          </span>
+        </label>
+
         <!-- 偏移 -->
         <div class="flex items-start gap-3 py-3">
           <div class="min-w-0 flex-1">
