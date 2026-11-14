@@ -10,7 +10,7 @@
 |---|---|
 | 基准 A | `lx-music-desktop` **v2.12.6**（本地源码 `/d/demo/lx-music/lx-music-desktop`） |
 | 基准 B | `lx-music-mobile` **v1.9.1**（本地源码 `/d/demo/lx-music/lx-music-mobile`） |
-| 对照 | Lyco Music **0.2.61** |
+| 对照 | Lyco Music **0.2.62** |
 | 判定依据 | 逐个读取 lx 的 `src/renderer/views/`、`src/renderer/views/Setting/components/`、`src/lang/zh-cn.json`（**316 个 `setting__*` 键**）、`src/main/modules/openApi/`、`src/renderer/core/useApp/useDeeplink/` |
 | 统计口径 | 只统计**用户可感知的能力**，不把「一个设置项拆成多个」重复计数 |
 
@@ -190,7 +190,7 @@ lx 实际拥有的能力 = 99 − 7（我们独有）= **92 项**。
 | 7.1 | 浅色 / 深色主题 | 已 | 已 | |
 | 7.2 | 自定义主题编辑器 | 已 | 已 | 设置页取色器实时预览并持久化；进度条/次级强调色按主色混白 32% 自动推导（不做整块色板：结构色一改对比度就崩）。CDP 实测 #d43b52 → #1a73e8 生效并落盘 |
 | 7.3 | 界面字体大小（6 档） | 已 | 已 | 6 档整体缩放（CSS zoom；全站是 px 字面量，改根字号无效） |
-| 7.4 | 多语言（中/繁/英/韩） | 已 | 部分 | 框架已接入：`lib/i18n.ts` + 侧栏/顶栏/设置页，四种语言可切。**zh-TW 由简体逐字转换**（与「歌词转繁体」同一张表），en/ko 手写。页面内部文案仍是中文，逐页补齐中 |
+| 7.4 | 多语言（中/繁/英/韩） | 已 | 部分 | 字典抽到 `packages/core/src/i18n.ts` 桌面 / 移动端共用；桌面 `lib/i18n.ts` 薄适配 + 侧栏/顶栏/设置页，移动端账户页可切语言并持久化；四种语言可切。**zh-TW 由简体逐字转换**（与「歌词转繁体」同一张表），en/ko 手写。0.2.62 补齐移动端首页 / 搜索 / 我的音乐 / 账户首批高频文案，其余页面内部文案仍是中文，逐页补齐中 |
 | 7.5 | 窗口尺寸预设（6 档） | 已 | 已 | 迷你/标准/…；超出工作区自动夹回去并居中 |
 | 7.6 | 播放栏进度条样式（3 种） | 已 | 已 | 细线 / 粗条 / 圆点三档，悬停时放大；圆点样式常驻手柄 |
 | 7.7 | 内置圆角/阴影窗口 | 已 | 已 | 无边框 + `transparent` + 关掉系统 `hasShadow/roundedCorners`，圆角与阴影由 CSS 画（否则两层叠在一起） |
@@ -293,6 +293,19 @@ lx 实际拥有的能力 = 99 − 7（我们独有）= **92 项**。
 | 移动端没有试听片段识别与重取 | 订阅 RNTP 每秒进度事件，用真实 duration 与曲目预期时长判定试听；排除当前源再走一次跨源，彻底失败显示统一文案，点错误文案可手动重试 | `apps/mobile/src/lib/trial-clip.ts`、`player.ts`、`PlayerScreen.tsx`、`jest.setup.js`；`__tests__/trial-clip.test.ts` 与 `player-comments.test.tsx` |
 
 本地验收：`vitest run` 50 passed / 13 skipped（602 passed / 22 skipped）、移动端 jest 12 suites / 48 tests、双端 `tsc --noEmit` 与桌面 `vite build` 全绿。真网探针确认「演员 薛之谦」「十年 陈奕迅」的网易云 VIP 曲目能自动串到酷狗完整地址；12 个服务端脚本 URL 全部 200，11 个带 sha256 的逐字节一致。
+
+## 0.2.62 共享多语言字典与移动端首批文案（2026-11-14）
+
+| 反馈 / 目标 | 处理 | 落点 / 验收 |
+| --- | --- | --- |
+| 桌面 / 移动端各维护字典会漂移 | 224 个 key 的简 / 英 / 韩三语抽到 `packages/core/src/i18n.ts`，繁体由简体逐字转换；纯数据 + 纯函数 `translate` / `translateFormat` / `dictFor`，不依赖 Vue / AsyncStorage | `packages/core/src/i18n.ts`、`index.ts` barrel；`tests/i18n-shared.test.ts` |
+| 桌面既有页面与测试不能改 import | `apps/desktop/src/lib/i18n.ts` 保留 `computed` + prefs + `useI18n()` 薄适配，继续导出 `t` / `tf` / `LOCALES` / `Locale` / `TRANSLATION_KEYS` | `tests/i18n.test.ts` 7 用例不改 |
+| 移动端没有语言切换与持久化 | 新增 `apps/mobile/src/lib/i18n.ts`：AsyncStorage 持久化 + 订阅重渲染；账户页加语言切换卡，四种语言即时生效 | `__tests__/locale.test.ts` 4 用例、`account-locale.test.tsx`、`my-music-import.test.tsx` 英文用例 |
+| 移动端首页 / 搜索 / 我的音乐仍是中文硬编码 | 底部 5 个 tab、首页 7 张卡与推荐、搜索占位/历史/热门/结果数、我的音乐入口/弹窗/批量删除/空态等首批高频文案接共享字典；未翻译项回退中文 | `App.tsx`、`HomeScreen / SearchScreen / MyMusicScreen / AccountScreen.tsx`；四个整体 core mock 用 `jest.requireActual` 合并真核 |
+| 默认中文回归不能破 | 默认 `zh-CN`，既有中文断言全部保留；`settings.languageNote` 说明未翻译文案暂用中文 | vitest 607 / jest 54 全绿 |
+
+本地验收：双端 `tsc --noEmit`、`vitest run`（51 passed / 13 skipped，607 passed / 22 skipped）、移动端 jest 14 suites / 54 tests、桌面 `vite build` 全绿。PWA 只读入口与逐页补齐剩余文案属下一阶段。
+
 ## 工作量判断
 
 | 层 | 项数 | 单项成本 | 小计 |

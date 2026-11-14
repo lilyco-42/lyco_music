@@ -65,6 +65,7 @@ jest.mock('../src/sync', () => ({
 }))
 
 jest.mock('@lxmn/core', () => ({
+  ...jest.requireActual('@lxmn/core'),
   getSource: () => ({
     id: 'wy',
     name: '网易云',

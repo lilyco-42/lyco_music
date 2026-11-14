@@ -17,13 +17,15 @@ import { Logo } from '../components/Icons'
 import { picKey } from '../lib/picKey'
 import { play, usePlayerState } from '../player'
 import { colors, useTopInset } from '../theme'
+import { t as tr, tf, useLocale } from '../lib/i18n'
 
 const COVER_CACHE_KEY = 'lxmn.mobile.covers.v1'
 const COVER_TTL = 24 * 60 * 60 * 1000
 
 interface Playlist {
   id: number
-  title: string
+  /** 标题走共享字典；keyword 保持中文，才能搜到中文曲库 */
+  titleKey: string
   /** 点击后跳搜索页用的词；与卡片标题解耦，标题可以更「歌单味」 */
   keyword: string
 }
@@ -34,13 +36,13 @@ interface Playlist {
  * 用户点进去看到的就是搜这个词的结果，所见即所得。
  */
 const PLAYLISTS: Playlist[] = [
-  { id: 1, title: '每日推荐 · 为你而选', keyword: '热门' },
-  { id: 2, title: '私人雷达 · 越听越懂你', keyword: '华语流行' },
-  { id: 3, title: '华语流行精选', keyword: '华语经典' },
-  { id: 4, title: '深夜轻音乐', keyword: '轻音乐' },
-  { id: 5, title: '电子 · 律动', keyword: '电子' },
-  { id: 6, title: '民谣与故事', keyword: '民谣' },
-  { id: 7, title: '经典摇滚', keyword: '摇滚' },
+  { id: 1, titleKey: 'mobile.home.card1', keyword: '热门' },
+  { id: 2, titleKey: 'mobile.home.card2', keyword: '华语流行' },
+  { id: 3, titleKey: 'mobile.home.card3', keyword: '华语经典' },
+  { id: 4, titleKey: 'mobile.home.card4', keyword: '轻音乐' },
+  { id: 5, titleKey: 'mobile.home.card5', keyword: '电子' },
+  { id: 6, titleKey: 'mobile.home.card6', keyword: '民谣' },
+  { id: 7, titleKey: 'mobile.home.card7', keyword: '摇滚' },
 ]
 
 /** 用几个覆盖面广的关键词拼出首页推荐；任何一个失败都不影响其它 */
@@ -87,6 +89,7 @@ export default function HomeScreen({
   onOpenDiscover?: (keyword?: string) => void
 }) {
   const insetTop = useTopInset()
+  useLocale()
   const [tracks, setTracks] = useState<MusicItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -209,15 +212,15 @@ export default function HomeScreen({
           <Text style={{ color: colors.fg, fontSize: 21, fontWeight: '600', flex: 1 }}>Lyco Music</Text>
           {/* 不传关键词：这是「去搜索页」而不是「搜某个词」 */}
           <Pressable onPress={() => onOpenSearch?.()} hitSlop={10}>
-            <Text style={{ color: colors.accent, fontSize: 14 }}>搜索</Text>
+            <Text style={{ color: colors.accent, fontSize: 14 }}>{tr('tab.search')}</Text>
           </Pressable>
         </View>
 
         {/* 推荐歌单 */}
         <View style={{ paddingHorizontal: 20, marginBottom: 12, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-          <Text style={{ color: colors.fg, fontSize: 17, fontWeight: '600' }}>推荐歌单</Text>
+          <Text style={{ color: colors.fg, fontSize: 17, fontWeight: '600' }}>{tr('mobile.home.playlists')}</Text>
           <Pressable onPress={() => (onOpenDiscover ?? onOpenSearch)?.()} hitSlop={8}>
-            <Text style={{ color: colors.muted, fontSize: 13 }}>更多 ›</Text>
+            <Text style={{ color: colors.muted, fontSize: 13 }}>{tr('mobile.home.more')}</Text>
           </Pressable>
         </View>
 
@@ -234,10 +237,10 @@ export default function HomeScreen({
             >
               <CoverPlaceholder size={140} radius={8} uri={covers[item.id]} />
               <Text numberOfLines={2} style={{ color: colors.fg, fontSize: 13, lineHeight: 18, marginTop: 8 }}>
-                {item.title}
+                {tr(item.titleKey)}
               </Text>
               <Text numberOfLines={1} style={{ color: colors.fainter, fontSize: 11, marginTop: 3 }}>
-                找歌单「{item.keyword}」
+                {tf('mobile.home.find', { q: item.keyword })}
               </Text>
             </Pressable>
           )}
@@ -245,7 +248,7 @@ export default function HomeScreen({
 
         {/* 猜你喜欢：真实搜索结果 */}
         <View style={{ paddingHorizontal: 20, marginTop: 26, marginBottom: 10 }}>
-          <Text style={{ color: colors.fg, fontSize: 17, fontWeight: '600' }}>猜你喜欢</Text>
+          <Text style={{ color: colors.fg, fontSize: 17, fontWeight: '600' }}>{tr('mobile.home.guess')}</Text>
         </View>
 
         {loading ? (
@@ -256,7 +259,7 @@ export default function HomeScreen({
           <Text style={{ color: colors.accent, paddingHorizontal: 20, fontSize: 13 }}>{error}</Text>
         ) : !tracks.length ? (
           <Text style={{ color: colors.fainter, paddingHorizontal: 20, fontSize: 13 }}>
-            暂时拿不到推荐，去搜索页试试
+            {tr('mobile.home.empty')}
           </Text>
         ) : (
           <View style={{ paddingHorizontal: 20 }}>

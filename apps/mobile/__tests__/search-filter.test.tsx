@@ -31,6 +31,7 @@ jest.mock('@lxmn/core', () => {
     { songmid: '3', name: '酷我的第二首', singer: 'C', source: 'kw', albumName: 'z' },
   ]
   return {
+    ...jest.requireActual('@lxmn/core'),
     // 只保留被测组件真正用到的部分
     listSources: () => ['wy', 'kw'],
     hasSource: () => true,

@@ -28,6 +28,7 @@ const mockSearchByCreator = jest.fn(async () => ({
 const mockPlay = jest.fn(async () => undefined)
 
 jest.mock('@lxmn/core', () => ({
+  ...jest.requireActual('@lxmn/core'),
   WY_BOARDS: [
     { id: '3778678', name: '热歌榜', desc: '此刻最多人在听' },
     { id: '3778676', name: '新歌榜', desc: '新歌速递' },

@@ -14,9 +14,11 @@ import {
 } from '../account'
 import type { AccountProfile, DeviceCode } from '../account'
 import { ACCENT_PRESETS, colors, getAccent, setAccent, useTopInset } from '../theme'
+import { MOBILE_LOCALES, setLocale, t as tr, tf, useLocale } from '../lib/i18n'
 
 export default function AccountScreen({ onBack }: { onBack?: () => void }) {
   const insetTop = useTopInset()
+  const loc = useLocale()
   const [me, setMe] = useState<AccountProfile | null>(null)
   const [accent, setAccentState] = useState(getAccent())
   const [device, setDevice] = useState<DeviceCode | null>(null)
@@ -57,7 +59,7 @@ export default function AccountScreen({ onBack }: { onBack?: () => void }) {
       setDevice(null)
     } catch (e) {
       if (!alive.current) return
-      setError(e instanceof Error ? e.message : '授权失败')
+      setError(e instanceof Error ? e.message : tr('mobile.acct.authFailed'))
       setDevice(null)
     } finally {
       if (alive.current) setBusy(false)
@@ -68,7 +70,7 @@ export default function AccountScreen({ onBack }: { onBack?: () => void }) {
     cancelPolling()
     setDevice(null)
     setBusy(false)
-    setError('已取消授权')
+    setError(tr('mobile.acct.cancelled'))
   }, [])
 
   const doSignOut = useCallback(async () => {
@@ -93,11 +95,32 @@ export default function AccountScreen({ onBack }: { onBack?: () => void }) {
           但用户不一定会想到「再点一次我的」就是返回 */}
       {onBack ? (
         <Pressable onPress={onBack} hitSlop={10} style={{ marginBottom: 14 }}>
-          <Text style={{ color: colors.muted, fontSize: 13.5 }}>‹ 返回</Text>
+          <Text style={{ color: colors.muted, fontSize: 13.5 }}>{tr('mobile.acct.back')}</Text>
         </Pressable>
       ) : null}
-      <Text style={styles.title}>我的账户</Text>
-      <Text style={styles.subtitle}>使用 lain42.top 账号登录，同步识别真实购买权益。</Text>
+      <Text style={styles.title}>{tr('mobile.acct.title')}</Text>
+            <Text style={styles.subtitle}>{tr('mobile.acct.subtitle')}</Text>
+
+      {/* 移动端没有独立设置页，账户页是最自然的语言切换位置 */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>{tr('settings.language')}</Text>
+        <Text style={styles.faint}>{tr('settings.languageNote')}</Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+          {MOBILE_LOCALES.map(l => (
+            <Pressable
+              key={l.id}
+              onPress={() => { void setLocale(l.id) }}
+              style={{
+                borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7,
+                borderWidth: 1, borderColor: loc === l.id ? colors.accent : colors.divider,
+                backgroundColor: loc === l.id ? colors.accent : colors.surface,
+              }}
+            >
+              <Text style={{ color: loc === l.id ? '#fff' : colors.muted, fontSize: 12.5 }}>{l.native}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
 
       {me ? (
         <View style={styles.card}>
@@ -105,55 +128,49 @@ export default function AccountScreen({ onBack }: { onBack?: () => void }) {
             <View style={styles.avatar}><Text style={styles.avatarText}>{initial}</Text></View>
             <View style={{ flex: 1 }}>
               <Text style={styles.username}>{me.username}</Text>
-              <Text style={styles.faint}>账户 ID：{me.account_id}</Text>
+              <Text style={styles.faint}>{tf('mobile.acct.id', { id: me.account_id })}</Text>
             </View>
             {me.founder ? (
-              <View style={styles.badge}><Text style={styles.badgeText}>创始人</Text></View>
+              <View style={styles.badge}><Text style={styles.badgeText}>{tr('mobile.acct.founder')}</Text></View>
             ) : null}
           </View>
 
-          <Text style={styles.muted}>当前权益：{me.entitlements.length} 项</Text>
-          <Text style={styles.faint}>授权凭证保存在本机，下次打开自动验证。</Text>
-          <Text style={styles.faint}>
-            网站账号不等于音源订阅；已购买音乐会员可在「会员」页激活订阅。
-          </Text>
+          <Text style={styles.muted}>{tf('mobile.acct.entitlements', { n: me.entitlements.length })}</Text>
+          <Text style={styles.faint}>{tr('mobile.acct.tokenSaved')}</Text>
+          <Text style={styles.faint}>{tr('mobile.acct.memberNote')}</Text>
 
           <Pressable style={styles.ghostButton} onPress={doSignOut} disabled={busy}>
-            <Text style={styles.ghostButtonText}>{busy ? '正在退出…' : '退出登录'}</Text>
+            <Text style={styles.ghostButtonText}>{busy ? tr('mobile.acct.signingOut') : tr('mobile.acct.signOut')}</Text>
           </Pressable>
         </View>
       ) : device ? (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>在浏览器里确认</Text>
-          <Text style={styles.muted}>把这串设备码填到 lain42.top 的确认页：</Text>
+          <Text style={styles.cardTitle}>{tr('mobile.acct.confirmInBrowser')}</Text>
+          <Text style={styles.muted}>{tr('mobile.acct.deviceCodeHint')}</Text>
           <Text style={styles.code}>{device.user_code}</Text>
-          <Text style={styles.faint}>
-            已尝试为你打开确认页；没打开的话，手动访问：
-          </Text>
+          <Text style={styles.faint}>{tr('mobile.acct.openConfirmHint')}</Text>
           <Text style={styles.link} onPress={() => void Linking.openURL(device.verification_uri_complete)}>
             {VERIFICATION_URI}
           </Text>
           <View style={styles.pendingRow}>
             <ActivityIndicator color={colors.accent} />
-            <Text style={styles.muted}>等待确认… {secondsLeft > 0 ? secondsLeft + ' 秒后过期' : ''}</Text>
+            <Text style={styles.muted}>{tr('mobile.acct.waiting')}{secondsLeft > 0 ? ' ' + tf('mobile.acct.secondsLeft', { n: secondsLeft }) : ''}</Text>
           </View>
           <Pressable style={styles.ghostButton} onPress={cancel}>
-            <Text style={styles.ghostButtonText}>取消</Text>
+            <Text style={styles.ghostButtonText}>{tr('common.cancel')}</Text>
           </Pressable>
         </View>
       ) : (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>用 lain42.top 账号登录</Text>
-          <Text style={styles.muted}>
-            点击下方按钮会打开浏览器，登录并确认后自动回到这里。
-          </Text>
+          <Text style={styles.cardTitle}>{tr('acct.login')}</Text>
+          <Text style={styles.muted}>{tr('mobile.acct.loginDesc')}</Text>
           <View style={styles.bullets}>
-            <Text style={styles.bullet}>· 密码只输入在 lain42.top 的页面上，本应用不会接触你的密码</Text>
-            <Text style={styles.bullet}>· 应用拿到的是有期限、可随时撤销的授权凭证</Text>
+            <Text style={styles.bullet}>{tr('mobile.acct.bullet1')}</Text>
+            <Text style={styles.bullet}>{tr('mobile.acct.bullet2')}</Text>
           </View>
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <Pressable style={styles.primaryButton} onPress={startLogin} disabled={busy}>
-            <Text style={styles.primaryButtonText}>{busy ? '等待浏览器确认…' : '开始授权'}</Text>
+            <Text style={styles.primaryButtonText}>{busy ? tr('mobile.acct.waitingBrowser') : tr('mobile.acct.startAuth')}</Text>
           </Pressable>
         </View>
       )}

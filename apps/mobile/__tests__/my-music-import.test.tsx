@@ -8,12 +8,14 @@
 import React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import MyMusicScreen from '../src/screens/MyMusicScreen'
+import { setLocale } from '../src/lib/i18n'
 
 const mockImport = jest.fn(async () => ({
   name: '测试歌单', total: 3, added: 2, playlistId: 'pl-1',
 }))
 
 jest.mock('@lxmn/core', () => ({
+  ...jest.requireActual('@lxmn/core'),
   importWyPlaylistToLibrary: (...args: unknown[]) => mockImport(...(args as [])),
 }))
 
@@ -49,7 +51,8 @@ jest.mock('../src/sync', () => ({
 
 jest.mock('../src/share', () => ({ getShared: jest.fn(async () => null) }))
 
-beforeEach(() => {
+beforeEach(async () => {
+  await setLocale('zh-CN')
   mockImport.mockClear()
   mockDeletePlaylists.mockClear()
   snapshot.playlists = [
@@ -58,6 +61,8 @@ beforeEach(() => {
     { id: 'pl-3', name: '第三张', createdAt: 0, updatedAt: 0, items: [] },
   ]
 })
+
+afterEach(async () => { await setLocale('zh-CN') })
 
 describe('我的音乐 · 网易云歌单导入', () => {
   it('入口按钮打开弹窗，粘链接后调用内核导入并回显结果', async () => {
@@ -117,5 +122,14 @@ describe('我的音乐 · 网易云歌单导入', () => {
     await waitFor(() => expect(mockDeletePlaylists).toHaveBeenCalledTimes(1))
     expect(mockDeletePlaylists).toHaveBeenCalledWith(['pl-1', 'pl-2', 'pl-3'])
     expect(await screen.findByText('已删除 3 张歌单')).toBeTruthy()
+  }, 20000)
+
+  it('切换到英文后，入口与导入弹窗走共享字典', async () => {
+    await setLocale('en-US')
+    render(<MyMusicScreen />)
+
+    expect(await screen.findByText('My Music')).toBeTruthy()
+    fireEvent.press(await screen.findByText('NetEase Import'))
+    expect(await screen.findByText('Import NetEase playlist')).toBeTruthy()
   }, 20000)
 })

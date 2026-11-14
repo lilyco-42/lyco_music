@@ -33,6 +33,7 @@ import AccountScreen from './src/screens/AccountScreen'
 import ErrorBoundary from './src/components/ErrorBoundary'
 import MiniPlayer from './src/components/MiniPlayer'
 import { recordError } from './src/lib/safe'
+import { restoreLocale, t as tr, useLocale } from './src/lib/i18n'
 
 /**
  * 装配必须在模块加载期完成，不能等 useEffect。
@@ -52,12 +53,12 @@ try {
 
 type TabKey = 'home' | 'discover' | 'search' | 'my' | 'member' | 'sync' | 'friends' | 'account'
 
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'home', label: '首页' },
-  { key: 'discover', label: '发现' },
-  { key: 'search', label: '搜索' },
-  { key: 'my', label: '我的' },
-  { key: 'member', label: '会员' },
+const TABS: { key: TabKey; labelKey: string }[] = [
+  { key: 'home', labelKey: 'tab.home' },
+  { key: 'discover', labelKey: 'tab.discover' },
+  { key: 'search', labelKey: 'tab.search' },
+  { key: 'my', labelKey: 'tab.my' },
+  { key: 'member', labelKey: 'tab.member' },
 ]
 
 /** 二级页：从「我的」进，标签栏仍停在「我的」上，返回时不会跳回首页 */
@@ -68,6 +69,7 @@ export default function App() {
   /** 主题色变化时强制重渲染：RN 没有 CSS 变量，样式是在渲染时读 colors 的 */
   const [, forceThemeRender] = useState(0)
   useEffect(() => subscribeAccent(() => forceThemeRender(n => n + 1)), [])
+  useLocale()
   /** 首页点歌单/频道时带过来的搜索词 */
   const [seedKeyword, setSeedKeyword] = useState('')
   /** 首页「推荐歌单」卡带来的词：交给「发现」页去搜歌单（不是搜歌） */
@@ -95,6 +97,7 @@ export default function App() {
      * 从没调用过 restore/refresh，用户只有重新粘贴链接才能看到新源。
      */
     void restoreMembership().catch(() => undefined)
+    void restoreLocale().catch(() => undefined)
     const timer = setInterval(() => { void refreshMembership().catch(() => undefined) }, MEMBERSHIP_REFRESH_MS)
     return () => clearInterval(timer)
   }, [])
@@ -161,18 +164,18 @@ export default function App() {
 
           {/* 底部标签栏 */}
           <View style={styles.tabBar}>
-            {TABS.map(t => {
-              const active = t.key === activeTab
+            {TABS.map(tab => {
+              const active = tab.key === activeTab
               return (
                 <TouchableOpacity
-                  key={t.key}
+                  key={tab.key}
                   style={styles.tabItem}
-                  onPress={() => setTab(t.key)}
+                  onPress={() => setTab(tab.key)}
                   activeOpacity={0.6}
                 >
                   <View style={[styles.tabIndicator, { backgroundColor: active ? colors.accent : 'transparent' }]} />
                   <Text style={[styles.tabLabel, { color: active ? colors.fg : colors.fainter, fontWeight: active ? '600' : '400' }]}>
-                    {t.label}
+                    {tr(tab.labelKey)}
                   </Text>
                 </TouchableOpacity>
               )

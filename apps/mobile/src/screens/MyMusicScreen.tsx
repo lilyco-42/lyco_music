@@ -10,6 +10,7 @@ import { play, usePlayerState } from '../player'
 import { library } from '../sync'
 import { getShared } from '../share'
 import { colors, useTopInset } from '../theme'
+import { t as tr, tf, useLocale } from '../lib/i18n'
 
 type Tab = 'trial' | 'fav' | 'recent' | 'playlist'
 
@@ -29,6 +30,7 @@ interface Props {
 
 export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends }: Props) {
   const insetTop = useTopInset()
+  useLocale()
   const [tab, setTab] = useState<Tab>('trial')
   const [rows, setRows] = useState<Row[]>([])
   const [playlists, setPlaylists] = useState<{ id: string; name: string; count: number }[]>([])
@@ -113,7 +115,7 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
       const n = await library.deletePlaylists(ids)
       pull()
       exitBatch()
-      setBatchMsg('已删除 ' + n + ' 张歌单')
+      setBatchMsg(tf('mobile.my.deleted', { n }))
     } catch (e) {
       setBatchMsg(e instanceof Error ? e.message : String(e))
       setConfirmBatch(false)
@@ -147,7 +149,7 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
     if (!pr) return
     const s = await getShared(pr.code)
     if (!s) { setImportPrompt(null); return }
-    const pl = await library.createPlaylist(s.name || '导入的歌单')
+    const pl = await library.createPlaylist(s.name || tr('mobile.my.importedPlaylist'))
     for (const t of s.tracks) {
       await library.addToPlaylist(pl.id, { ...t, id: t.songmid, source: t.source as SourceId })
     }
@@ -176,7 +178,7 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
     setWyMsg('')
     try {
       const r = await importWyPlaylistToLibrary(wyText, library)
-      setWyMsg('已导入「' + r.name + '」共 ' + r.added + ' 首（歌单 ' + r.total + ' 首）')
+      setWyMsg(tf('mobile.my.imported', { name: r.name, added: r.added, total: r.total }))
       setWyText('')
       pull()
     } catch (e) {
@@ -215,20 +217,20 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
           flexDirection: 'row', alignItems: 'center', gap: 10,
         }}>
           <Text style={{ color: colors.fg, fontSize: 13, flex: 1 }} numberOfLines={1}>
-            导入「{importPrompt.name}」（{importPrompt.count} 首）？
+            {tf('mobile.my.importPrompt', { name: importPrompt.name, count: importPrompt.count })}
           </Text>
           <Pressable onPress={() => { void confirmImport() }}
             style={{ backgroundColor: colors.accent, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7 }}>
-            <Text style={{ color: '#fff', fontSize: 12 }}>导入</Text>
+            <Text style={{ color: '#fff', fontSize: 12 }}>{tr('mobile.my.import')}</Text>
           </Pressable>
           <Pressable onPress={() => setImportPrompt(null)}
             style={{ borderWidth: 1, borderColor: colors.divider, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7 }}>
-            <Text style={{ color: colors.muted, fontSize: 12 }}>取消</Text>
+            <Text style={{ color: colors.muted, fontSize: 12 }}>{tr('common.cancel')}</Text>
           </Pressable>
         </View>
       ) : null}
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 12 }}>
-        <Text style={{ color: colors.fg, fontSize: 24, fontWeight: '700', flex: 1 }}>我的音乐</Text>
+        <Text style={{ color: colors.fg, fontSize: 24, fontWeight: '700', flex: 1 }}>{tr('my.title')}</Text>
       </View>
 
       {/* 功能入口行：账户 / 云同步 / 好友 / 网易云导入。
@@ -237,21 +239,21 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
           「网易云导入」不依赖任何 props，始终在。 */}
       <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 20, paddingTop: 16 }}>
         {([
-          ['账户', onOpenAccount],
-          ['云同步', onOpenSync],
-          ['好友', onOpenFriends],
-          ['网易云导入', openWyImport],
-        ] as const).map(([label, fn]) =>
+          ['mobile.my.account', onOpenAccount],
+          ['mobile.my.sync', onOpenSync],
+          ['mobile.my.friends', onOpenFriends],
+          ['mobile.my.neteaseImport', openWyImport],
+        ] as const).map(([labelKey, fn]) =>
           fn ? (
             <Pressable
-              key={label}
+              key={labelKey}
               onPress={fn}
               style={{
                 flex: 1, borderRadius: 12, paddingVertical: 14,
                 backgroundColor: colors.surface, alignItems: 'center',
               }}
             >
-              <Text numberOfLines={1} style={{ color: colors.fg, fontSize: 13.5 }}>{label}</Text>
+              <Text numberOfLines={1} style={{ color: colors.fg, fontSize: 13.5 }}>{tr(labelKey)}</Text>
             </Pressable>
           ) : null,
         )}
@@ -265,10 +267,9 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
         >
           {/* 内层拦住点击，避免点输入框时把弹窗关掉 */}
           <Pressable onPress={() => {}} style={{ backgroundColor: colors.surface, borderRadius: 16, padding: 18 }}>
-            <Text style={{ color: colors.fg, fontSize: 17, fontWeight: '700' }}>导入网易云歌单</Text>
+            <Text style={{ color: colors.fg, fontSize: 17, fontWeight: '700' }}>{tr('mobile.my.importTitle')}</Text>
             <Text style={{ color: colors.fainter, fontSize: 12, marginTop: 6, lineHeight: 18 }}>
-              粘歌单链接、直接粘那串数字，或整个分享文案一起粘进来（163cn.tv 短链也能认）。
-              只读取歌名/歌手/专辑/封面，播放仍走我们自己的音源（付费或下架的歌会自动换源）。
+              {tr('mobile.my.importHint')}
             </Text>
             <TextInput
               value={wyText}
@@ -293,7 +294,7 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
             <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
               <Pressable onPress={() => setWyOpen(false)}
                 style={{ borderWidth: 1, borderColor: colors.divider, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9 }}>
-                <Text style={{ color: colors.muted, fontSize: 13 }}>关闭</Text>
+                <Text style={{ color: colors.muted, fontSize: 13 }}>{tr('common.close')}</Text>
               </Pressable>
               <Pressable
                 onPress={() => void doWyImport()}
@@ -303,7 +304,7 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
                   opacity: wyBusy || !wyText.trim() ? 0.4 : 1,
                 }}
               >
-                <Text style={{ color: '#fff', fontSize: 13 }}>{wyBusy ? '导入中…' : '开始导入'}</Text>
+                <Text style={{ color: '#fff', fontSize: 13 }}>{wyBusy ? tr('mobile.my.importing') : tr('mobile.my.importStart')}</Text>
               </Pressable>
             </View>
           </Pressable>
@@ -312,7 +313,7 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
 
       {/* 标签 */}
       <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 20, paddingVertical: 14 }}>
-        {([['trial', '试听列表'], ['fav', '我喜欢的'], ['recent', '最近播放'], ['playlist', '我的歌单']] as const).map(([k, label]) => (
+        {([['trial', 'mobile.my.tabTrial'], ['fav', 'mobile.my.tabFav'], ['recent', 'mobile.my.tabRecent'], ['playlist', 'mobile.my.tabPlaylist']] as const).map(([k, labelKey]) => (
           <Pressable
             key={k}
             onPress={() => changeTab(k)}
@@ -321,7 +322,7 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
               backgroundColor: tab === k ? colors.accent : colors.surface,
             }}
           >
-            <Text style={{ color: tab === k ? '#fff' : colors.muted, fontSize: 13.5 }}>{label}</Text>
+            <Text style={{ color: tab === k ? '#fff' : colors.muted, fontSize: 13.5 }}>{tr(labelKey)}</Text>
           </Pressable>
         ))}
         {tab === 'trial' && rows.length ? (
@@ -330,7 +331,7 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
             hitSlop={10}
             style={{ marginLeft: 'auto', paddingHorizontal: 10, paddingVertical: 8 }}
           >
-            <Text style={{ color: colors.fainter, fontSize: 12.5 }}>清空</Text>
+            <Text style={{ color: colors.fainter, fontSize: 12.5 }}>{tr('mobile.my.clear')}</Text>
           </Pressable>
         ) : null}
       </View>
@@ -340,13 +341,13 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
           {batchMode ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, paddingBottom: 10 }}>
               <Text style={{ color: colors.muted, fontSize: 12.5, marginRight: 'auto' }}>
-                已选 {selected.size} 张 · 点歌单可勾选/取消
+                {tf('mobile.my.selected', { n: selected.size })}
               </Text>
               <Pressable
                 onPress={() => setSelected(new Set(playlists.map(p => p.id)))}
                 style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: colors.surface }}
               >
-                <Text style={{ color: colors.fg, fontSize: 12 }}>全选</Text>
+                <Text style={{ color: colors.fg, fontSize: 12 }}>{tr('mobile.my.selectAll')}</Text>
               </Pressable>
               <Pressable
                 onPress={() => setConfirmBatch(true)}
@@ -356,25 +357,25 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
                   backgroundColor: colors.accent, opacity: !selected.size || batchBusy ? 0.4 : 1,
                 }}
               >
-                <Text style={{ color: '#fff', fontSize: 12 }}>删除选中</Text>
+                <Text style={{ color: '#fff', fontSize: 12 }}>{tr('mobile.my.deleteSelected')}</Text>
               </Pressable>
               <Pressable
                 onPress={exitBatch}
                 style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: colors.surface }}
               >
-                <Text style={{ color: colors.muted, fontSize: 12 }}>退出</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>{tr('mobile.my.exit')}</Text>
               </Pressable>
             </View>
           ) : (
             <View style={{ flexDirection: 'row', alignItems: 'center', paddingBottom: 10 }}>
               <Text style={{ color: colors.fainter, fontSize: 12, flex: 1 }}>
-                {playlists.length} 张歌单 · 点歌单进入多选，可一次剔除多张
+                {tf('mobile.my.playlistCount', { n: playlists.length })}
               </Text>
               <Pressable
                 onPress={() => setBatchMode(true)}
                 style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: colors.surface }}
               >
-                <Text style={{ color: colors.fg, fontSize: 12 }}>批量管理</Text>
+                <Text style={{ color: colors.fg, fontSize: 12 }}>{tr('mobile.my.batch')}</Text>
               </Pressable>
             </View>
           )}
@@ -386,20 +387,20 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
               backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.accent,
             }}>
               <Text style={{ color: colors.fg, fontSize: 12.5, flex: 1, minWidth: 160 }}>
-                确认删除选中的 {selected.size} 张歌单？不可恢复。
+                {tf('mobile.my.confirmDelete', { n: selected.size })}
               </Text>
               <Pressable
                 onPress={() => void doBatchDelete()}
                 disabled={batchBusy}
                 style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: colors.accent }}
               >
-                <Text style={{ color: '#fff', fontSize: 12 }}>{batchBusy ? '删除中…' : '确认删除'}</Text>
+                <Text style={{ color: '#fff', fontSize: 12 }}>{batchBusy ? tr('mobile.my.deleting') : tr('mobile.my.confirm')}</Text>
               </Pressable>
               <Pressable
                 onPress={() => setConfirmBatch(false)}
                 style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, borderWidth: 1, borderColor: colors.divider }}
               >
-                <Text style={{ color: colors.muted, fontSize: 12 }}>取消</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>{tr('common.cancel')}</Text>
               </Pressable>
             </View>
           ) : null}
@@ -410,7 +411,7 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
 
           {!playlists.length ? (
             <Text style={{ color: colors.fainter, fontSize: 14, paddingTop: 12 }}>
-              还没有自建歌单。可以从「网易云导入」或「发现」页存一张进来。
+              {tr('mobile.my.emptyPlaylists')}
             </Text>
           ) : playlists.map(pl => {
             const picked = selected.has(pl.id)
@@ -431,7 +432,7 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
                   {picked ? <Text style={{ color: '#fff', fontSize: 13 }}>✓</Text> : null}
                 </View>
                 <Text numberOfLines={1} style={{ color: colors.fg, fontSize: 15, flex: 1 }}>{pl.name}</Text>
-                <Text style={{ color: colors.fainter, fontSize: 12 }}>{pl.count} 首</Text>
+                <Text style={{ color: colors.fainter, fontSize: 12 }}>{tf('mobile.my.tracks', { n: pl.count })}</Text>
               </Pressable>
             )
           })}
@@ -439,10 +440,10 @@ export default function MyMusicScreen({ onOpenAccount, onOpenSync, onOpenFriends
       ) : !rows.length ? (
         <Text style={{ color: colors.fainter, paddingHorizontal: 20, fontSize: 14 }}>
           {tab === 'trial'
-            ? '试听列表是空的。在搜索页点一首歌，它就会进来。'
+            ? tr('my.trialEmpty')
             : tab === 'fav'
-              ? '还没有收藏。在搜索页点右侧的心形即可收藏。'
-              : '还没有播放记录。'}
+              ? tr('my.favEmpty')
+              : tr('my.recentEmpty')}
         </Text>
       ) : (
         <FlatList

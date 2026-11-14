@@ -10,6 +10,7 @@ import { getSource, hasSource, listSources, type MusicItem } from '@lxmn/core'
 import { playSong, usePlayerState } from '../player'
 import { library } from '../sync'
 import { safe } from '../lib/safe'
+import { t as tr, tf, useLocale } from '../lib/i18n'
 import { colors, useTopInset } from '../theme'
 import PlaylistResults from '../components/PlaylistResults'
 
@@ -18,6 +19,11 @@ const DEFAULT_COVER = require('../assets/art/cover-default.jpg') as number
 
 /** 音源显示名（与桌面端一致） */
 const SOURCE_LABELS: Record<string, string> = { wy: '网易云', kw: '酷我', kg: '酷狗', mg: '咪咕' }
+
+/** 音源名也走共享字典；没接上的源退回中文常量。 */
+function sourceLabel(id: string): string {
+  return tr('source.' + id, SOURCE_LABELS[id] ?? id)
+}
 
 const HISTORY_KEY = 'lxmn.mobile.searchHistory'
 const HISTORY_MAX = 12
@@ -44,6 +50,7 @@ export default function SearchScreen({
   onOpenPlaylist?: (id: string, name: string, cover: string) => void
 }) {
   const insetTop = useTopInset()
+  const loc = useLocale()
   const [keyword, setKeyword] = useState(initialKeyword ?? '')
   const [list, setList] = useState<MusicItem[]>([])
   const [total, setTotal] = useState(0)
@@ -74,12 +81,12 @@ export default function SearchScreen({
     const counts = new Map<string, number>()
     for (const it of list) counts.set(it.source, (counts.get(it.source) ?? 0) + 1)
     return [
-      { id: 'all', label: '全部', count: list.length },
+      { id: 'all', label: tr('search.all'), count: list.length },
       ...[...counts.entries()]
         .sort((a, b) => b[1] - a[1])
-        .map(([id, count]) => ({ id, label: SOURCE_LABELS[id] ?? id, count })),
+        .map(([id, count]) => ({ id, label: sourceLabel(id), count })),
     ]
-  }, [list])
+  }, [list, loc])
 
   const filtered = useMemo(
     () => (sourceFilter === 'all' ? list : list.filter(i => i.source === sourceFilter)),
@@ -205,7 +212,7 @@ export default function SearchScreen({
           onChangeText={setKeyword}
           onSubmitEditing={run}
           returnKeyType="search"
-          placeholder="搜索歌曲、歌手"
+          placeholder={tr('topbar.search')}
           placeholderTextColor={colors.fainter}
           style={{
             flex: 1,
@@ -217,14 +224,14 @@ export default function SearchScreen({
             fontSize: 15,
           }}
         />
-        <Pressable onPress={safe('搜索', run)} hitSlop={10}>
-          <Text style={{ color: colors.accent, fontSize: 15 }}>搜索</Text>
+        <Pressable onPress={safe(tr('tab.search'), run)} hitSlop={10}>
+          <Text style={{ color: colors.accent, fontSize: 15 }}>{tr('tab.search')}</Text>
         </Pressable>
       </View>
 
       {/* 单曲 / 歌单：同一个关键词，不用再跑去发现页 */}
       <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 20, paddingBottom: 8 }}>
-        {([['songs', '单曲'], ['playlists', '歌单']] as const).map(([k, label]) => (
+        {([['songs', 'mobile.search.songs'], ['playlists', 'mobile.search.playlists']] as const).map(([k, labelKey]) => (
           <Pressable
             key={k}
             onPress={() => setSearchTab(k)}
@@ -233,7 +240,7 @@ export default function SearchScreen({
               backgroundColor: searchTab === k ? colors.accent : colors.surface,
             }}
           >
-            <Text style={{ color: searchTab === k ? '#fff' : colors.muted, fontSize: 13 }}>{label}</Text>
+            <Text style={{ color: searchTab === k ? '#fff' : colors.muted, fontSize: 13 }}>{tr(labelKey)}</Text>
           </Pressable>
         ))}
       </View>
@@ -287,7 +294,7 @@ export default function SearchScreen({
       ) : !list.length ? (
         searched && keyword.trim() ? (
           <Text style={{ color: colors.fainter, paddingHorizontal: 20, fontSize: 14 }}>
-            没有找到「{keyword.trim()}」，换个关键词试试
+            {tf('mobile.search.empty', { q: keyword.trim() })}
           </Text>
         ) : (
           /* 还没搜过：给出历史与热门。原来是空着一大片黑屏加一行提示，
@@ -296,9 +303,9 @@ export default function SearchScreen({
             {history.length ? (
               <>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                  <Text style={{ color: colors.fg, fontSize: 15, fontWeight: '600', flex: 1 }}>搜索历史</Text>
+                  <Text style={{ color: colors.fg, fontSize: 15, fontWeight: '600', flex: 1 }}>{tr('mobile.search.history')}</Text>
                   <Pressable onPress={clearHistory} hitSlop={10}>
-                    <Text style={{ color: colors.fainter, fontSize: 12.5 }}>清空</Text>
+                    <Text style={{ color: colors.fainter, fontSize: 12.5 }}>{tr('mobile.search.clear')}</Text>
                   </Pressable>
                 </View>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 9, marginBottom: 26 }}>
@@ -318,7 +325,7 @@ export default function SearchScreen({
               </>
             ) : null}
 
-            <Text style={{ color: colors.fg, fontSize: 15, fontWeight: '600', marginBottom: 12 }}>热门搜索</Text>
+            <Text style={{ color: colors.fg, fontSize: 15, fontWeight: '600', marginBottom: 12 }}>{tr('mobile.search.hot')}</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 9 }}>
               {HOT_KEYWORDS.map(k => (
                 <Pressable
@@ -341,7 +348,7 @@ export default function SearchScreen({
           keyExtractor={i => i.source + '-' + i.songmid}
           ListHeaderComponent={
             <Text style={{ color: colors.fainter, fontSize: 12, paddingHorizontal: 20, paddingBottom: 8 }}>
-              共 {total} 首{sourceFilter !== 'all' ? ' · 已筛选 ' + filtered.length + ' 首' : ''}
+              {tf('mobile.search.total', { n: total })}{sourceFilter !== 'all' ? tf('mobile.search.filtered', { n: filtered.length }) : ''}
             </Text>
           }
           renderItem={({ item, index }) => {
