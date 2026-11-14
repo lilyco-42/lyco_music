@@ -30,6 +30,43 @@ export function normSinger(s: string): string {
   return normTitle(String(s ?? '').split(/[/、&,，]|feat\./i)[0] ?? '')
 }
 
+/**
+ * 「晴天 (原唱 周杰伦)」这类翻唱条目里，singer 是上传者而不是原唱。
+ * 用上传者去别的平台搜，往往一个结果都没有；把标题里标出的原唱取出来，
+ * 既让搜索词命中正主，也让 pickBestMatch 的歌手校验对得上。
+ * 没标原唱 / 翻自 / cover 的普通曲目返回 null，行为完全不变。
+ */
+export function originalSinger(item: MusicItem): string | null {
+  const name = String(item.name ?? '')
+  let start = -1
+  for (const marker of ['原唱', '翻自']) {
+    const i = name.indexOf(marker)
+    if (i >= 0) { start = i + marker.length; break }
+  }
+  if (start < 0) {
+    const i = name.toLowerCase().indexOf('cover')
+    if (i >= 0) start = i + 5
+  }
+  if (start < 0) return null
+  let rest = name.slice(start).trim()
+  while (rest && (rest[0] === ' ' || rest[0] === ':' || rest[0] === '：' || rest[0] === '-')) rest = rest.slice(1)
+  if (rest.slice(0, 2).toLowerCase() === 'by') rest = rest.slice(2).trim()
+  const closers = [')', '）', ']', '】', ',', '，', '/', '、']
+  let end = rest.length
+  for (const c of closers) { const i = rest.indexOf(c); if (i >= 0 && i < end) end = i }
+  const s = rest.slice(0, end).trim()
+  return s ? normSinger(s) : null
+}
+
+/** 串源搜索词：普通曲目原样；翻唱条目改用归一化标题 + 标题里标出的原唱 */
+export function fallbackKeyword(item: MusicItem): string {
+  const raw = String(item.name ?? '').trim()
+  const original = originalSinger(item)
+  const title = original ? normTitle(raw) : raw
+  const singer = original || normSinger(item.singer)
+  return (title + ' ' + singer).trim()
+}
+
 /** 标题相似度 0~1 */
 function titleScore(a: string, b: string): number {
   if (!a || !b) return 0
@@ -52,7 +89,7 @@ export function pickBestMatch(
   avoid?: ReadonlySet<SourceId>,
 ): MusicItem | null {
   const wantTitle = normTitle(item.name)
-  const wantSinger = normSinger(item.singer)
+  const wantSinger = originalSinger(item) ?? normSinger(item.singer)
   let best: { item: MusicItem; score: number } | null = null
 
   for (const c of candidates) {
@@ -129,30 +166,36 @@ export async function resolveWithFallback(
   const skip = opts.exclude
   const avoid = new Set<SourceId>(opts.avoid ?? [])
 
-  try {
-    if (skip === item.source) throw new Error('[lxmn/fallback] 跳过这个音源')
-    const info = await getSource(item.source).getMusicUrl(item, quality)
-    return { info, item, switched: false }
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e)
-    if (opts.allowCrossSource === false || !isUnplayableMessage(message)) throw e
-
-    const keyword = (String(item.name ?? '') + ' ' + normSinger(item.singer)).trim()
-    const others = candidateSources(item.source, avoid, opts.order)
-    for (const id of others) {
-      const source = getSource(id)
-      if (!source.musicSearch) continue
-      try {
-        const found = await source.musicSearch(keyword, 1, 15)
-        const match = pickBestMatch(item, found.list, avoid)
-        if (!match) continue
-        const info = await getSource(match.source).getMusicUrl(match, quality)
-        return { info, item: match, switched: true }
-      } catch {
-        // 这个音源也不行，继续下一个
-      }
+  // exclude 是「这个源刚才给了试听片段」：直接跳过原源，不靠伪造错误文案
+  // 触发 isUnplayableMessage —— 之前抛的「跳过这个音源」不含试听，
+  // 导致移动端/内核的试听重取直接把原始错误抛出，跨源根本没跑。
+  let lastErr: unknown = new Error("[lxmn/fallback] 跳过仅提供试听片段的音源")
+  if (skip !== item.source) {
+    try {
+      const info = await getSource(item.source).getMusicUrl(item, quality)
+      return { info, item, switched: false }
+    } catch (e) {
+      lastErr = e
+      const message = e instanceof Error ? e.message : String(e)
+      if (opts.allowCrossSource === false || !isUnplayableMessage(message)) throw e
     }
-    // 全都失败：抛原始错误，保留最准确的原因
-    throw e
   }
+
+  const keyword = fallbackKeyword(item)
+  const others = candidateSources(item.source, avoid, opts.order)
+  for (const id of others) {
+    const source = getSource(id)
+    if (!source.musicSearch) continue
+    try {
+      const found = await source.musicSearch(keyword, 1, 15)
+      const match = pickBestMatch(item, found.list, avoid)
+      if (!match) continue
+      const info = await getSource(match.source).getMusicUrl(match, quality)
+      return { info, item: match, switched: true }
+    } catch {
+      // 这个音源也不行，继续下一个
+    }
+  }
+  // 全都失败：抛原始错误，保留最准确的原因
+  throw lastErr
 }

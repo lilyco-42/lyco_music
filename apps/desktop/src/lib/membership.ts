@@ -92,16 +92,27 @@ export function useMembership() {
     }
   }
 
-  /** 刷新状态 */
+  /** 刷新状态：强制拉一次最新订阅文档，再把脚本池同步到新清单 */
   async function refresh(): Promise<void> {
     busy.value = true
     error.value = ''
     try {
+      // 0 = 跳过 6h 节流：这是用户主动点的「刷新状态」
+      await client.refresh(0)
       status.value = await client.status()
+      if (status.value.state === 'active') {
+        applyResult.value = await client.apply({ ok: true, schema: 1, plan: status.value.plan, sources: status.value.sources })
+      } else {
+        applyResult.value = { applied: [], unavailable: [], skipped: [] }
+      }
+      await syncScriptSources().catch(() => undefined)
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : String(err)
     } finally {
       busy.value = false
     }
   }
+
 
   /** 退出会员 */
   async function clear(): Promise<void> {
@@ -123,4 +134,23 @@ export function useMembership() {
     status, busy, error, applyResult, isActive, plan, sources,
     restore, activate, refresh, clear, openShop,
     SHOP_URL, ANNUAL_PRICE_CNY,
-  }}
+  }
+}
+
+/** 应用常开时也要拿到服务端换过的音源清单（client.refresh 自带 6h 节流） */
+const AUTO_REFRESH_MS = 6 * 60 * 60 * 1000
+let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
+
+export function startMembershipAutoRefresh(): void {
+  if (autoRefreshTimer) return
+  autoRefreshTimer = setInterval(() => {
+    void client.refresh().then(async (changed) => {
+      if (!changed) return
+      status.value = await client.status()
+      if (status.value.state === 'active') {
+        applyResult.value = await client.apply({ ok: true, schema: 1, plan: status.value.plan, sources: status.value.sources })
+        void syncScriptSources().catch(() => undefined)
+      }
+    }).catch(() => undefined)
+  }, AUTO_REFRESH_MS)
+}

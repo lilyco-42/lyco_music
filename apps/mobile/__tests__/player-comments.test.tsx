@@ -14,6 +14,8 @@ const mockToggleFavorite = jest.fn(async () => undefined)
 const mockAddDislikes = jest.fn(async () => undefined)
 const mockRemoveDislike = jest.fn(async () => undefined)
 const mockClearQueue = jest.fn()
+const mockRetry = jest.fn(async () => undefined)
+let mockError = ''
 const mockRemoveFromQueue = jest.fn()
 const mockGetComments = jest.fn(async (_item: unknown, _page: number, _limit: number, _sort?: 'hot' | 'new') => ({
   list: [
@@ -30,7 +32,7 @@ jest.mock('../src/player', () => {
   return {
     currentItem: () => item,
     usePlayerState: () => ({
-      queue: [item], index: 0, playing: false, loading: false, error: '',
+      queue: [item], index: 0, playing: false, loading: false, error: mockError,
       quality: '320k', lyric: '[00:01.00]第一句', tlyric: '', picUrl: '', mode: 'loop',
       // 播放速率（2.3）：页面用 st.rate 算显示文本，缺了会在渲染期抛 toFixed 错误
       rate: 1,
@@ -43,6 +45,7 @@ jest.mock('../src/player', () => {
     modeLabel: () => '列表循环',
     cycleQuality: jest.fn(),
     next: jest.fn(), prev: jest.fn(), seek: jest.fn(), toggle: jest.fn(), play: jest.fn(),
+    retry: (...a: unknown[]) => mockRetry(...a),
     // 队列编辑（0.2.60）：组件导入了这两个导出，mock 缺了会直接渲染失败
     clearQueue: (...a: unknown[]) => mockClearQueue(...a),
     removeFromQueue: (...a: unknown[]) => mockRemoveFromQueue(...a),
@@ -77,6 +80,15 @@ jest.mock('@lxmn/core', () => ({
 }))
 
 describe('播放页评论与爱心', () => {
+  afterEach(() => { mockError = ''; mockRetry.mockClear() })
+
+  it('彻底失败后点错误文案可手动重试', () => {
+    mockError = '已自动尝试内置音源、脚本音源和其他平台，仍只拿到试听片段'
+    render(<PlayerScreen />)
+    fireEvent.press(screen.getByLabelText('重试播放'))
+    expect(mockRetry).toHaveBeenCalled()
+  })
+
   it('点评论图标弹出评论面板并渲染评论', async () => {
     render(<PlayerScreen />)
 

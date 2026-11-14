@@ -7,6 +7,8 @@
  *   - 判错「不可重试」会让网络断了的情况白等三次重试。
  */
 
+import { TRIAL_EXHAUSTED_MESSAGE } from '@lxmn/core'
+
 /**
  * 判断这个错误值不值得重取。
  *
@@ -41,7 +43,7 @@ export function describePlayError(e: unknown): string {
   }
   if (/AbortError/i.test(name + msg)) return '加载被中断，点一下播放按钮重试'
   if (/Network|Failed to fetch|timeout|ECONN|ENOTFOUND/i.test(msg)) return '网络异常，检查网络后重试'
-  if (/VIP 专享|试听/.test(msg)) return '该音源只提供试听片段，完整版需要在对应平台开通会员'
+  if (/VIP 专享|试听/.test(msg)) return TRIAL_EXHAUSTED_MESSAGE
   if (/占位/.test(msg)) return '该音源没有这首歌的可播放版本，换个音源试试'
   if (/版权|下架|暂无可播放|暂无/.test(msg)) return '各音源都没有这首歌的可播放版本，换首歌试试'
   // 兜底：至少别把内部前缀暴露给用户

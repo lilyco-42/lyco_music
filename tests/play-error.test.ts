@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest'
 import { isRetriablePlayError, describePlayError } from '../apps/desktop/src/lib/play-error'
 import { pickBestMatch } from '../apps/desktop/src/lib/fallback'
-import type { MusicItem } from '@lxmn/core'
+import { TRIAL_EXHAUSTED_MESSAGE, type MusicItem } from '@lxmn/core'
 
 function err(name: string, message: string): Error {
   const e = new Error(message)
@@ -56,6 +56,12 @@ describe('describePlayError', () => {
 
   it('空错误也有兜底文案', () => {
     expect(describePlayError(null)).toBe('播放失败，请重试')
+  })
+
+  it('试听彻底失败时明确告诉用户已自动尝试过换源', () => {
+    const msg = describePlayError(new Error('[lxmn/wy] 网易云仅提供试听片段，完整版需要会员账号'))
+    expect(msg).toBe(TRIAL_EXHAUSTED_MESSAGE)
+    expect(msg).toMatch(/已自动尝试/)
   })
 })
 

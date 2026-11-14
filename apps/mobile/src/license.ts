@@ -30,6 +30,35 @@ export async function status(): Promise<MembershipStatus> {
   return client.status()
 }
 
+/**
+ * 拉取服务端最新音源清单并重新 apply。
+ *
+ * force=true 跳过 6 小时节流（会员页「查询」用）；常开应用的定时刷新
+ * 用默认节流，避免每次进页面都打一次 /api/music/sub。
+ * 失败保留旧文档：离线时照常能听歌。
+ */
+export async function refreshMembership(force = false): Promise<MembershipStatus> {
+  await client.refresh(force ? 0 : undefined).catch(() => false)
+  const st = await client.status()
+  if (st.state === 'active') {
+    await client.apply({ ok: true, schema: 1, plan: st.plan, sources: st.sources })
+  }
+  return st
+}
+
+/** 启动恢复：先用本地缓存立刻可用，再静默问一次服务端有没有换清单 */
+export async function restoreMembership(): Promise<MembershipStatus> {
+  const st = await client.restore()
+  if (st.state === 'active') {
+    await client.apply({ ok: true, schema: 1, plan: st.plan, sources: st.sources })
+  }
+  void refreshMembership().catch(() => undefined)
+  return st
+}
+
+/** 应用常开时每 6 小时拿一次最新清单（client.refresh 自带节流） */
+export const MEMBERSHIP_REFRESH_MS = 6 * 60 * 60 * 1000
+
 /** 退出会员 / 换链接 */
 export async function deactivate(): Promise<void> {
   await client.clear()
@@ -54,7 +83,7 @@ export function useMembership(): {
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      setStatus(await client.status())
+      setStatus(await refreshMembership(true))
     } finally {
       setLoading(false)
     }

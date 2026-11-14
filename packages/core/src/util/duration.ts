@@ -29,3 +29,14 @@ export function isTrialClip(actualSeconds: number, expectedSeconds: number): boo
   if (!Number.isFinite(expectedSeconds) || expectedSeconds < 60) return false
   return actualSeconds < Math.min(expectedSeconds * 0.5, 45)
 }
+
+
+/**
+ * 所有音源都只给试听片段时的统一文案（桌面 / 移动端共用）。
+ *
+ * 以前写「该音源只提供试听片段」，用户以为压根没换过源；实际上
+ * 此时已走过 内置音源 → 脚本音源 → 其他平台 → 试听重取 四轮。
+ * 只在**彻底失败**时说明已尝试过，播放成功时依旧全程静默。
+ */
+export const TRIAL_EXHAUSTED_MESSAGE =
+  '已自动尝试内置音源、脚本音源和其他平台，仍只拿到试听片段；完整版需要在对应平台开通会员，或在设置里导入可用音源'

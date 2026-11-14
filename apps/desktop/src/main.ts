@@ -2,7 +2,7 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
 import { ensureDesktopPlatform } from './lib/platform'
-import { useMembership } from './lib/membership'
+import { useMembership, startMembershipAutoRefresh } from './lib/membership'
 import { library } from './lib/sync'
 import { initTheme } from './lib/theme'
 import { initTexture } from './lib/texture'
@@ -27,6 +27,7 @@ ensureDesktopPlatform()
  * restore() 内部是静默的：命中缓存就立刻可用，没有就什么都不发生。
  */
 void useMembership().restore()
+startMembershipAutoRefresh()
 
 /**
  * 曲库也要在启动时载入。

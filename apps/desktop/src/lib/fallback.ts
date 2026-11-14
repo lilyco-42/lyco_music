@@ -19,7 +19,7 @@ import {
   getSource, hasSource,
   // 归一化与匹配规则在内核里，移动端用的是同一份 ——
   // 以前桌面端自己写一份，移动端没得用，就只能「搜得到、点播放报 VIP 专享」。
-  normSinger, pickBestMatch,
+  fallbackKeyword, pickBestMatch,
   type MusicItem, type MusicUrlInfo, type Quality, type SourceId,
 } from '@lxmn/core'
 import { subscription } from './subscription'
@@ -28,7 +28,7 @@ import { toMusicInfo } from '@lxmn/core'
 
 // 这两个纯函数对外仍从本模块导出（same-song.ts / 测试都这么引用），
 // 但实现只有内核里那一份。
-export { normTitle, normSinger, pickBestMatch } from '@lxmn/core'
+export { normTitle, normSinger, pickBestMatch, fallbackKeyword } from '@lxmn/core'
 
 /**
  * 串源时按什么顺序试。
@@ -113,18 +113,21 @@ export async function resolveWithFallback(
     return { info, item, switched: false }
   }
 
-  try {
-    if (skip === item.source) throw new Error('[lxmn/fallback] 跳过仅提供试听的音源')
-    const info = await getSource(item.source).getMusicUrl(item, quality)
-    return { info, item, switched: false }
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e)
-    if (opts.allowCrossSource === false || !isUnplayable(message)) throw e
+  // exclude 表示「这个源刚给了试听片段」：显式跳过原源与它的脚本池，
+  // 不再依赖抛出的错误文案恰好包含「试听」二字。
+  let lastErr: unknown = new Error("[lxmn/fallback] 跳过仅提供试听片段的音源")
+  if (skip !== item.source) {
+    try {
+      const info = await getSource(item.source).getMusicUrl(item, quality)
+      return { info, item, switched: false }
+    } catch (e) {
+      lastErr = e
+      const message = e instanceof Error ? e.message : String(e)
+      if (opts.allowCrossSource === false || !isUnplayable(message)) throw e
+    }
 
     // 第二层：第三方脚本池。同一首歌、同一平台，只是换个实现去取流。
-    // 被排除的音源同样跳过脚本池 —— 脚本走的是同一家平台的接口。
     try {
-      if (skip === item.source) throw new Error('skip')
       const pooled = await sourcePool.getMusicUrl(item.source, toMusicInfo(item), quality)
       return {
         info: { url: pooled.url, quality, type: 'mp3' },
@@ -134,23 +137,23 @@ export async function resolveWithFallback(
     } catch {
       // 脚本池也失败，继续走跨平台
     }
-
-    const keyword = (String(item.name ?? '') + ' ' + normSinger(item.singer)).trim()
-    const others = await candidateSources(item.source, avoid)
-    for (const id of others) {
-      const source = getSource(id)
-      if (!source.musicSearch) continue
-      try {
-        const found = await source.musicSearch(keyword, 1, 15)
-        const match = pickBestMatch(item, found.list, avoid)
-        if (!match) continue
-        const info = await getSource(match.source).getMusicUrl(match, quality)
-        return { info, item: match, switched: true }
-      } catch {
-        // 这个音源也不行，继续下一个
-      }
-    }
-    // 全都失败：抛原始错误，保留最准确的原因
-    throw e
   }
+
+  const keyword = fallbackKeyword(item)
+  const others = await candidateSources(item.source, avoid)
+  for (const id of others) {
+    const source = getSource(id)
+    if (!source.musicSearch) continue
+    try {
+      const found = await source.musicSearch(keyword, 1, 15)
+      const match = pickBestMatch(item, found.list, avoid)
+      if (!match) continue
+      const info = await getSource(match.source).getMusicUrl(match, quality)
+      return { info, item: match, switched: true }
+    } catch {
+      // 这个音源也不行，继续下一个
+    }
+  }
+  // 全都失败：抛原始错误，保留最准确的原因
+  throw lastErr
 }

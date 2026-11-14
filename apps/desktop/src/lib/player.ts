@@ -16,6 +16,7 @@ import {
   qualityOrder,
   intervalSeconds,
   isTrialClip,
+  TRIAL_EXHAUSTED_MESSAGE,
   trackKey,
   type MusicItem,
   type Quality,
@@ -440,7 +441,7 @@ async function retryAfterTrialClip(): Promise<void> {
     state.playing = true
     state.error = ''
   } catch {
-    state.error = '该音源只提供试听片段，完整版需要在对应平台开通会员'
+    state.error = TRIAL_EXHAUSTED_MESSAGE
     state.playing = false
   }
 }
@@ -830,6 +831,7 @@ export function usePlayer() {
     const item = current.value
     if (item) {
       streamAttempt = 0
+      state.trialRetried = false
       await resolveAndPlay(item)
     }
   }
@@ -852,6 +854,7 @@ export function usePlayer() {
       const item = state.playingItem ?? current.value
       if (!item) return
       streamAttempt = 0
+      state.trialRetried = false
       badSources.clear()
       await resolveAndPlay(item, 0)
     },

@@ -10,7 +10,7 @@
 |---|---|
 | 基准 A | `lx-music-desktop` **v2.12.6**（本地源码 `/d/demo/lx-music/lx-music-desktop`） |
 | 基准 B | `lx-music-mobile` **v1.9.1**（本地源码 `/d/demo/lx-music/lx-music-mobile`） |
-| 对照 | Lyco Music **0.2.60** |
+| 对照 | Lyco Music **0.2.61** |
 | 判定依据 | 逐个读取 lx 的 `src/renderer/views/`、`src/renderer/views/Setting/components/`、`src/lang/zh-cn.json`（**316 个 `setting__*` 键**）、`src/main/modules/openApi/`、`src/renderer/core/useApp/useDeeplink/` |
 | 统计口径 | 只统计**用户可感知的能力**，不把「一个设置项拆成多个」重复计数 |
 
@@ -281,6 +281,18 @@ lx 实际拥有的能力 = 99 − 7（我们独有）= **92 项**。
 
 本地验收：`./node_modules/.bin/vitest run`（49 passed / 13 skipped）、`./node_modules/.bin/jest --config apps/mobile/jest.config.js --runInBand --silent`（44 passed）、桌面 `vue-tsc` + `vite build`、移动端 `tsc` 全绿。移动端逐字歌词、音效 / 均衡器、歌手 / 专辑 / 百科页、评论发布、下载音质选择、云盘与 MV 仍未做，按 `NETEASE-TODO.md` P1 / P2 继续排期。
 
+## 0.2.61 音源兜底与试听片段修复（2026-11-14）
+
+| 反馈 | 处理 | 落点 / 验收 |
+| --- | --- | --- |
+| 「只提供试听片段」看着像没换源 | 彻底失败时的文案明确写出已尝试内置音源 / 脚本音源 / 其他平台，并给导入可用音源或开通会员两条可行动建议；播放成功时仍静默换源 | `packages/core/src/util/duration.ts`、`play-error.ts`、`player.ts`；`tests/play-error.test.ts` |
+| 试听重取失败后手动重试永久锁死 | 桌面端手动重试、换音质与新播放都复位 `trialRetried`；内核与桌面端 `exclude` 显式跳过给试听的源，不再靠伪造错误文案触发跨源 | `player.ts`、`packages/core/src/fallback.ts`、`apps/desktop/src/lib/fallback.ts`；`tests/fallback-exclude.test.ts` |
+| 翻唱置顶拖垮整条兜底链 | 从「（原唱 X）」/「翻自 X」/「cover X」提取原唱，搜索词去掉标题里的括号后缀；保留严格歌手门槛，不串翻唱 | `packages/core/src/fallback.ts` 的 `originalSinger()` / `fallbackKeyword()`；离线用例 + 真网「晴天 周杰伦」探针 |
+| 桌面常开拿不到服务端最新音源 | 会员页「刷新状态」强制 `refresh(0)` + 重新 apply + 同步脚本池；启动后每 6 小时自动刷新（默认节流仍生效） | `membership.ts`、`main.ts`；服务端 `/opt/studio-billing/music_sources.py` 热读清单已核验 |
+| 移动端不会自动拿最新音源 | 启动恢复本地订阅后静默刷新，前台每 6 小时刷新并 apply，会员页「查询」强制刷新 | `apps/mobile/App.tsx`、`license.ts`、`MembershipScreen.tsx` |
+| 移动端没有试听片段识别与重取 | 订阅 RNTP 每秒进度事件，用真实 duration 与曲目预期时长判定试听；排除当前源再走一次跨源，彻底失败显示统一文案，点错误文案可手动重试 | `apps/mobile/src/lib/trial-clip.ts`、`player.ts`、`PlayerScreen.tsx`、`jest.setup.js`；`__tests__/trial-clip.test.ts` 与 `player-comments.test.tsx` |
+
+本地验收：`vitest run` 50 passed / 13 skipped（602 passed / 22 skipped）、移动端 jest 12 suites / 48 tests、双端 `tsc --noEmit` 与桌面 `vite build` 全绿。真网探针确认「演员 薛之谦」「十年 陈奕迅」的网易云 VIP 曲目能自动串到酷狗完整地址；12 个服务端脚本 URL 全部 200，11 个带 sha256 的逐字节一致。
 ## 工作量判断
 
 | 层 | 项数 | 单项成本 | 小计 |

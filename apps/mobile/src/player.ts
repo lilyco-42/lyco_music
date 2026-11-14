@@ -23,13 +23,16 @@ import {
   parseLyric,
   findLineIndex,
   resolveWithFallback,
+  TRIAL_EXHAUSTED_MESSAGE,
   type LyricInfo,
   type LyricLine,
   type MusicItem,
   type Quality,
+  type ResolveOptions,
 } from '@lxmn/core'
 import { library } from './sync'
 import { removeQueueAt } from './lib/queue'
+import { expectedDuration, shouldRetryTrialClip } from './lib/trial-clip'
 
 /** 播放模式：顺序 / 列表循环 / 单曲循环 / 随机（与桌面端一致） */
 export type PlayMode = 'order' | 'loop' | 'single' | 'shuffle'
@@ -95,6 +98,10 @@ const QUALITY_ORDER: Quality[] = ['master', 'atmos', 'hires', 'flac24bit', 'flac
 
 let ready: Promise<void> | null = null
 let nativePlayerReady = false
+/** 本曲是否已因试听片段换过源：进度事件每秒来一次，必须防抖 */
+let trialRetried = false
+/** 实际在播的曲目：串源后可能与队列里那条不同 */
+let playingItem: MusicItem | null = null
 
 /** 避免播放器原生异常穿透 onPress，导致未处理的 Promise rejection。 */
 function reportPlayerError(action: string, error: unknown): void {
@@ -192,12 +199,12 @@ function toSecureUrl(url: string): string {
  * 桌面端一直有跨源兜底（去酷狗酷我咪咕找正主），移动端之前漏了，
  * 表现就是「搜得到、点播放就报 VIP 专享」。
  */
-async function resolveAndPlay(item: MusicItem): Promise<void> {
+async function resolveAndPlay(item: MusicItem, opts: ResolveOptions = {}, failureMessage?: string): Promise<void> {
   state.loading = true
   state.error = ''
   emit()
   try {
-    const { info, item: played } = await resolveWithFallback(item, state.quality)
+    const { info, item: played } = await resolveWithFallback(item, state.quality, opts)
     // 实际拿到的音质可能与请求的不同（高音质被锁时降档了），如实回填
     state.quality = info.quality
     // 串源时封面也跟着换：原曲封面可能取不到，串到的那个源有
@@ -217,16 +224,39 @@ async function resolveAndPlay(item: MusicItem): Promise<void> {
     await TrackPlayer.play()
     // reset + add 会把速率打回 1，这里补回用户选的倍速
     await applyRate()
+    playingItem = played
     state.playing = true
     // 播放记录：只有真的出流了才记，避免把取流失败的歌也算进「最近播放」。
     // 失败不影响播放本身。
     void library.recordPlay(played).catch(() => undefined)
   } catch (e) {
-    state.error = e instanceof Error ? e.message : String(e)
+    state.error = failureMessage ?? (e instanceof Error ? e.message : String(e))
     state.playing = false
   } finally {
     state.loading = false
     emit()
+  }
+}
+
+/**
+ * 原生播放器报出真实时长后，才发现「只给了 20~30 秒试听」。
+ * 取流阶段看不出来：接口返回的是能播的地址，只是内容是一小截。
+ * 这时排除当前音源再走一遍静默换源；彻底失败才给用户可行动的文案。
+ */
+export function reportDuration(duration: number): void {
+  if (!shouldRetryTrialClip(duration, expectedDuration(playingItem, currentItem()), trialRetried)) return
+  trialRetried = true
+  void retryAfterTrialClip()
+}
+
+async function retryAfterTrialClip(): Promise<void> {
+  const item = playingItem ?? currentItem()
+  if (!item) return
+  await resolveAndPlay(item, { exclude: item.source }, TRIAL_EXHAUSTED_MESSAGE)
+  if (state.error === TRIAL_EXHAUSTED_MESSAGE) {
+    // 原生侧可能还在放那段试听，别让 UI 说失败而耳朵里还有声音
+    state.playing = false
+    if (nativePlayerReady) void safePlayerAction('暂停播放', async () => { await TrackPlayer.pause() })
   }
 }
 
@@ -311,6 +341,8 @@ export async function play(item: MusicItem, queue?: MusicItem[]): Promise<void> 
     if (at >= 0) state.index = at
     else { state.queue = [...state.queue, item]; state.index = state.queue.length - 1 }
   }
+  trialRetried = false
+  playingItem = null
   emit()
   await Promise.all([resolveAndPlay(item), loadMeta(item)])
 }
@@ -491,9 +523,19 @@ export async function seek(seconds: number): Promise<void> {
   })
 }
 
+/** 用户手动重试：清空试听防抖，从头再走一遍取流与静默换源 */
+export async function retry(): Promise<void> {
+  const item = currentItem()
+  if (!item) return
+  trialRetried = false
+  playingItem = null
+  await resolveAndPlay(item)
+}
+
 /** 换音质后用新音质重取当前曲目 */
 export async function setQuality(q: Quality): Promise<void> {
   state.quality = q
+  trialRetried = false
   emit()
   const item = currentItem()
   if (item) await resolveAndPlay(item)
@@ -598,6 +640,11 @@ export function useTrackPlayerEvents(): void {
         state.error = describePlaybackError(e)
         emit()
       }),
+      /**
+       * 进度事件带真实 duration；只有这里才能识别试听片段。
+       * setupPlayer 里已把 progressUpdateEventInterval 设为 1 秒。
+       */
+      TrackPlayer.addEventListener(Event.PlaybackProgressUpdated, e => { reportDuration(e.duration) }),
       // 播完自动下一首：走 next(true)，由播放模式决定是重放还是换歌
       TrackPlayer.addEventListener(Event.PlaybackQueueEnded, () => { void next(true) }),
       // 单曲结束时 RNTP 触发的是 PlaybackActiveTrackChanged/State，不再额外处理

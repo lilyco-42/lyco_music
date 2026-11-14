@@ -28,7 +28,7 @@ import { library } from '../sync'
 import { safe } from '../lib/safe'
 import Ambient, { useCoverColor } from '../components/Ambient'
 import {
-  clearQueue, currentItem, cycleMode, cycleQuality, modeLabel, next, play, prev, seek, setRate, toggle,
+  clearQueue, currentItem, cycleMode, cycleQuality, modeLabel, next, play, prev, seek, setRate, toggle, retry,
   removeFromQueue,
   RATES, useLyricLines, usePlayerState, useProgressState,
 } from '../player'
@@ -538,18 +538,23 @@ export default function PlayerScreen({ visible, onClose }: { visible: boolean; o
 
               {/* 状态提示 */}
               {(st.loading || st.error) && (
-                <Text
-                  numberOfLines={2}
-                  style={{
-                    color: st.error ? colors.accent : colors.muted,
-                    fontSize: 12.5,
-                    textAlign: 'center',
-                    marginTop: 22,
-                    paddingHorizontal: 36,
-                  }}
+                <Pressable
+                  onPress={st.error ? () => { void retry() } : undefined}
+                  accessibilityLabel={st.error ? '重试播放' : undefined}
                 >
-                  {st.loading ? '正在获取播放地址…' : st.error}
-                </Text>
+                  <Text
+                    numberOfLines={3}
+                    style={{
+                      color: st.error ? colors.accent : colors.muted,
+                      fontSize: 12.5,
+                      textAlign: 'center',
+                      marginTop: 22,
+                      paddingHorizontal: 36,
+                    }}
+                  >
+                    {st.loading ? '正在获取播放地址…' : st.error}
+                  </Text>
+                </Pressable>
               )}
 
               {/* 页码点：可直接点，不强制用户先学会滑动。

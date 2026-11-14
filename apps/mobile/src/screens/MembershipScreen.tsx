@@ -10,7 +10,7 @@ import {
 } from 'react-native'
 import { ANNUAL_PRICE_CNY, SHOP_URL } from '@lxmn/core'
 import type { MembershipStatus, ApplyResult } from '@lxmn/core'
-import { activate, status as fetchStatus, deactivate } from '../license'
+import { activate, refreshMembership, deactivate } from '../license'
 import { connectWithMembership, disconnectSync } from '../sync'
 import { colors, useTopInset } from '../theme'
 
@@ -69,7 +69,7 @@ export default function MembershipScreen() {
     setBusy(true)
     setError('')
     try {
-      setResult(await fetchStatus())
+      setResult(await refreshMembership(true))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {

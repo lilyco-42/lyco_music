@@ -26,6 +26,7 @@ import MyMusicScreen from './src/screens/MyMusicScreen'
 import { ensurePlatform } from './src/platform'
 import { setupPlayer, useTrackPlayerEvents } from './src/player'
 import { loadLibrary } from './src/sync'
+import { restoreMembership, refreshMembership, MEMBERSHIP_REFRESH_MS } from './src/license'
 import { colors, subscribeAccent, TAB_BAR_HEIGHT } from './src/theme'
 import FriendsScreen from './src/screens/FriendsScreen'
 import AccountScreen from './src/screens/AccountScreen'
@@ -87,6 +88,15 @@ export default function App() {
      * 直接开播就完全跳过不生效 —— 表现是「设置了不喜欢但还在放」。
      */
     void loadLibrary().catch(() => undefined)
+    /**
+     * 音源订阅也要在启动时恢复并定期刷新。
+     *
+     * 服务端换清单是热更新（music_sources.json 5 秒缓存），以前移动端
+     * 从没调用过 restore/refresh，用户只有重新粘贴链接才能看到新源。
+     */
+    void restoreMembership().catch(() => undefined)
+    const timer = setInterval(() => { void refreshMembership().catch(() => undefined) }, MEMBERSHIP_REFRESH_MS)
+    return () => clearInterval(timer)
   }, [])
 
   // 通知栏 / 耳机切歌时同步 JS 状态

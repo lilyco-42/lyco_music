@@ -16,19 +16,23 @@ jest.mock('react-native-track-player', () => {
     pause: noop,
     seekTo: noop,
     setVolume: noop,
+    setRate: noop,
     getPlaybackState: async () => ({ state: 'paused' }),
+    addEventListener: () => ({ remove: () => {} }),
   }
   const emitter = { addEventListener: () => ({ remove: () => {} }) }
   return {
     __esModule: true,
     default: player,
     Capability: { Play: 1, Pause: 2, SkipToNext: 3, SkipToPrevious: 4, SeekTo: 5, Stop: 6 },
-    AppKilledPlaybackBehavior: { StopPlaybackAndRemoveNotification: 'stop' },
+    AppKilledPlaybackBehavior: { StopPlaybackAndRemoveNotification: 'stop', ContinuePlayback: 'continue' },
     State: { Playing: 'playing', Paused: 'paused', Buffering: 'buffering' },
     Event: {
       PlaybackActiveTrackChanged: 'PlaybackActiveTrackChanged',
       PlaybackState: 'PlaybackState',
       PlaybackQueueEnded: 'PlaybackQueueEnded',
+      PlaybackError: 'PlaybackError',
+      PlaybackProgressUpdated: 'PlaybackProgressUpdated',
     },
     useProgress: () => ({ position: 0, duration: 0, buffered: 0 }),
     usePlaybackState: () => ({ state: 'paused' }),

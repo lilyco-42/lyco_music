@@ -140,8 +140,8 @@ Test Files  10 passed | 5 skipped (15)
 | iOS | `*-ios-unsigned.ipa` | 未签名，需自签或 AltStore 侧载 |
 | Linux | `*.AppImage` | `chmod +x` 后运行 |
 
-> **当前平台状态（2026-11-13）**：全平台产物统一由 GitHub Actions 构建，
-> 最新版 `v0.2.59-20261113` 的 Release workflow 6 个 job（Windows / macOS / Linux / Android / iOS 构建 + 发布）全部成功，
+> **当前平台状态（2026-11-14）**：全平台产物统一由 GitHub Actions 构建，
+> 最新版 `v0.2.61-20261114` 的 Release workflow 6 个 job（Windows / macOS / Linux / Android / iOS 构建 + 发布）全部成功，
 > 并自动同步到 lain42.top 的 `/downloads/` 与 Cloudflare R2 镜像。构建排队的坑与手工兜底步骤见
 > [`docs/RELEASE.md`](./docs/RELEASE.md)。
 
